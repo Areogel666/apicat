@@ -124,6 +124,10 @@ watch(() => requestStore.activeRequest, (req) => {
   if (req) {
     url.value = req.url
     method.value = req.method
+  } else {
+    // 无激活接口时清空编辑区，防止显示上一个接口的残留数据
+    url.value = ''
+    method.value = 'GET'
   }
 }, { immediate: true })
 
