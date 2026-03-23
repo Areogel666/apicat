@@ -1,4 +1,7 @@
 mod db;
+mod error;
+mod types;
+mod commands;
 
 use db::{init_db, AppDb};
 use tauri::Manager;
