@@ -7,14 +7,20 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { NConfigProvider, NMessageProvider, zhCN, dateZhCN, darkTheme } from 'naive-ui'
 import AppLayout from './components/layout/AppLayout.vue'
 import { useUiStore } from './stores/ui'
+import { useProjectStore } from './stores/project'
 
 const uiStore = useUiStore()
+const projectStore = useProjectStore()
+
 // 跟随系统主题（后续可在设置中手动切换）
 const theme = computed(() => uiStore.darkMode ? darkTheme : null)
+
+// 应用启动时加载项目列表
+onMounted(() => projectStore.loadProjects())
 </script>
 
 <style>
