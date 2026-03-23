@@ -31,7 +31,8 @@ export const useCollectionStore = defineStore('collection', () => {
     const updated = await invoke<Collection>('rename_collection', { id, name })
     const list = collectionMap.value[projectId] ?? []
     const idx = list.findIndex(c => c.id === id)
-    if (idx !== -1) list[idx] = updated
+    // 用 splice 替换元素，确保 Vue 响应式正确检测到数组变化
+    if (idx !== -1) list.splice(idx, 1, updated)
     return updated
   }
 
