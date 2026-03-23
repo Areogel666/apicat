@@ -39,3 +39,30 @@ pub struct ApiRequest {
     pub created_at: String,
     pub updated_at: String,
 }
+
+// ── 发请求响应结果 ───────────────────────────────────────────
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HttpResponse {
+    pub status_code: u16,
+    pub status_text: String,
+    pub headers: Vec<(String, String)>, // [(name, value)]
+    pub body: String,
+    pub body_size: usize,
+    pub elapsed_ms: u64,
+    pub is_truncated: bool,
+    pub history_id: i64, // 写入 request_history 后的 ID
+}
+
+// ── 历史记录条目（用于 History Tab 列表）─────────────────────
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct HistoryRecord {
+    pub id: i64,
+    pub request_id: i64,
+    pub status_code: Option<i64>,
+    pub response_time_ms: Option<i64>,
+    pub request_snapshot: String, // JSON
+    pub response_body: String,
+    pub is_truncated: i64,
+    pub response_headers: String, // JSON
+    pub created_at: String,
+}
