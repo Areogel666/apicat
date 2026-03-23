@@ -15,3 +15,15 @@ impl serde::Serialize for AppError {
 }
 
 pub type CmdResult<T> = Result<T, AppError>;
+
+/// 将 sqlx 错误转为用户友好提示：
+/// - UNIQUE constraint failed: api_requests.name → "接口名「x」在当前文件夹中已存在"
+/// - 其他错误 → 原始 AppError::Db
+pub fn map_unique_name_error(e: sqlx::Error, name: &str) -> AppError {
+    let msg = e.to_string();
+    if msg.contains("UNIQUE constraint failed") && msg.contains("api_requests") {
+        AppError::Custom(format!("接口名「{}」在当前文件夹中已存在", name))
+    } else {
+        AppError::Db(e)
+    }
+}

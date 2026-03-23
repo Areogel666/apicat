@@ -57,7 +57,8 @@ CREATE TABLE IF NOT EXISTS api_requests (
   auth_config   TEXT    DEFAULT '{}',
   sort_order    INTEGER DEFAULT 0,
   created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+  updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(collection_id, name)
 );
 
 -- 6. request_history

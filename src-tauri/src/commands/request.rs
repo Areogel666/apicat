@@ -1,4 +1,4 @@
-use crate::{db::AppDb, error::CmdResult, types::ApiRequest};
+use crate::{db::AppDb, error::{map_unique_name_error, CmdResult}, types::ApiRequest};
 use tauri::State;
 
 /// 获取 collection 下所有接口
@@ -16,7 +16,7 @@ pub async fn list_requests(
     Ok(rows)
 }
 
-/// 创建接口（带 Collection 内唯一名校验）
+/// 创建接口（Collection 内名称唯一性由 DB UNIQUE 约束保证，原子操作无 TOCTOU）
 #[tauri::command]
 pub async fn create_request(
     db: State<'_, AppDb>,
@@ -25,21 +25,6 @@ pub async fn create_request(
     method: String,
     url: String,
 ) -> CmdResult<ApiRequest> {
-    // Collection 内唯一性校验
-    let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM api_requests WHERE collection_id=? AND name=?)"
-    )
-    .bind(collection_id)
-    .bind(&name)
-    .fetch_one(&db.0)
-    .await?;
-
-    if exists {
-        return Err(crate::error::AppError::Custom(
-            format!("接口名「{}」在当前文件夹中已存在", name)
-        ));
-    }
-
     let row = sqlx::query_as::<_, ApiRequest>(
         "INSERT INTO api_requests (collection_id, name, method, url) VALUES (?,?,?,?) RETURNING id, collection_id, name, method, url, params, headers, body_type, body, auth_type, auth_config, sort_order, created_at, updated_at"
     )
@@ -48,11 +33,12 @@ pub async fn create_request(
     .bind(&method)
     .bind(&url)
     .fetch_one(&db.0)
-    .await?;
+    .await
+    .map_err(|e| map_unique_name_error(e, &name))?;
     Ok(row)
 }
 
-/// 更新接口（全量保存）
+/// 更新接口（全量保存，Collection 内名称唯一性由 DB UNIQUE 约束保证）
 #[tauri::command]
 pub async fn update_request(
     db: State<'_, AppDb>,
@@ -67,22 +53,6 @@ pub async fn update_request(
     auth_type: String,
     auth_config: String,
 ) -> CmdResult<ApiRequest> {
-    // 名称唯一性：排除自身
-    let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM api_requests WHERE collection_id=(SELECT collection_id FROM api_requests WHERE id=?) AND name=? AND id!=?)"
-    )
-    .bind(id)
-    .bind(&name)
-    .bind(id)
-    .fetch_one(&db.0)
-    .await?;
-
-    if exists {
-        return Err(crate::error::AppError::Custom(
-            format!("接口名「{}」在当前文件夹中已存在", name)
-        ));
-    }
-
     let row = sqlx::query_as::<_, ApiRequest>(
         "UPDATE api_requests SET name=?,method=?,url=?,params=?,headers=?,body_type=?,body=?,auth_type=?,auth_config=?,updated_at=datetime('now') WHERE id=? RETURNING id, collection_id, name, method, url, params, headers, body_type, body, auth_type, auth_config, sort_order, created_at, updated_at"
     )
@@ -92,7 +62,8 @@ pub async fn update_request(
     .bind(&auth_type).bind(&auth_config)
     .bind(id)
     .fetch_one(&db.0)
-    .await?;
+    .await
+    .map_err(|e| map_unique_name_error(e, &name))?;
     Ok(row)
 }
 
