@@ -28,20 +28,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { NSelect, NButton } from 'naive-ui'
+import { useProjectStore } from '../../stores/project'
 
-// M2 起接入真实数据，M1 先用占位数据验证布局
-const currentProjectId = ref<number | null>(null)
-const projectOptions = ref([
-  { label: '示例项目', value: 1 },
-])
+const projectStore = useProjectStore()
 
+const currentProjectId = computed({
+  get: () => projectStore.currentProjectId,
+  set: (v) => { projectStore.currentProjectId = v }
+})
+
+const projectOptions = computed(() =>
+  projectStore.projects.map(p => ({ label: p.name, value: p.id }))
+)
+
+// 环境下拉（M4 实现，M2 保留占位）
 const currentEnvId = ref<number | null>(null)
-const envOptions = ref([
-  { label: '开发环境', value: 1 },
-  { label: '测试环境', value: 2 },
-])
+const envOptions = ref([{ label: '开发环境', value: 1 }])
 </script>
 
 <style scoped>
