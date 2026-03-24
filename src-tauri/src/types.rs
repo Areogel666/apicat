@@ -104,3 +104,30 @@ pub struct Cookie {
     pub secure: i64,
     pub enabled: i64,
 }
+
+// ── 测试用例 ───────────────────────────────────────────────────
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow, Clone)]
+pub struct TestCase {
+    pub id: i64,
+    pub request_id: Option<i64>,
+    pub collection_id: i64,
+    pub name: String,
+    pub description: Option<String>,
+    pub source: String, // "manual" | "ai_generated"
+    pub method: Option<String>,
+    pub url: Option<String>,
+    pub headers: String, // JSON 数组
+    pub params: String,  // JSON 数组
+    pub body_type: Option<String>,
+    pub body: Option<String>,
+    pub assertions: String, // JSON 数组
+    pub last_run_at: Option<String>,
+    pub last_status: String, // "pending"|"passed"|"failed"|"error"
+    pub last_duration_ms: Option<i64>,
+    pub last_response: Option<String>,
+    pub starred: i64, // 0 | 1
+    pub enabled: i64, // 0 | 1
+    pub sort_order: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
