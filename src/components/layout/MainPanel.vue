@@ -42,33 +42,93 @@
               <n-divider style="margin: 8px 0" />
             </template>
 
-            <!-- Query Params（可编辑）-->
-            <div class="params-section-label">Query Params</div>
-            <n-empty v-if="!queryParams.length" description="暂无参数" size="small" />
-            <div v-for="(q, idx) in queryParams" :key="idx" class="param-row">
-              <n-checkbox v-model:checked="q.enabled" />
-              <n-input v-model:value="q.key" size="small" style="width:140px; flex-shrink:0" placeholder="Key" />
-              <n-input v-model:value="q.value" size="small" style="flex:1" placeholder="Value" />
-              <n-button size="tiny" quaternary @click="queryParams.splice(idx, 1)">✕</n-button>
+            <!-- Query Params（三模式切换）-->
+            <div class="params-mode-bar">
+              <span class="params-section-label" style="margin-bottom:0">Query Params</span>
+              <div class="mode-tabs">
+                <span :class="['mode-tab', queryMode==='table' && 'active']" @click="switchQueryMode('table')">表格</span>
+                <span :class="['mode-tab', queryMode==='kv' && 'active']" @click="switchQueryMode('kv')">KV 文本</span>
+                <span :class="['mode-tab', queryMode==='json' && 'active']" @click="switchQueryMode('json')">JSON</span>
+              </div>
             </div>
-            <n-button size="small" dashed style="margin-top:4px; width:100%" @click="addQueryParam">
-              + 添加 Query Param
-            </n-button>
+
+            <!-- 表格模式 -->
+            <template v-if="queryMode === 'table'">
+              <n-empty v-if="!queryParams.length" description="暂无参数" size="small" />
+              <div v-for="(q, idx) in queryParams" :key="idx" class="param-row">
+                <n-checkbox v-model:checked="q.enabled" />
+                <n-input v-model:value="q.key" size="small" style="width:140px; flex-shrink:0" placeholder="Key" />
+                <n-input v-model:value="q.value" size="small" style="flex:1" placeholder="Value" />
+                <n-button size="tiny" quaternary @click="queryParams.splice(idx, 1)">✕</n-button>
+              </div>
+              <n-button size="small" dashed style="margin-top:4px; width:100%" @click="addQueryParam">
+                + 添加 Query Param
+              </n-button>
+            </template>
+
+            <!-- KV 文本模式 -->
+            <n-input
+              v-else-if="queryMode === 'kv'"
+              v-model:value="queryKvText"
+              type="textarea"
+              :rows="6"
+              placeholder="Key: Value（每行一条，# 开头为注释）"
+              style="font-family: monospace; font-size: 12px; margin-top: 4px"
+            />
+
+            <!-- JSON 模式 -->
+            <n-input
+              v-else-if="queryMode === 'json'"
+              v-model:value="queryJsonText"
+              type="textarea"
+              :rows="6"
+              placeholder='{"key": "value"}'
+              style="font-family: monospace; font-size: 12px; margin-top: 4px"
+            />
           </div>
         </n-tab-pane>
 
         <n-tab-pane name="headers" tab="Headers">
           <div class="params-editor">
-            <n-empty v-if="!requestHeaders.length" description="暂无 Headers" size="small" />
-            <div v-for="(h, idx) in requestHeaders" :key="idx" class="param-row">
-              <n-checkbox v-model:checked="h.enabled" />
-              <n-input v-model:value="h.key" size="small" style="width:160px; flex-shrink:0" placeholder="Header 名" />
-              <n-input v-model:value="h.value" size="small" style="flex:1" placeholder="值" />
-              <n-button size="tiny" quaternary @click="requestHeaders.splice(idx, 1)">✕</n-button>
+            <div class="params-mode-bar">
+              <span class="params-section-label" style="margin-bottom:0">Headers</span>
+              <div class="mode-tabs">
+                <span :class="['mode-tab', headerMode==='table' && 'active']" @click="switchHeaderMode('table')">表格</span>
+                <span :class="['mode-tab', headerMode==='kv' && 'active']" @click="switchHeaderMode('kv')">KV 文本</span>
+                <span :class="['mode-tab', headerMode==='json' && 'active']" @click="switchHeaderMode('json')">JSON</span>
+              </div>
             </div>
-            <n-button size="small" dashed style="margin-top:4px; width:100%" @click="addHeader">
-              + 添加 Header
-            </n-button>
+
+            <template v-if="headerMode === 'table'">
+              <n-empty v-if="!requestHeaders.length" description="暂无 Headers" size="small" />
+              <div v-for="(h, idx) in requestHeaders" :key="idx" class="param-row">
+                <n-checkbox v-model:checked="h.enabled" />
+                <n-input v-model:value="h.key" size="small" style="width:160px; flex-shrink:0" placeholder="Header 名" />
+                <n-input v-model:value="h.value" size="small" style="flex:1" placeholder="值" />
+                <n-button size="tiny" quaternary @click="requestHeaders.splice(idx, 1)">✕</n-button>
+              </div>
+              <n-button size="small" dashed style="margin-top:4px; width:100%" @click="addHeader">
+                + 添加 Header
+              </n-button>
+            </template>
+
+            <n-input
+              v-else-if="headerMode === 'kv'"
+              v-model:value="headerKvText"
+              type="textarea"
+              :rows="6"
+              placeholder="Header-Name: value（每行一条）"
+              style="font-family: monospace; font-size: 12px; margin-top: 4px"
+            />
+
+            <n-input
+              v-else-if="headerMode === 'json'"
+              v-model:value="headerJsonText"
+              type="textarea"
+              :rows="6"
+              placeholder='{"Content-Type": "application/json"}'
+              style="font-family: monospace; font-size: 12px; margin-top: 4px"
+            />
           </div>
         </n-tab-pane>
 
@@ -115,6 +175,7 @@ import {
   NTag, NDivider, NCheckbox, NRadioGroup, NRadioButton,
 } from 'naive-ui'
 import { parseUrl, buildUrl } from '../../utils/urlParser'
+import { parseKvText, toKvText, parseJsonToParams, toJsonText } from '../../utils/paramParser'
 import { useRequestStore } from '../../stores/request'
 import { useResponseStore } from '../../stores/response'
 import { useHistoryStore } from '../../stores/history'
@@ -122,6 +183,48 @@ import { useEnvironmentStore } from '../../stores/environment'
 import { useProjectStore } from '../../stores/project'
 import ResponsePanel from '../response/ResponsePanel.vue'
 import type { ParamItem, ParsedUrl } from '../../types'
+
+type ParamMode = 'table' | 'kv' | 'json'
+
+// ── Query Params 模式 ──────────────────────────────────────────
+const queryMode = ref<ParamMode>('table')
+const queryKvText = ref('')
+const queryJsonText = ref('')
+
+function switchQueryMode(newMode: ParamMode) {
+  // 先把当前模式内容同步到 queryParams（table 是 source of truth）
+  if (queryMode.value === 'kv') {
+    queryParams.value = parseKvText(queryKvText.value)
+  } else if (queryMode.value === 'json') {
+    queryParams.value = parseJsonToParams(queryJsonText.value)
+  }
+  // 再渲染目标模式
+  if (newMode === 'kv') {
+    queryKvText.value = toKvText(queryParams.value)
+  } else if (newMode === 'json') {
+    queryJsonText.value = toJsonText(queryParams.value)
+  }
+  queryMode.value = newMode
+}
+
+// ── Headers 模式 ───────────────────────────────────────────────
+const headerMode = ref<ParamMode>('table')
+const headerKvText = ref('')
+const headerJsonText = ref('')
+
+function switchHeaderMode(newMode: ParamMode) {
+  if (headerMode.value === 'kv') {
+    requestHeaders.value = parseKvText(headerKvText.value)
+  } else if (headerMode.value === 'json') {
+    requestHeaders.value = parseJsonToParams(headerJsonText.value)
+  }
+  if (newMode === 'kv') {
+    headerKvText.value = toKvText(requestHeaders.value)
+  } else if (newMode === 'json') {
+    headerJsonText.value = toJsonText(requestHeaders.value)
+  }
+  headerMode.value = newMode
+}
 
 const requestStore = useRequestStore()
 const responseStore = useResponseStore()
@@ -160,6 +263,10 @@ watch(() => requestStore.activeRequest, async (req) => {
     try { queryParams.value = JSON.parse(req.params) } catch { queryParams.value = [] }
     try { requestHeaders.value = JSON.parse(req.headers) } catch { requestHeaders.value = [] }
 
+    // 切换接口时重置模式为 table
+    queryMode.value = 'table'
+    headerMode.value = 'table'
+
     // 加载该接口历史
     await historyStore.loadHistory(req.id)
   } else {
@@ -169,6 +276,8 @@ watch(() => requestStore.activeRequest, async (req) => {
     bodyContent.value = ''
     queryParams.value = []
     requestHeaders.value = []
+    queryMode.value = 'table'
+    headerMode.value = 'table'
     responseStore.clear()
   }
 }, { immediate: true })
@@ -211,6 +320,12 @@ function addHeader() {
 
 // ── 发送请求 ──────────────────────────────────────────────────
 async function handleSend() {
+  // 非表格模式时先同步内容到 source of truth（queryParams / requestHeaders）
+  if (queryMode.value === 'kv') queryParams.value = parseKvText(queryKvText.value)
+  else if (queryMode.value === 'json') queryParams.value = parseJsonToParams(queryJsonText.value)
+  if (headerMode.value === 'kv') requestHeaders.value = parseKvText(headerKvText.value)
+  else if (headerMode.value === 'json') requestHeaders.value = parseJsonToParams(headerJsonText.value)
+
   const activeReq = requestStore.activeRequest
   if (!activeReq) return
 
@@ -318,4 +433,27 @@ function handleRefill(snapshot: string) {
 .params-section-label { font-size: 11px; font-weight: 600; color: var(--n-text-color-3, #999); padding: 4px 0 6px; text-transform: uppercase; letter-spacing: 0.5px; }
 .param-row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
 .tab-content-placeholder { padding: 20px 0; }
+
+.params-mode-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0 6px;
+}
+.mode-tabs {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--n-border-color, #e0e0e6);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.mode-tab {
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--n-text-color-3, #999);
+  transition: background 0.1s, color 0.1s;
+}
+.mode-tab:hover { background: var(--n-item-color-hover, rgba(0,0,0,0.04)); color: var(--n-text-color, #333); }
+.mode-tab.active { background: var(--n-primary-color, #18a058); color: #fff; }
 </style>
