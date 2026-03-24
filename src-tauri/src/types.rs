@@ -66,3 +66,41 @@ pub struct HistoryRecord {
     pub response_headers: String, // JSON
     pub created_at: String,
 }
+
+// ── 环境 ───────────────────────────────────────────────────
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Environment {
+    pub id: i64,
+    pub project_id: i64,
+    pub name: String,
+    pub base_url: Option<String>,
+    pub is_active: i64,
+    pub created_at: String,
+}
+
+// ── 环境变量 ───────────────────────────────────────────────
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct EnvVariable {
+    pub id: i64,
+    pub env_id: i64,
+    pub key: String,
+    pub value: String,
+    pub description: Option<String>,
+    pub enabled: i64,
+}
+
+// ── Cookie ─────────────────────────────────────────────────
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Cookie {
+    pub id: i64,
+    pub scope_type: String,
+    pub project_id: Option<i64>,
+    pub domain: String,
+    pub name: String,
+    pub value: String,
+    pub path: String,
+    pub expires_at: Option<String>,
+    pub http_only: i64,
+    pub secure: i64,
+    pub enabled: i64,
+}
