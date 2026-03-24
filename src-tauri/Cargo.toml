@@ -49,9 +49,9 @@ uuid = { version = "1", features = ["v4"] }
 # 导出时生成 ISO 8601 时间戳
 chrono = { version = "0.4", features = ["serde"] }
 
+# 导入递归处理 Postman items 树（用于 async fn 中的递归调用）
+async-recursion = "1"
+
 # Unix fd 上限检测（§10.2）；Windows 编译时无 Unix syscall
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-
-# 导入递归处理 Postman items 树
-async-recursion = "1"

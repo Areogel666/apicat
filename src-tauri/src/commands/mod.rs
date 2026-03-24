@@ -6,3 +6,4 @@ pub mod request;
 pub mod send_request;
 pub mod test_case;
 pub mod stress;
+pub mod io;

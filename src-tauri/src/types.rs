@@ -131,3 +131,59 @@ pub struct TestCase {
     pub created_at: String,
     pub updated_at: String,
 }
+
+// ── 导入导出用结构 ──────────────────────────────────────────
+
+/// ApiCat 自定义导出格式（完整项目快照）
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ApiCatExport {
+    pub version: String,     // 格式版本，当前 "1.0"
+    pub exported_at: String, // ISO 8601 时间
+    pub project: ExportProject,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExportProject {
+    pub name: String,
+    pub description: Option<String>,
+    pub environments: Vec<ExportEnv>,
+    pub collections: Vec<ExportCollection>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExportEnv {
+    pub name: String,
+    pub base_url: Option<String>,
+    pub is_active: i64,
+    pub variables: Vec<ExportEnvVar>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExportEnvVar {
+    pub key: String,
+    pub value: String,
+    pub description: Option<String>,
+    pub enabled: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExportCollection {
+    pub name: String,
+    pub sort_order: i64,
+    pub children: Vec<ExportCollection>, // 递归子文件夹
+    pub requests: Vec<ExportRequest>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExportRequest {
+    pub name: String,
+    pub method: String,
+    pub url: String,
+    pub params: String,  // JSON 数组
+    pub headers: String, // JSON 数组
+    pub body_type: String,
+    pub body: String,
+    pub auth_type: String,
+    pub auth_config: String, // JSON
+    pub sort_order: i64,
+}
