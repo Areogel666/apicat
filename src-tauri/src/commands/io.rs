@@ -175,6 +175,12 @@ fn build_postman_collection(name: &str, collections: &[ExportCollection]) -> ser
                             "mode": "raw", "raw": r.body,
                             "options": {"raw": {"language": "json"}}
                         })
+                    } else if r.body_type == "raw_text" {
+                        // 保留 body 内容，标注为 text 语言
+                        serde_json::json!({
+                            "mode": "raw", "raw": r.body,
+                            "options": {"raw": {"language": "text"}}
+                        })
                     } else if r.body_type == "form_urlencoded" {
                         serde_json::json!({"mode": "urlencoded", "urlencoded": []})
                     } else {
@@ -222,8 +228,28 @@ pub async fn import_apicat(
     let export: ApiCatExport = serde_json::from_str(&json_content)
         .map_err(|e| crate::error::AppError::Custom(format!("解析失败: {e}")))?;
 
+    // 开启事务：保证导入原子性，中途失败自动回滚，不留半成品
+    sqlx::query("BEGIN").execute(&db.0).await?;
+    let result = import_apicat_inner(&db, project_id, &export).await;
+    match result {
+        Ok(pid) => {
+            sqlx::query("COMMIT").execute(&db.0).await?;
+            Ok(pid)
+        }
+        Err(e) => {
+            let _ = sqlx::query("ROLLBACK").execute(&db.0).await;
+            Err(e)
+        }
+    }
+}
+
+async fn import_apicat_inner(
+    db: &AppDb,
+    project_id: i64,
+    export: &ApiCatExport,
+) -> CmdResult<i64> {
     let pid = ensure_project(
-        &db,
+        db,
         project_id,
         &export.project.name,
         export.project.description.as_deref(),
@@ -257,7 +283,7 @@ pub async fn import_apicat(
         }
     }
 
-    import_collections_tree(&db, pid, None, &export.project.collections).await?;
+    import_collections_tree(db, pid, None, &export.project.collections).await?;
     Ok(pid)
 }
 
@@ -320,11 +346,26 @@ pub async fn import_postman(
         .as_str()
         .unwrap_or("导入的接口集合")
         .to_string();
-    let pid = ensure_project(&db, project_id, &coll_name, None).await?;
 
+    // 开启事务：保证导入原子性，中途失败自动回滚
+    sqlx::query("BEGIN").execute(&db.0).await?;
+    let result = import_postman_inner(&db, project_id, &coll_name, &v).await;
+    match result {
+        Ok(pid) => { sqlx::query("COMMIT").execute(&db.0).await?; Ok(pid) }
+        Err(e)  => { let _ = sqlx::query("ROLLBACK").execute(&db.0).await; Err(e) }
+    }
+}
+
+async fn import_postman_inner(
+    db: &AppDb,
+    project_id: i64,
+    coll_name: &str,
+    v: &serde_json::Value,
+) -> CmdResult<i64> {
+    let pid = ensure_project(db, project_id, coll_name, None).await?;
     let empty: Vec<serde_json::Value> = vec![];
     let items = v["item"].as_array().unwrap_or(&empty).clone();
-    import_postman_items(&db, pid, None, &items, 0).await?;
+    import_postman_items(db, pid, None, &items, 0).await?;
     Ok(pid)
 }
 
@@ -447,14 +488,28 @@ pub async fn import_openapi(
             .map_err(|e| crate::error::AppError::Custom(format!("JSON 解析失败: {e}")))?
     };
 
+    // 开启事务：保证导入原子性，中途失败自动回滚
+    sqlx::query("BEGIN").execute(&db.0).await?;
+    let result = import_openapi_inner(&db, project_id, &v).await;
+    match result {
+        Ok(pid) => { sqlx::query("COMMIT").execute(&db.0).await?; Ok(pid) }
+        Err(e)  => { let _ = sqlx::query("ROLLBACK").execute(&db.0).await; Err(e) }
+    }
+}
+
+async fn import_openapi_inner(
+    db: &AppDb,
+    project_id: i64,
+    v: &serde_json::Value,
+) -> CmdResult<i64> {
     let title = v["info"]["title"]
         .as_str()
         .unwrap_or("OpenAPI 导入")
         .to_string();
-    let pid = ensure_project(&db, project_id, &title, None).await?;
+    let pid = ensure_project(db, project_id, &title, None).await?;
     let base_url = v["servers"][0]["url"].as_str().map(|s| s.to_string());
 
-    // 为每个 tag 创建 Collection
+    // 从全局 tags 列表预建 Collection
     let empty_tags: Vec<serde_json::Value> = vec![];
     let tags: Vec<String> = v["tags"]
         .as_array()
@@ -477,13 +532,8 @@ pub async fn import_openapi(
         tag_map.insert(tag.clone(), coll_id);
     }
 
-    let (default_coll_id,): (i64,) = sqlx::query_as(
-        "INSERT INTO collections (project_id, parent_id, name, sort_order) \
-         VALUES (?,NULL,'其他',999) RETURNING id",
-    )
-    .bind(pid)
-    .fetch_one(&db.0)
-    .await?;
+    // lazy 创建"其他"集合：仅在有无 tag 的请求时才 INSERT，避免产生空集合
+    let mut default_coll_id: Option<i64> = None;
 
     let empty_obj = serde_json::Map::new();
     let paths = v["paths"].as_object().unwrap_or(&empty_obj);
@@ -503,7 +553,36 @@ pub async fn import_openapi(
             let req_name = format!("{} {}", method_str.to_uppercase(), op_name);
 
             let first_tag = op["tags"][0].as_str().unwrap_or("");
-            let coll_id = tag_map.get(first_tag).copied().unwrap_or(default_coll_id);
+            let coll_id = if let Some(&id) = tag_map.get(first_tag) {
+                id
+            } else if !first_tag.is_empty() {
+                // operation 上存在但全局 tags 未声明的 tag：按需创建对应 Collection
+                let sort = tag_map.len() as i64;
+                let (id,): (i64,) = sqlx::query_as(
+                    "INSERT INTO collections (project_id, parent_id, name, sort_order) \
+                     VALUES (?,NULL,?,?) RETURNING id",
+                )
+                .bind(pid)
+                .bind(first_tag)
+                .bind(sort)
+                .fetch_one(&db.0)
+                .await?;
+                tag_map.insert(first_tag.to_string(), id);
+                id
+            } else {
+                // 首次遇到无 tag 请求时才创建"其他"集合
+                if default_coll_id.is_none() {
+                    let (id,): (i64,) = sqlx::query_as(
+                        "INSERT INTO collections (project_id, parent_id, name, sort_order) \
+                         VALUES (?,NULL,'其他',999) RETURNING id",
+                    )
+                    .bind(pid)
+                    .fetch_one(&db.0)
+                    .await?;
+                    default_coll_id = Some(id);
+                }
+                default_coll_id.unwrap()
+            };
 
             let empty_params: Vec<serde_json::Value> = vec![];
             let parameters = op["parameters"].as_array().unwrap_or(&empty_params);
@@ -511,7 +590,12 @@ pub async fn import_openapi(
             let mut params_json: Vec<serde_json::Value> = vec![];
             for param in parameters {
                 let pn = param["name"].as_str().unwrap_or("").to_string();
-                let pv = param["schema"]["default"].as_str().unwrap_or("").to_string();
+                // 参数默认值转换为字符串，支持 number/bool/string 类型
+                let pv = match &param["schema"]["default"] {
+                    serde_json::Value::Null => "".to_string(),
+                    other => other.as_str().map(|s| s.to_string())
+                        .unwrap_or_else(|| other.to_string()),
+                };
                 match param["in"].as_str().unwrap_or("") {
                     "header" => headers_json
                         .push(serde_json::json!({"key":pn,"value":pv,"enabled":true})),

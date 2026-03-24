@@ -14,6 +14,10 @@ use std::{
 use tauri::{AppHandle, Emitter};
 use tokio::sync::broadcast;
 
+/// 百分位滑动窗口大小：只保留最近 N 条耗时用于 P50/P95/P99 计算。
+/// 内存上限 ≈ 10000 × 8B = 80KB，对长时压测 OOM 友好。
+const DURATION_WINDOW: usize = 10_000;
+
 // ── 统计数据（每 200ms 快照推送到前端）────────────────────
 
 #[derive(Debug, Default, Clone, Serialize)]
@@ -37,18 +41,30 @@ struct RawStats {
     total: u64,
     success: u64,
     failed: u64,
-    durations_ms: Vec<u64>,   // 所有请求耗时，用于百分位计算
+    /// 滑动窗口：只保留最近 DURATION_WINDOW 条耗时，防止 OOM。
+    /// 百分位计算基于此窗口，count/avg 基于全量计数器。
+    durations_window: Vec<u64>,
+    /// 全量 avg 用增量维护（sum / total），不依赖 window
+    duration_sum: u64,
 }
 
 impl RawStats {
     fn record(&mut self, ok: bool, duration_ms: u64) {
         self.total += 1;
         if ok { self.success += 1; } else { self.failed += 1; }
-        self.durations_ms.push(duration_ms);
+        self.duration_sum = self.duration_sum.saturating_add(duration_ms);
+
+        // 滑动窗口：超过上限时循环覆盖最旧条目
+        if self.durations_window.len() < DURATION_WINDOW {
+            self.durations_window.push(duration_ms);
+        } else {
+            let idx = (self.total as usize - 1) % DURATION_WINDOW;
+            self.durations_window[idx] = duration_ms;
+        }
     }
 
     fn snapshot(&self, elapsed_sec: f64, done: bool) -> StressStats {
-        let mut sorted = self.durations_ms.clone();
+        let mut sorted = self.durations_window.clone();
         sorted.sort_unstable();
         let n = sorted.len();
 
@@ -58,10 +74,10 @@ impl RawStats {
             sorted[idx]
         };
 
-        let avg_ms = if n == 0 {
+        let avg_ms = if self.total == 0 {
             0.0
         } else {
-            sorted.iter().sum::<u64>() as f64 / n as f64
+            self.duration_sum as f64 / self.total as f64
         };
 
         let success_rate = if self.total == 0 {
@@ -149,6 +165,12 @@ pub async fn start_stress(
             "请求数/持续时间不能为 0".to_string(),
         ));
     }
+    // count 模式上限：防止一次性积累过多 JoinHandle 占用大量内存
+    if mode == "count" && value > 10_000 {
+        return Err(crate::error::AppError::Custom(
+            "单次压测请求数不能超过 10000，请使用「持续时间」模式进行大规模压测".to_string(),
+        ));
+    }
 
     // ── fd 上限检测（§10.2）──────────────────────────────
     check_fd_limit(concurrent).map_err(crate::error::AppError::Custom)?;
@@ -167,6 +189,10 @@ pub async fn start_stress(
     // ── 停止信号（broadcast channel）──────────────────────
     // 容量 1 足够，所有 worker 都会监听
     let (stop_tx, _) = broadcast::channel::<()>(1);
+
+    // ── timer 完成确认（oneshot）—— 替代 sleep(300ms) 脆弱等待
+    // main task 发送 stop 后阻塞等待 timer 确认已 emit done 事件
+    let (timer_done_tx, timer_done_rx) = tokio::sync::oneshot::channel::<()>();
 
     let start_time = Instant::now();
 
@@ -196,6 +222,8 @@ pub async fn start_stress(
                         };
                         let _ = app_clone.emit("stress://progress", &snapshot);
                         let _ = app_clone.emit("stress://done", &snapshot);
+                        // 通知 main task：done 已 emit，可安全返回
+                        let _ = timer_done_tx.send(());
                         break;
                     }
                 }
@@ -236,19 +264,23 @@ pub async fn start_stress(
         }
         "duration" => {
             // 持续时间模式：在 value 秒内不断发请求
+            // 用 JoinSet 替代 Vec<JoinHandle>：abort_all() 可强制中止超时任务，无需积累句柄
             let deadline = start_time + Duration::from_secs(value);
             let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrent as usize));
-            let mut handles = Vec::new();
+            let mut join_set = tokio::task::JoinSet::new();
 
             loop {
                 if Instant::now() >= deadline {
                     break;
                 }
+                // 清理已完成的任务，避免 JoinSet 无限增长
+                while let Some(Ok(_)) = join_set.try_join_next() {}
+
                 let permit = match Arc::clone(&semaphore).try_acquire_owned() {
                     Ok(p) => p,
                     Err(_) => {
-                        // 并发槽满，稍等再重试
-                        tokio::time::sleep(Duration::from_millis(1)).await;
+                        // 并发槽满，yield 一次让其他任务运行（避免忙等耗 CPU）
+                        tokio::task::yield_now().await;
                         continue;
                     }
                 };
@@ -256,20 +288,17 @@ pub async fn start_stress(
                 let params_clone = params.clone();
                 let raw_clone = Arc::clone(&raw_stats);
 
-                let h = tokio::spawn(async move {
+                join_set.spawn(async move {
                     let t = Instant::now();
                     let ok = send(&client_clone, &params_clone).await.is_ok();
                     let dur = t.elapsed().as_millis() as u64;
                     raw_clone.lock().unwrap().record(ok, dur);
                     drop(permit);
                 });
-                handles.push(h);
             }
 
-            // 等待已派发的请求完成
-            for h in handles {
-                let _ = h.await;
-            }
+            // 等待已派发的请求完成（不强制 abort，给进行中请求机会完成）
+            join_set.join_all().await;
         }
         _ => {
             return Err(crate::error::AppError::Custom(
@@ -280,8 +309,9 @@ pub async fn start_stress(
 
     // 通知定时推送任务结束
     let _ = stop_tx.send(());
-    // 稍等，确保最终快照 emit 完成
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    // 等待 timer 任务确认已 emit done 事件（代替 sleep(300ms)）
+    // 超时 1s 保底，防止 timer 异常时主任务卡死
+    let _ = tokio::time::timeout(Duration::from_secs(1), timer_done_rx).await;
 
     Ok(())
 }

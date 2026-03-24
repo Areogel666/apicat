@@ -41,7 +41,7 @@
         <n-input-number
           v-model:value="config.value"
           :min="1"
-          :max="config.mode === 'count' ? 100000 : 3600"
+          :max="config.mode === 'count' ? 10000 : 3600"
           size="small"
           style="width: 120px"
         />
