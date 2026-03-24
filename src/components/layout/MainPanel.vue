@@ -163,6 +163,21 @@
     <!-- 分隔线 -->
     <div class="divider" />
 
+    <!-- 用例选择栏（Send 后出现，低干扰）-->
+    <TestCaseBar
+      :test-cases="testCaseStore.getByRequestId(requestStore.activeRequest?.id ?? 0)"
+      :active-id="testCaseStore.activeTestCaseId"
+      :params-dirty="paramsDirty"
+      @activate="handleActivateTestCase"
+      @create="handleCreateTestCase"
+      @rename="handleRenameTestCase"
+      @toggle-star="handleToggleStar"
+      @delete="handleDeleteTestCase"
+      @save-to-active="handleSaveToActive"
+      @save-as-new="handleSaveAsNew"
+      @dismiss-dirty="paramsDirty = false"
+    />
+
     <!-- 下半：响应区 -->
     <ResponsePanel @refill="handleRefill" />
   </main>
@@ -181,7 +196,9 @@ import { useResponseStore } from '../../stores/response'
 import { useHistoryStore } from '../../stores/history'
 import { useEnvironmentStore } from '../../stores/environment'
 import { useProjectStore } from '../../stores/project'
+import { useTestCaseStore } from '../../stores/testCase'
 import ResponsePanel from '../response/ResponsePanel.vue'
+import TestCaseBar from '../testcase/TestCaseBar.vue'
 import type { ParamItem, ParsedUrl } from '../../types'
 
 type ParamMode = 'table' | 'kv' | 'json'
@@ -231,6 +248,7 @@ const responseStore = useResponseStore()
 const historyStore = useHistoryStore()
 const envStore = useEnvironmentStore()
 const projectStore = useProjectStore()
+const testCaseStore = useTestCaseStore()
 
 // ── 请求编辑区状态 ────────────────────────────────────────────
 const method = ref('GET')
@@ -263,12 +281,15 @@ watch(() => requestStore.activeRequest, async (req) => {
     try { queryParams.value = JSON.parse(req.params) } catch { queryParams.value = [] }
     try { requestHeaders.value = JSON.parse(req.headers) } catch { requestHeaders.value = [] }
 
-    // 切换接口时重置模式为 table
+    // 切换接口时重置模式为 table、清空 dirty 状态
     queryMode.value = 'table'
     headerMode.value = 'table'
+    paramsDirty.value = false
+    testCaseStore.activeTestCaseId = null
 
-    // 加载该接口历史
+    // 加载该接口历史 + 测试用例
     await historyStore.loadHistory(req.id)
+    await testCaseStore.loadTestCases(req.id)
   } else {
     url.value = ''
     method.value = 'GET'
@@ -278,6 +299,7 @@ watch(() => requestStore.activeRequest, async (req) => {
     requestHeaders.value = []
     queryMode.value = 'table'
     headerMode.value = 'table'
+    paramsDirty.value = false
     responseStore.clear()
   }
 }, { immediate: true })
@@ -372,6 +394,130 @@ async function handleSend() {
       created_at: new Date().toISOString(),
     })
   }
+
+  // 静默关联测试用例（低干扰：在响应返回后执行，不阻塞发送）
+  if (resp) {
+    const cases = testCaseStore.getByRequestId(activeReq.id)
+    if (cases.length === 0) {
+      // 第一次 Send：自动创建「用例 1」并收藏（后端自动命名）
+      const tc = await testCaseStore.createTestCase({
+        requestId: activeReq.id,
+        collectionId: activeReq.collection_id,
+        name: '',
+        method: method.value,
+        url: resolvedUrl.value,
+        headers: JSON.stringify(requestHeaders.value),
+        params_: JSON.stringify(queryParams.value),
+        bodyType: bodyType.value,
+        body: bodyContent.value,
+      })
+      testCaseStore.activeTestCaseId = tc.id
+    }
+    // 响应返回后检测参数是否与激活用例一致
+    checkParamsDirty()
+  }
+}
+
+// ── 参数变更检测 ───────────────────────────────────────────────
+const paramsDirty = ref(false)
+
+function checkParamsDirty() {
+  const activeId = testCaseStore.activeTestCaseId
+  if (activeId === null) { paramsDirty.value = false; return }
+  const cases = testCaseStore.getByRequestId(requestStore.activeRequest?.id ?? 0)
+  const activeTc = cases.find(c => c.id === activeId)
+  if (!activeTc) { paramsDirty.value = false; return }
+
+  const sameMethod = (activeTc.method ?? method.value) === method.value
+  const sameUrl = (activeTc.url ?? resolvedUrl.value) === resolvedUrl.value
+  const sameHeaders = activeTc.headers === JSON.stringify(requestHeaders.value)
+  const sameParams = activeTc.params === JSON.stringify(queryParams.value)
+  const sameBodyType = (activeTc.body_type ?? bodyType.value) === bodyType.value
+  const sameBody = (activeTc.body ?? bodyContent.value) === bodyContent.value
+
+  paramsDirty.value = !(sameMethod && sameUrl && sameHeaders && sameParams && sameBodyType && sameBody)
+}
+
+// ── 用例操作 handlers ──────────────────────────────────────────
+async function handleActivateTestCase(id: number) {
+  const cases = testCaseStore.getByRequestId(requestStore.activeRequest?.id ?? 0)
+  const tc = cases.find(c => c.id === id)
+  if (!tc) return
+  testCaseStore.activeTestCaseId = id
+  if (tc.method) method.value = tc.method
+  if (tc.url) url.value = tc.url
+  if (tc.headers) { try { requestHeaders.value = JSON.parse(tc.headers) } catch {} }
+  if (tc.params) { try { queryParams.value = JSON.parse(tc.params) } catch {} }
+  if (tc.body_type) bodyType.value = tc.body_type
+  if (tc.body !== null && tc.body !== undefined) bodyContent.value = tc.body
+  paramsDirty.value = false
+}
+
+async function handleSaveToActive() {
+  const activeId = testCaseStore.activeTestCaseId
+  if (!activeId) return
+  await testCaseStore.updateTestCase(activeId, {
+    method: method.value,
+    url: resolvedUrl.value,
+    headers: JSON.stringify(requestHeaders.value),
+    params: JSON.stringify(queryParams.value),
+    body_type: bodyType.value,
+    body: bodyContent.value,
+  })
+  paramsDirty.value = false
+}
+
+async function handleSaveAsNew() {
+  const activeReq = requestStore.activeRequest
+  if (!activeReq) return
+  const tc = await testCaseStore.createTestCase({
+    requestId: activeReq.id,
+    collectionId: activeReq.collection_id,
+    name: '',
+    method: method.value,
+    url: resolvedUrl.value,
+    headers: JSON.stringify(requestHeaders.value),
+    params_: JSON.stringify(queryParams.value),
+    bodyType: bodyType.value,
+    body: bodyContent.value,
+  })
+  testCaseStore.activeTestCaseId = tc.id
+  paramsDirty.value = false
+}
+
+async function handleToggleStar(id: number) {
+  const cases = testCaseStore.getByRequestId(requestStore.activeRequest?.id ?? 0)
+  const tc = cases.find(c => c.id === id)
+  if (!tc) return
+  await testCaseStore.updateTestCase(id, { starred: tc.starred === 1 ? 0 : 1 })
+}
+
+async function handleDeleteTestCase(id: number) {
+  try {
+    await testCaseStore.deleteTestCase(id)
+  } catch (e) {
+    window.alert(String(e))
+  }
+}
+
+async function handleRenameTestCase(id: number, name: string) {
+  await testCaseStore.updateTestCase(id, { name })
+}
+
+async function handleCreateTestCase(name: string) {
+  const activeReq = requestStore.activeRequest
+  if (!activeReq) return
+  await testCaseStore.createTestCase({
+    requestId: activeReq.id,
+    collectionId: activeReq.collection_id,
+    name,
+    method: method.value,
+    url: resolvedUrl.value,
+    headers: JSON.stringify(requestHeaders.value),
+    params_: JSON.stringify(queryParams.value),
+    bodyType: bodyType.value,
+    body: bodyContent.value,
+  })
 }
 
 // ── 历史回填 ──────────────────────────────────────────────────
