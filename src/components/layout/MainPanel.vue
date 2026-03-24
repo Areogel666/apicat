@@ -26,6 +26,15 @@
         >
           发 送
         </n-button>
+        <n-button
+          size="medium"
+          style="flex-shrink: 0"
+          :disabled="!url || responseStore.loading"
+          title="压测"
+          @click="showStressConfig = true"
+        >
+          ⚡ 压测
+        </n-button>
       </div>
 
       <!-- 请求配置 Tabs -->
@@ -180,6 +189,15 @@
 
     <!-- 下半：响应区 -->
     <ResponsePanel @refill="handleRefill" />
+
+    <!-- 压测配置弹窗 -->
+    <StressConfigModal
+      v-model:show="showStressConfig"
+      @start="handleStartStress"
+    />
+
+    <!-- 压测结果弹窗 -->
+    <StressResultPanel v-model:show="showStressResult" />
   </main>
 </template>
 
@@ -197,9 +215,12 @@ import { useHistoryStore } from '../../stores/history'
 import { useEnvironmentStore } from '../../stores/environment'
 import { useProjectStore } from '../../stores/project'
 import { useTestCaseStore } from '../../stores/testCase'
+import { useStressStore } from '../../stores/stress'
 import ResponsePanel from '../response/ResponsePanel.vue'
 import TestCaseBar from '../testcase/TestCaseBar.vue'
-import type { ParamItem, ParsedUrl } from '../../types'
+import StressConfigModal from '../stress/StressConfigModal.vue'
+import StressResultPanel from '../stress/StressResultPanel.vue'
+import type { ParamItem, ParsedUrl, StressConfig } from '../../types'
 
 type ParamMode = 'table' | 'kv' | 'json'
 
@@ -536,6 +557,34 @@ function handleRefill(snapshot: string) {
   } catch {
     // snapshot 解析失败时静默忽略
   }
+}
+
+// ── 压测 ──────────────────────────────────────────────────────
+const stressStore = useStressStore()
+const showStressConfig = ref(false)
+const showStressResult = ref(false)
+
+async function handleStartStress(config: StressConfig) {
+  // 先同步 kv/json 模式内容到 source of truth
+  if (queryMode.value === 'kv') queryParams.value = parseKvText(queryKvText.value)
+  else if (queryMode.value === 'json') queryParams.value = parseJsonToParams(queryJsonText.value)
+  if (headerMode.value === 'kv') requestHeaders.value = parseKvText(headerKvText.value)
+  else if (headerMode.value === 'json') requestHeaders.value = parseJsonToParams(headerJsonText.value)
+
+  showStressResult.value = true
+
+  await stressStore.startStress(
+    {
+      method: method.value,
+      url: resolvedUrl.value,
+      query_params: queryParams.value.map(p => ({ key: p.key, value: p.value, enabled: p.enabled })),
+      headers: requestHeaders.value.map(h => ({ key: h.key, value: h.value, enabled: h.enabled })),
+      body_type: bodyType.value,
+      body: bodyContent.value,
+      path_params: [],
+    },
+    config,
+  )
 }
 </script>
 
