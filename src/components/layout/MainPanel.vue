@@ -450,6 +450,9 @@ async function handleActivateTestCase(id: number) {
   if (tc.params) { try { queryParams.value = JSON.parse(tc.params) } catch {} }
   if (tc.body_type) bodyType.value = tc.body_type
   if (tc.body !== null && tc.body !== undefined) bodyContent.value = tc.body
+  // 切换用例后重置模式为 table，避免 KV/JSON 模式显示旧数据
+  queryMode.value = 'table'
+  headerMode.value = 'table'
   paramsDirty.value = false
 }
 
