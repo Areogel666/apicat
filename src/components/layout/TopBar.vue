@@ -23,7 +23,13 @@
         @update:value="handleEnvChange"
       />
       <n-button size="small" quaternary title="Cookie 管理" @click="showCookieManager = true">🍪</n-button>
-      <n-button size="small" quaternary title="设置">⚙️</n-button>
+      <n-dropdown
+        :options="settingsMenuOptions"
+        placement="bottom-end"
+        @select="handleSettingsMenu"
+      >
+        <n-button size="small" quaternary title="更多操作">⚙️</n-button>
+      </n-dropdown>
     </div>
   </header>
 
@@ -32,21 +38,41 @@
 
   <!-- Cookie 管理弹窗 -->
   <CookieManager v-model:show="showCookieManager" />
+
+  <!-- 导入弹窗 -->
+  <ImportDialog v-model:show="showImportDialog" />
+
+  <!-- 导出弹窗 -->
+  <ExportDialog v-model:show="showExportDialog" />
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { NSelect, NButton } from 'naive-ui'
+import { NSelect, NButton, NDropdown } from 'naive-ui'
 import { useProjectStore } from '../../stores/project'
 import { useEnvironmentStore } from '../../stores/environment'
 import EnvManager from '../env/EnvManager.vue'
 import CookieManager from '../cookie/CookieManager.vue'
+import ImportDialog from '../io/ImportDialog.vue'
+import ExportDialog from '../io/ExportDialog.vue'
 
 const projectStore = useProjectStore()
 const envStore = useEnvironmentStore()
 
 const showEnvManager = ref(false)
 const showCookieManager = ref(false)
+const showImportDialog = ref(false)
+const showExportDialog = ref(false)
+
+const settingsMenuOptions = [
+  { label: '📥 导入接口...', key: 'import' },
+  { label: '📤 导出接口...', key: 'export' },
+]
+
+function handleSettingsMenu(key: string) {
+  if (key === 'import') showImportDialog.value = true
+  else if (key === 'export') showExportDialog.value = true
+}
 
 // ── 项目下拉 ──────────────────────────────────────────────
 const currentProjectId = computed({
