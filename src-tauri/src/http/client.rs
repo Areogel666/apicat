@@ -28,7 +28,8 @@ pub struct ParamItem {
 }
 
 /// 构建并发送 HTTP 请求，返回 HttpResponse（不含 history_id，由上层写库后填入）
-pub async fn send(params: &SendRequestParams) -> Result<HttpResponse, String> {
+/// client 参数由全局 HttpClient State 提供，复用连接池
+pub async fn send(client: &reqwest::Client, params: &SendRequestParams) -> Result<HttpResponse, String> {
     let method = params
         .method
         .parse::<Method>()
@@ -50,13 +51,6 @@ pub async fn send(params: &SendRequestParams) -> Result<HttpResponse, String> {
             }
         }
     }
-
-    // ── 构建 Client（忽略自签证书，设置超时）─────────────────────
-    let client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(true)
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| format!("构建 HTTP Client 失败: {e}"))?;
 
     let mut builder = client.request(method, parsed_url);
 

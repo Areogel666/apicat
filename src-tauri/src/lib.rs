@@ -30,6 +30,14 @@ pub fn run() {
             // 将连接池注册到全局状态，后续 Command 通过 State<AppDb> 取用
             app.manage(AppDb(pool.clone()));
 
+            // 全局 HTTP 客户端：复用连接池和 TLS session cache，避免每次请求重建开销
+            let http_client = reqwest::Client::builder()
+                .danger_accept_invalid_certs(true)
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .expect("failed to build HTTP client");
+            app.manage(http::HttpClient(http_client));
+
             // 启动时静默清理 30 天前的未收藏测试用例（fire-and-forget）
             tauri::async_runtime::spawn(async move {
                 cleanup_old_test_cases(&pool).await;

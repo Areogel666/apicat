@@ -1,7 +1,7 @@
 use crate::{
     db::AppDb,
     error::CmdResult,
-    http::client::{send, SendRequestParams},
+    http::{client::{send, SendRequestParams}, HttpClient},
     types::{HistoryRecord, HttpResponse},
 };
 use tauri::State;
@@ -10,11 +10,12 @@ use tauri::State;
 #[tauri::command]
 pub async fn send_request(
     db: State<'_, AppDb>,
+    http: State<'_, HttpClient>,
     request_id: i64,
     params: SendRequestParams,
 ) -> CmdResult<HttpResponse> {
-    // 1. 发送请求
-    let mut resp = send(&params).await.map_err(crate::error::AppError::Custom)?;
+    // 1. 发送请求（复用全局 Client 的连接池）
+    let mut resp = send(&http.0, &params).await.map_err(crate::error::AppError::Custom)?;
 
     // 2. 构造请求快照（JSON 文本，用于历史回填）
     let snapshot = serde_json::to_string(&params)
