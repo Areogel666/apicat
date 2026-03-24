@@ -15,6 +15,36 @@ export interface Collection {
   name: string
   sort_order: number
   created_at: string
+  updated_at: string
+}
+
+// ── 压测类型 ──────────────────────────────────────────────
+export interface StressStats {
+  total: number
+  success: number
+  failed: number
+  success_rate: number   // 0.0 ~ 100.0
+  avg_ms: number
+  p50_ms: number
+  p95_ms: number
+  p99_ms: number
+  tps: number
+  elapsed_sec: number
+  done: boolean
+}
+
+export interface StressConfig {
+  concurrent: number     // 1 ~ 500
+  mode: 'count' | 'duration'
+  value: number          // 总请求数 或 持续秒数
+}
+
+// 折线图数据点（每次 stress://progress 推送时追加一条）
+export interface StressChartPoint {
+  time: number           // 相对压测开始的秒数
+  tps: number
+  avg_ms: number
+  p95_ms: number
 }
 
 export interface ApiRequest {
