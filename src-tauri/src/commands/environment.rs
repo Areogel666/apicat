@@ -68,24 +68,27 @@ pub async fn delete_environment(db: State<'_, AppDb>, id: i64) -> CmdResult<()> 
     Ok(())
 }
 
-/// 激活指定环境（先清空项目下激活状态）
+/// 激活指定环境（先清空项目下激活状态，事务保证原子性）
 #[tauri::command]
 pub async fn activate_environment(
     db: State<'_, AppDb>,
     project_id: i64,
     env_id: i64,
 ) -> CmdResult<()> {
+    let mut tx = db.0.begin().await?;
+
     sqlx::query("UPDATE environments SET is_active=0 WHERE project_id=?")
         .bind(project_id)
-        .execute(&db.0)
+        .execute(&mut *tx)
         .await?;
 
     sqlx::query("UPDATE environments SET is_active=1 WHERE id=? AND project_id=?")
         .bind(env_id)
         .bind(project_id)
-        .execute(&db.0)
+        .execute(&mut *tx)
         .await?;
 
+    tx.commit().await?;
     Ok(())
 }
 
