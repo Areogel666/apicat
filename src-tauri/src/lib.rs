@@ -2,6 +2,7 @@ mod db;
 mod error;
 mod types;
 mod commands;
+mod http;
 
 use commands::{
     collection::{create_collection, delete_collection, list_collections, rename_collection},
