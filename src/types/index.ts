@@ -129,3 +129,30 @@ export interface CookieItem {
   secure: number
   enabled: number
 }
+
+// ── 测试用例类型 ──────────────────────────────────────
+
+export interface TestCase {
+  id: number
+  request_id: number | null
+  collection_id: number
+  name: string
+  description: string | null
+  source: string            // "manual" | "ai_generated"
+  method: string | null
+  url: string | null
+  headers: string           // JSON 数组
+  params: string            // JSON 数组
+  body_type: string | null
+  body: string | null
+  assertions: string        // JSON 数组
+  last_run_at: string | null
+  last_status: string       // "pending" | "passed" | "failed" | "error"
+  last_duration_ms: number | null
+  last_response: string | null
+  starred: number           // 0 | 1
+  enabled: number           // 0 | 1
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
