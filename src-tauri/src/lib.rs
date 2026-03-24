@@ -18,6 +18,7 @@ use commands::{
     request::{create_request, delete_request, list_requests, update_request},
     send_request::{list_history, send_request},
     test_case::{create_test_case, delete_test_case, list_test_cases, update_test_case},
+    stress::start_stress,
 };
 use db::{init_db, AppDb};
 use tauri::Manager;
@@ -67,6 +68,7 @@ pub fn run() {
             list_env_variables, create_env_variable, update_env_variable, delete_env_variable,
             list_cookies, create_cookie, update_cookie, delete_cookie, get_cookies_for_domain,
             list_test_cases, create_test_case, update_test_case, delete_test_case,
+            start_stress,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
