@@ -93,3 +93,39 @@ export interface HistoryRecord {
   response_headers: string   // JSON
   created_at: string
 }
+
+// ── 环境相关类型 ──────────────────────────────────────
+
+export interface Environment {
+  id: number
+  project_id: number
+  name: string
+  base_url: string | null
+  is_active: number      // 0 | 1
+  created_at: string
+}
+
+export interface EnvVariable {
+  id: number
+  env_id: number
+  key: string
+  value: string
+  description: string | null
+  enabled: number        // 0 | 1
+}
+
+// ── Cookie 类型 ──────────────────────────────────────
+
+export interface CookieItem {
+  id: number
+  scope_type: string     // "global" | "project"
+  project_id: number | null
+  domain: string
+  name: string
+  value: string
+  path: string
+  expires_at: string | null
+  http_only: number
+  secure: number
+  enabled: number
+}
