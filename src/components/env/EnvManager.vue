@@ -117,7 +117,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { NModal, NButton, NInput, NCheckbox, NDivider, NEmpty, NTag } from 'naive-ui'
 import { useEnvironmentStore } from '../../stores/environment'
 import { useProjectStore } from '../../stores/project'
@@ -168,6 +168,11 @@ watch(() => props.show, async (v) => {
       if (active) selectedEnvId.value = active.id
     }
   }
+})
+
+// 新建环境输入框出现时自动聚焦，提升键盘操作体验
+watch(showNewEnvInput, (v) => {
+  if (v) nextTick(() => newEnvInputRef.value?.focus())
 })
 
 function selectEnv(id: number) {
