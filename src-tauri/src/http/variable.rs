@@ -72,4 +72,44 @@ mod tests {
         let output = replace_variables("{{host}}:{{port}}", &vars, false);
         assert_eq!(output, "localhost:8080");
     }
+
+    #[test]
+    fn test_json_escape_newline() {
+        // \n 在 JSON 字符串内必须转义为 \\n，否则产生非法 JSON
+        let mut vars = HashMap::new();
+        vars.insert("msg".to_string(), "line1\nline2".to_string());
+
+        let output = replace_variables(r#"{"msg":"{{msg}}"}"#, &vars, true);
+        assert_eq!(output, r#"{"msg":"line1\nline2"}"#);
+    }
+
+    #[test]
+    fn test_json_escape_tab() {
+        // \t 在 JSON 字符串内必须转义为 \\t
+        let mut vars = HashMap::new();
+        vars.insert("val".to_string(), "a\tb".to_string());
+
+        let output = replace_variables(r#"{"val":"{{val}}"}"#, &vars, true);
+        assert_eq!(output, r#"{"val":"a\tb"}"#);
+    }
+
+    #[test]
+    fn test_json_escape_backslash() {
+        // \ 在 JSON 字符串内必须转义为 \\
+        let mut vars = HashMap::new();
+        vars.insert("path".to_string(), r"C:\Users\alice".to_string());
+
+        let output = replace_variables(r#"{"path":"{{path}}"}"#, &vars, true);
+        assert_eq!(output, r#"{"path":"C:\\Users\\alice"}"#);
+    }
+
+    #[test]
+    fn test_json_no_escape_in_non_json_body() {
+        // is_json_body=false 时，特殊字符不应被转义（原样输出）
+        let mut vars = HashMap::new();
+        vars.insert("msg".to_string(), "line1\nline2".to_string());
+
+        let output = replace_variables("body={{msg}}", &vars, false);
+        assert_eq!(output, "body=line1\nline2");
+    }
 }
