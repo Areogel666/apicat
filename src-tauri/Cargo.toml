@@ -33,3 +33,25 @@ reqwest = { version = "0.12", features = ["json", "cookies", "rustls-tls"], defa
 # 错误处理
 thiserror = "1"
 anyhow = "1"
+
+# YAML 解析（用于 OpenAPI 3.x .yaml 导入）
+serde_yaml = "0.9"
+
+# Tauri 官方文件对话框插件（用于文件选择/保存）
+tauri-plugin-dialog = "2"
+
+# Tauri 官方文件系统插件（用于读写文件）
+tauri-plugin-fs = "2"
+
+# 导出 Postman 格式时生成 collection UUID
+uuid = { version = "1", features = ["v4"] }
+
+# 导出时生成 ISO 8601 时间戳
+chrono = { version = "0.4", features = ["serde"] }
+
+# Unix fd 上限检测（§10.2）；Windows 编译时无 Unix syscall
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# 导入递归处理 Postman items 树
+async-recursion = "1"

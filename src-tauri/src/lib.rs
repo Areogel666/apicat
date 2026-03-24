@@ -32,6 +32,8 @@ fn greet(name: &str) -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             // Tauri 2.x setup 是同步回调，block_on 在当前线程完成 DB 初始化
             let pool = tauri::async_runtime::block_on(init_db(app))?;
