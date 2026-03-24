@@ -118,12 +118,16 @@ import { parseUrl, buildUrl } from '../../utils/urlParser'
 import { useRequestStore } from '../../stores/request'
 import { useResponseStore } from '../../stores/response'
 import { useHistoryStore } from '../../stores/history'
+import { useEnvironmentStore } from '../../stores/environment'
+import { useProjectStore } from '../../stores/project'
 import ResponsePanel from '../response/ResponsePanel.vue'
 import type { ParamItem, ParsedUrl } from '../../types'
 
 const requestStore = useRequestStore()
 const responseStore = useResponseStore()
 const historyStore = useHistoryStore()
+const envStore = useEnvironmentStore()
+const projectStore = useProjectStore()
 
 // ── 请求编辑区状态 ────────────────────────────────────────────
 const method = ref('GET')
@@ -216,15 +220,20 @@ async function handleSend() {
     enabled: true,
   })) ?? []
 
-  const resp = await responseStore.sendRequest(activeReq.id, {
-    method: method.value,
-    url: resolvedUrl.value,
-    query_params: queryParams.value,
-    headers: requestHeaders.value,
-    body_type: bodyType.value,
-    body: bodyContent.value,
-    path_params: pathParamList,
-  })
+  const resp = await responseStore.sendRequest(
+    activeReq.id,
+    {
+      method: method.value,
+      url: resolvedUrl.value,
+      query_params: queryParams.value,
+      headers: requestHeaders.value,
+      body_type: bodyType.value,
+      body: bodyContent.value,
+      path_params: pathParamList,
+    },
+    envStore.activeEnvId,
+    projectStore.currentProjectId,
+  )
 
   // 发送成功后，把新 history 记录插入本地缓存（避免重新拉取）
   if (resp && resp.history_id) {
