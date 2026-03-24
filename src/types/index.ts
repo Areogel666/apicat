@@ -52,3 +52,44 @@ export interface ParsedUrl {
   pathParams: Array<{ key: string; value: string }>   // [{key:"{id}", value:"1676657"}]
   queryParams: Array<{ key: string; value: string }>  // [{key:"page", value:"1"}]
 }
+
+// ── HTTP 响应相关类型 ──────────────────────────────────────
+
+export interface ParamItem {
+  key: string
+  value: string
+  enabled: boolean
+}
+
+export interface SendRequestParams {
+  method: string
+  url: string
+  query_params: ParamItem[]
+  headers: ParamItem[]
+  body_type: string
+  body: string
+  path_params: ParamItem[]
+}
+
+export interface HttpResponse {
+  status_code: number
+  status_text: string
+  headers: [string, string][]
+  body: string
+  body_size: number
+  elapsed_ms: number
+  is_truncated: boolean
+  history_id: number
+}
+
+export interface HistoryRecord {
+  id: number
+  request_id: number
+  status_code: number | null
+  response_time_ms: number | null
+  request_snapshot: string   // JSON
+  response_body: string
+  is_truncated: number       // 0 | 1
+  response_headers: string   // JSON
+  created_at: string
+}
