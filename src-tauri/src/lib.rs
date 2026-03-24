@@ -8,6 +8,7 @@ use commands::{
     collection::{create_collection, delete_collection, list_collections, rename_collection},
     project::{create_project, delete_project, list_projects, update_project},
     request::{create_request, delete_request, list_requests, update_request},
+    send_request::{list_history, send_request},
 };
 use db::{init_db, AppDb};
 use tauri::Manager;
@@ -41,6 +42,7 @@ pub fn run() {
             list_projects, create_project, update_project, delete_project,
             list_collections, create_collection, rename_collection, delete_collection,
             list_requests, create_request, update_request, delete_request,
+            send_request, list_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
