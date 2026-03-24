@@ -259,7 +259,7 @@ function handleRefill(snapshot: string) {
     if (s.query_params) queryParams.value = s.query_params
     if (s.headers) requestHeaders.value = s.headers
     if (s.body_type) bodyType.value = s.body_type
-    if (s.body) bodyContent.value = s.body
+    if ('body' in s) bodyContent.value = s.body ?? ''
   } catch {
     // snapshot 解析失败时静默忽略
   }
