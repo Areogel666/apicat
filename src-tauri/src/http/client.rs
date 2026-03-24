@@ -6,7 +6,7 @@ use std::time::Instant;
 const MAX_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB，设计文档 §10.5
 
 /// 前端传入的请求参数（扁平结构，易于 Tauri IPC 序列化）
-#[derive(Debug, Serialize, Deserialize)]  // Serialize 用于 serde_json::to_string 生成 request_snapshot
+#[derive(Debug, Serialize, Deserialize, Clone)]  // Serialize 用于 serde_json::to_string 生成 request_snapshot
 pub struct SendRequestParams {
     pub method: String,
     pub url: String,

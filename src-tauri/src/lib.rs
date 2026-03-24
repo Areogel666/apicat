@@ -6,6 +6,14 @@ mod http;
 
 use commands::{
     collection::{create_collection, delete_collection, list_collections, rename_collection},
+    cookie::{
+        create_cookie, delete_cookie, get_cookies_for_domain, list_cookies, update_cookie,
+    },
+    environment::{
+        activate_environment, create_env_variable, create_environment, deactivate_environment,
+        delete_env_variable, delete_environment, list_env_variables, list_environments,
+        update_env_variable, update_environment,
+    },
     project::{create_project, delete_project, list_projects, update_project},
     request::{create_request, delete_request, list_requests, update_request},
     send_request::{list_history, send_request},
@@ -51,6 +59,10 @@ pub fn run() {
             list_collections, create_collection, rename_collection, delete_collection,
             list_requests, create_request, update_request, delete_request,
             send_request, list_history,
+            list_environments, create_environment, update_environment, delete_environment,
+            activate_environment, deactivate_environment,
+            list_env_variables, create_env_variable, update_env_variable, delete_env_variable,
+            list_cookies, create_cookie, update_cookie, delete_cookie, get_cookies_for_domain,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
