@@ -10,13 +10,18 @@
           size="medium"
           style="width: 110px; flex-shrink: 0"
         />
-        <n-input
-          v-model:value="url"
-          placeholder="输入请求 URL，如 https://api.example.com/users"
-          size="medium"
-          style="flex: 1"
-          @keyup.enter="handleSend"
-        />
+        <!-- URL 输入框 + {{var}} 高亮层 -->
+        <div class="url-input-wrap">
+          <!-- 高亮覆盖层：pointer-events:none，仅视觉，{{var}} 用橙色底色标注 -->
+          <div class="url-highlight-layer" aria-hidden="true" v-html="urlHighlighted" />
+          <n-input
+            v-model:value="url"
+            placeholder="输入请求 URL，如 https://api.example.com/users"
+            size="medium"
+            class="url-input-transparent"
+            @keyup.enter="handleSend"
+          />
+        </div>
         <n-button
           type="primary"
           size="medium"
@@ -101,10 +106,21 @@
           <div class="params-editor">
             <div class="params-mode-bar">
               <span class="params-section-label" style="margin-bottom:0">Headers</span>
-              <div class="mode-tabs">
-                <span :class="['mode-tab', headerMode==='table' && 'active']" @click="switchHeaderMode('table')">表格</span>
-                <span :class="['mode-tab', headerMode==='kv' && 'active']" @click="switchHeaderMode('kv')">KV 文本</span>
-                <span :class="['mode-tab', headerMode==='json' && 'active']" @click="switchHeaderMode('json')">JSON</span>
+              <div style="display:flex;gap:6px;align-items:center">
+                <n-button
+                  v-if="headerTemplateStore.getEnabledItems().length > 0"
+                  size="tiny"
+                  secondary
+                  title="将公共 Headers 模板批量插入到当前编辑区（跳过已存在的 Key）"
+                  @click="applyHeaderTemplate"
+                >
+                  📋 应用模板
+                </n-button>
+                <div class="mode-tabs">
+                  <span :class="['mode-tab', headerMode==='table' && 'active']" @click="switchHeaderMode('table')">表格</span>
+                  <span :class="['mode-tab', headerMode==='kv' && 'active']" @click="switchHeaderMode('kv')">KV 文本</span>
+                  <span :class="['mode-tab', headerMode==='json' && 'active']" @click="switchHeaderMode('json')">JSON</span>
+                </div>
               </div>
             </div>
 
@@ -149,21 +165,130 @@
               <n-radio-button value="raw_json">JSON</n-radio-button>
               <n-radio-button value="raw_text">Text</n-radio-button>
               <n-radio-button value="form_urlencoded">Form URL</n-radio-button>
+              <n-radio-button value="form_data">Form Data</n-radio-button>
             </n-radio-group>
+
+            <!-- 文本类 body -->
             <n-input
-              v-if="bodyType !== 'none'"
+              v-if="bodyType === 'raw_json' || bodyType === 'raw_text' || bodyType === 'form_urlencoded'"
               v-model:value="bodyContent"
               type="textarea"
               :rows="8"
               placeholder="请求体内容"
               style="font-family: monospace; font-size: 12px"
             />
+
+            <!-- form-data KV 表格 -->
+            <template v-if="bodyType === 'form_data'">
+              <n-empty v-if="!formDataParams.length" description="暂无字段" size="small" />
+              <div v-for="(f, idx) in formDataParams" :key="idx" class="param-row">
+                <n-checkbox v-model:checked="f.enabled" />
+                <n-input v-model:value="f.key" size="small" style="width:140px; flex-shrink:0" placeholder="字段名" />
+                <n-input v-model:value="f.value" size="small" style="flex:1" placeholder="值" />
+                <n-button size="tiny" quaternary @click="formDataParams.splice(idx, 1)">✕</n-button>
+              </div>
+              <n-button size="small" dashed style="margin-top:4px; width:100%" @click="addFormDataField">
+                + 添加字段
+              </n-button>
+            </template>
           </div>
         </n-tab-pane>
 
         <n-tab-pane name="auth" tab="Auth">
-          <div class="tab-content-placeholder">
-            <n-empty description="Auth 配置（M4 实现）" size="small" />
+          <div class="params-editor">
+            <!-- Auth 类型选择 -->
+            <div class="params-mode-bar" style="margin-bottom:10px">
+              <span class="params-section-label">认证类型</span>
+              <n-select
+                v-model:value="authType"
+                :options="authTypeOptions"
+                size="small"
+                style="width: 180px"
+                @update:value="onAuthTypeChange"
+              />
+            </div>
+
+            <!-- None -->
+            <div v-if="authType === 'none'" style="color: var(--n-text-color-3,#999); font-size:13px; padding:8px 0">
+              不使用认证
+            </div>
+
+            <!-- Bearer Token -->
+            <template v-if="authType === 'bearer'">
+              <div class="param-row">
+                <span style="width:80px;font-size:13px;flex-shrink:0">Token</span>
+                <n-input
+                  v-model:value="authBearer"
+                  placeholder="Bearer token 值"
+                  size="small"
+                  style="flex:1; font-family:monospace"
+                  @update:value="syncAuthConfig"
+                />
+              </div>
+              <div style="font-size:11px;color:var(--n-text-color-3,#999);padding:4px 0">
+                将自动添加 <code>Authorization: Bearer &lt;token&gt;</code> 请求头
+              </div>
+            </template>
+
+            <!-- Basic Auth -->
+            <template v-if="authType === 'basic'">
+              <div class="param-row">
+                <span style="width:80px;font-size:13px;flex-shrink:0">用户名</span>
+                <n-input
+                  v-model:value="authBasicUser"
+                  placeholder="Username"
+                  size="small"
+                  style="flex:1"
+                  @update:value="syncAuthConfig"
+                />
+              </div>
+              <div class="param-row" style="margin-top:6px">
+                <span style="width:80px;font-size:13px;flex-shrink:0">密码</span>
+                <n-input
+                  v-model:value="authBasicPass"
+                  placeholder="Password"
+                  size="small"
+                  type="password"
+                  show-password-on="click"
+                  style="flex:1"
+                  @update:value="syncAuthConfig"
+                />
+              </div>
+              <div style="font-size:11px;color:var(--n-text-color-3,#999);padding:4px 0">
+                将自动添加 <code>Authorization: Basic &lt;base64&gt;</code> 请求头
+              </div>
+            </template>
+
+            <!-- API Key -->
+            <template v-if="authType === 'api_key'">
+              <div class="param-row">
+                <span style="width:80px;font-size:13px;flex-shrink:0">Key 名称</span>
+                <n-input
+                  v-model:value="authApiKeyName"
+                  placeholder="X-Api-Key"
+                  size="small"
+                  style="flex:1"
+                  @update:value="syncAuthConfig"
+                />
+              </div>
+              <div class="param-row" style="margin-top:6px">
+                <span style="width:80px;font-size:13px;flex-shrink:0">Key 值</span>
+                <n-input
+                  v-model:value="authApiKeyValue"
+                  placeholder="api key 值"
+                  size="small"
+                  style="flex:1; font-family:monospace"
+                  @update:value="syncAuthConfig"
+                />
+              </div>
+              <div class="param-row" style="margin-top:6px">
+                <span style="width:80px;font-size:13px;flex-shrink:0">添加到</span>
+                <n-radio-group v-model:value="authApiKeyIn" size="small" @update:value="syncAuthConfig">
+                  <n-radio value="header">Header</n-radio>
+                  <n-radio value="query">Query Param</n-radio>
+                </n-radio-group>
+              </div>
+            </template>
           </div>
         </n-tab-pane>
       </n-tabs>
@@ -205,7 +330,7 @@
 import { ref, computed, watch } from 'vue'
 import {
   NSelect, NInput, NButton, NTabs, NTabPane, NEmpty,
-  NTag, NDivider, NCheckbox, NRadioGroup, NRadioButton,
+  NTag, NDivider, NCheckbox, NRadioGroup, NRadioButton, NRadio,
 } from 'naive-ui'
 import { parseUrl, buildUrl } from '../../utils/urlParser'
 import { parseKvText, toKvText, parseJsonToParams, toJsonText } from '../../utils/paramParser'
@@ -216,6 +341,7 @@ import { useEnvironmentStore } from '../../stores/environment'
 import { useProjectStore } from '../../stores/project'
 import { useTestCaseStore } from '../../stores/testCase'
 import { useStressStore } from '../../stores/stress'
+import { useHeaderTemplateStore } from '../../stores/headerTemplate'
 import ResponsePanel from '../response/ResponsePanel.vue'
 import TestCaseBar from '../testcase/TestCaseBar.vue'
 import StressConfigModal from '../stress/StressConfigModal.vue'
@@ -270,6 +396,7 @@ const historyStore = useHistoryStore()
 const envStore = useEnvironmentStore()
 const projectStore = useProjectStore()
 const testCaseStore = useTestCaseStore()
+const headerTemplateStore = useHeaderTemplateStore()
 
 // ── 请求编辑区状态 ────────────────────────────────────────────
 const method = ref('GET')
@@ -279,6 +406,71 @@ const queryParams = ref<ParamItem[]>([])
 const requestHeaders = ref<ParamItem[]>([])
 const bodyType = ref('none')
 const bodyContent = ref('')
+
+// form-data KV 字段（bodyType === 'form_data' 时使用）
+const formDataParams = ref<ParamItem[]>([])
+
+function addFormDataField() {
+  formDataParams.value.push({ key: '', value: '', enabled: true })
+}
+
+/** 当 bodyType 为 form_data 时，将 formDataParams 序列化到 bodyContent */
+function syncFormData() {
+  if (bodyType.value === 'form_data') {
+    bodyContent.value = JSON.stringify(formDataParams.value)
+  }
+}
+
+// ── Auth 状态 ─────────────────────────────────────────────────
+const authType = ref('none')
+const authBearer = ref('')
+const authBasicUser = ref('')
+const authBasicPass = ref('')
+const authApiKeyName = ref('X-Api-Key')
+const authApiKeyValue = ref('')
+const authApiKeyIn = ref<'header' | 'query'>('header')
+
+const authTypeOptions = [
+  { label: '无认证', value: 'none' },
+  { label: 'Bearer Token', value: 'bearer' },
+  { label: 'Basic Auth', value: 'basic' },
+  { label: 'API Key', value: 'api_key' },
+]
+
+/** 切换 auth 类型时，从接口数据恢复字段（或重置） */
+function onAuthTypeChange(val: string) {
+  authType.value = val
+  syncAuthConfig()
+}
+
+/** 把当前 auth 子字段合并为 auth_config JSON 并保存到接口 */
+function syncAuthConfig() {
+  let cfg = '{}'
+  if (authType.value === 'bearer') {
+    cfg = JSON.stringify({ token: authBearer.value })
+  } else if (authType.value === 'basic') {
+    cfg = JSON.stringify({ username: authBasicUser.value, password: authBasicPass.value })
+  } else if (authType.value === 'api_key') {
+    cfg = JSON.stringify({ key: authApiKeyName.value, value: authApiKeyValue.value, in: authApiKeyIn.value })
+  }
+  // 静默保存到当前接口（不影响发请求，发请求时从 ref 读取）
+  const req = requestStore.activeRequest
+  if (req) {
+    requestStore.updateRequest(req.id, { auth_type: authType.value, auth_config: cfg })
+  }
+}
+
+/** 从 auth_type / auth_config 字符串恢复子字段 */
+function loadAuthFields(type: string, configStr: string) {
+  authType.value = type || 'none'
+  const cfg = (() => { try { return JSON.parse(configStr || '{}') } catch { return {} } })()
+  authBearer.value = cfg.token ?? ''
+  authBasicUser.value = cfg.username ?? ''
+  authBasicPass.value = cfg.password ?? ''
+  authApiKeyName.value = cfg.key ?? 'X-Api-Key'
+  authApiKeyValue.value = cfg.value ?? ''
+  authApiKeyIn.value = cfg.in === 'query' ? 'query' : 'header'
+}
 
 const methodOptions = [
   { label: 'GET',     value: 'GET' },
@@ -297,6 +489,12 @@ watch(() => requestStore.activeRequest, async (req) => {
     method.value = req.method
     bodyType.value = req.body_type || 'none'
     bodyContent.value = req.body || ''
+    // 加载 form-data 字段
+    if (req.body_type === 'form_data') {
+      try { formDataParams.value = JSON.parse(req.body || '[]') } catch { formDataParams.value = [] }
+    } else {
+      formDataParams.value = []
+    }
 
     // 解析存储的 params/headers JSON
     try { queryParams.value = JSON.parse(req.params) } catch { queryParams.value = [] }
@@ -308,6 +506,9 @@ watch(() => requestStore.activeRequest, async (req) => {
     paramsDirty.value = false
     testCaseStore.activeTestCaseId = null
 
+    // 加载 Auth 字段
+    loadAuthFields(req.auth_type || 'none', req.auth_config || '{}')
+
     // 加载该接口历史 + 测试用例
     await historyStore.loadHistory(req.id)
     await testCaseStore.loadTestCases(req.id)
@@ -318,6 +519,7 @@ watch(() => requestStore.activeRequest, async (req) => {
     bodyContent.value = ''
     queryParams.value = []
     requestHeaders.value = []
+    loadAuthFields('none', '{}')
     queryMode.value = 'table'
     headerMode.value = 'table'
     paramsDirty.value = false
@@ -352,6 +554,29 @@ const resolvedUrl = computed(() => {
   )
 })
 
+// ── URL {{var}} 高亮层 ────────────────────────────────────────
+/** 将 URL 中的 {{variable}} 替换为带背景色 span，其余字符转义为 HTML 实体 */
+const urlHighlighted = computed(() => {
+  if (!url.value) return ''
+  return escapeAndHighlight(url.value)
+})
+
+function escapeAndHighlight(s: string): string {
+  // 按 {{...}} 分段，分别处理
+  const parts = s.split(/({{[^{}]*}})/)
+  return parts.map(part => {
+    if (/^{{[^{}]*}}$/.test(part)) {
+      // {{variable}} → 橙色徽章
+      return `<mark class="url-var">${escapeHtmlChars(part)}</mark>`
+    }
+    return escapeHtmlChars(part)
+  }).join('')
+}
+
+function escapeHtmlChars(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
 // ── 辅助函数 ─────────────────────────────────────────────────
 function addQueryParam() {
   queryParams.value.push({ key: '', value: '', enabled: true })
@@ -361,6 +586,27 @@ function addHeader() {
   requestHeaders.value.push({ key: '', value: '', enabled: true })
 }
 
+/** 将公共 Headers 模板中启用的条目批量写入编辑区（跳过 key 已存在的条目） */
+function applyHeaderTemplate() {
+  // 先确保 kv/json 模式的内容已同步到 requestHeaders
+  if (headerMode.value === 'kv') requestHeaders.value = parseKvText(headerKvText.value)
+  else if (headerMode.value === 'json') requestHeaders.value = parseJsonToParams(headerJsonText.value)
+
+  const existingKeys = new Set(requestHeaders.value.map(h => h.key.toLowerCase()))
+  const tplItems = headerTemplateStore.getEnabledItems()
+  let added = 0
+  for (const item of tplItems) {
+    if (!existingKeys.has(item.key.toLowerCase())) {
+      requestHeaders.value.push({ key: item.key, value: item.value, enabled: true })
+      existingKeys.add(item.key.toLowerCase())
+      added++
+    }
+  }
+  // 若当前是 kv/json 模式，同步回文本框
+  if (headerMode.value === 'kv') headerKvText.value = toKvText(requestHeaders.value)
+  else if (headerMode.value === 'json') headerJsonText.value = toJsonText(requestHeaders.value)
+}
+
 // ── 发送请求 ──────────────────────────────────────────────────
 async function handleSend() {
   // 非表格模式时先同步内容到 source of truth（queryParams / requestHeaders）
@@ -368,6 +614,8 @@ async function handleSend() {
   else if (queryMode.value === 'json') queryParams.value = parseJsonToParams(queryJsonText.value)
   if (headerMode.value === 'kv') requestHeaders.value = parseKvText(headerKvText.value)
   else if (headerMode.value === 'json') requestHeaders.value = parseJsonToParams(headerJsonText.value)
+  // form-data 序列化
+  if (bodyType.value === 'form_data') syncFormData()
 
   const activeReq = requestStore.activeRequest
   if (!activeReq) return
@@ -388,6 +636,13 @@ async function handleSend() {
       body_type: bodyType.value,
       body: bodyContent.value,
       path_params: pathParamList,
+      auth_type: authType.value,
+      auth_config: (() => {
+        if (authType.value === 'bearer') return JSON.stringify({ token: authBearer.value })
+        if (authType.value === 'basic') return JSON.stringify({ username: authBasicUser.value, password: authBasicPass.value })
+        if (authType.value === 'api_key') return JSON.stringify({ key: authApiKeyName.value, value: authApiKeyValue.value, in: authApiKeyIn.value })
+        return '{}'
+      })(),
     },
     envStore.activeEnvId,
     projectStore.currentProjectId,
@@ -570,6 +825,7 @@ async function handleStartStress(config: StressConfig) {
   else if (queryMode.value === 'json') queryParams.value = parseJsonToParams(queryJsonText.value)
   if (headerMode.value === 'kv') requestHeaders.value = parseKvText(headerKvText.value)
   else if (headerMode.value === 'json') requestHeaders.value = parseJsonToParams(headerJsonText.value)
+  if (bodyType.value === 'form_data') syncFormData()
 
   showStressResult.value = true
 
@@ -654,4 +910,49 @@ async function handleStartStress(config: StressConfig) {
 }
 .mode-tab:hover { background: var(--n-item-color-hover, rgba(0,0,0,0.04)); color: var(--n-text-color, #333); }
 .mode-tab.active { background: var(--n-primary-color, #18a058); color: #fff; }
+
+/* ── URL {{var}} 高亮层 ── */
+.url-input-wrap {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* n-input 透明文字（字体/大小与高亮层完全一致），高亮层在下面透出来 */
+.url-input-transparent :deep(.n-input__input-el) {
+  color: transparent;
+  caret-color: var(--n-text-color, #333);  /* 光标保持可见 */
+  background: transparent;
+  position: relative;
+  z-index: 1;
+}
+
+.url-highlight-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0 12px;          /* 与 n-input medium 的内边距对齐 */
+  display: flex;
+  align-items: center;
+  font-size: 14px;           /* 与 n-input medium 字号一致 */
+  font-family: inherit;
+  line-height: 1;
+  pointer-events: none;     /* 不拦截鼠标事件 */
+  overflow: hidden;
+  white-space: pre;
+  color: var(--n-text-color, #333);
+  z-index: 0;
+}
+
+/* {{variable}} 标记样式 */
+.url-highlight-layer :deep(.url-var) {
+  background: rgba(250, 140, 22, 0.18);
+  color: #d46b08;
+  border-radius: 3px;
+  padding: 1px 2px;
+  font-style: normal;
+}
 </style>
