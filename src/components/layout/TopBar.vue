@@ -44,6 +44,9 @@
 
   <!-- 导出弹窗 -->
   <ExportDialog v-model:show="showExportDialog" />
+
+  <!-- 公共 Headers 模板弹窗 -->
+  <HeaderTemplateModal v-model:show="showHeaderTemplateModal" />
 </template>
 
 <script setup lang="ts">
@@ -55,6 +58,7 @@ import EnvManager from '../env/EnvManager.vue'
 import CookieManager from '../cookie/CookieManager.vue'
 import ImportDialog from '../io/ImportDialog.vue'
 import ExportDialog from '../io/ExportDialog.vue'
+import HeaderTemplateModal from './HeaderTemplateModal.vue'
 
 const projectStore = useProjectStore()
 const envStore = useEnvironmentStore()
@@ -63,15 +67,19 @@ const showEnvManager = ref(false)
 const showCookieManager = ref(false)
 const showImportDialog = ref(false)
 const showExportDialog = ref(false)
+const showHeaderTemplateModal = ref(false)
 
 const settingsMenuOptions = [
   { label: '📥 导入接口...', key: 'import' },
   { label: '📤 导出接口...', key: 'export' },
+  { type: 'divider', key: 'd1' },
+  { label: '📋 公共 Headers 模板...', key: 'headerTemplate' },
 ]
 
 function handleSettingsMenu(key: string) {
   if (key === 'import') showImportDialog.value = true
   else if (key === 'export') showExportDialog.value = true
+  else if (key === 'headerTemplate') showHeaderTemplateModal.value = true
 }
 
 // ── 项目下拉 ──────────────────────────────────────────────
