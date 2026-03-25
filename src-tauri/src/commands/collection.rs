@@ -61,3 +61,19 @@ pub async fn delete_collection(db: State<'_, AppDb>, id: i64) -> CmdResult<()> {
         .await?;
     Ok(())
 }
+
+/// 批量更新 collection 排序（拖拽后调用）
+#[tauri::command]
+pub async fn update_collection_sort(
+    db: State<'_, AppDb>,
+    items: Vec<(i64, i64)>,  // (id, sort_order)
+) -> CmdResult<()> {
+    for (id, sort) in items {
+        sqlx::query("UPDATE collections SET sort_order=? WHERE id=?")
+            .bind(sort)
+            .bind(id)
+            .execute(&db.0)
+            .await?;
+    }
+    Ok(())
+}

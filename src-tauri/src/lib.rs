@@ -5,7 +5,7 @@ mod commands;
 mod http;
 
 use commands::{
-    collection::{create_collection, delete_collection, list_collections, rename_collection},
+    collection::{create_collection, delete_collection, list_collections, rename_collection, update_collection_sort},
     cookie::{
         create_cookie, delete_cookie, get_cookies_for_domain, list_cookies, update_cookie,
     },
@@ -15,7 +15,7 @@ use commands::{
         update_env_variable, update_environment,
     },
     project::{create_project, delete_project, list_projects, update_project},
-    request::{create_request, delete_request, list_requests, update_request},
+    request::{create_request, delete_request, duplicate_request, list_requests, update_request, update_request_sort},
     send_request::{list_history, send_request},
     test_case::{create_test_case, delete_test_case, list_test_cases, update_test_case},
     stress::start_stress,
@@ -61,8 +61,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             list_projects, create_project, update_project, delete_project,
-            list_collections, create_collection, rename_collection, delete_collection,
-            list_requests, create_request, update_request, delete_request,
+            list_collections, create_collection, rename_collection, delete_collection, update_collection_sort,
+            list_requests, create_request, update_request, delete_request, duplicate_request, update_request_sort,
             send_request, list_history,
             list_environments, create_environment, update_environment, delete_environment,
             activate_environment, deactivate_environment,

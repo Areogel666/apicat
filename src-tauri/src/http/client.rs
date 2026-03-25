@@ -14,10 +14,19 @@ pub struct SendRequestParams {
     pub query_params: Vec<ParamItem>,
     /// headers: [(key, value, enabled)]
     pub headers: Vec<ParamItem>,
-    pub body_type: String,  // none | raw_json | raw_text | form_urlencoded
+    pub body_type: String,  // none | raw_json | raw_text | form_urlencoded | form_data
     pub body: String,
     /// path params 已在前端替换进 url，这里仅作记录快照用
     pub path_params: Vec<ParamItem>,
+    /// 认证类型：none | bearer | basic | api_key
+    #[serde(default)]
+    pub auth_type: String,
+    /// 认证配置 JSON：
+    ///   bearer:  {"token": "..."}
+    ///   basic:   {"username": "...", "password": "..."}
+    ///   api_key: {"key": "...", "value": "...", "in": "header"|"query"}
+    #[serde(default)]
+    pub auth_config: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -52,11 +61,54 @@ pub async fn send(client: &reqwest::Client, params: &SendRequestParams) -> Resul
         }
     }
 
-    let mut builder = client.request(method, parsed_url);
+    // 保留原始 URL 副本，api_key query 模式时用于重建 builder
+    let base_url = parsed_url.clone();
+
+    let mut builder = client.request(method.clone(), parsed_url);
 
     // ── 添加 Headers ──────────────────────────────────────────
     for h in params.headers.iter().filter(|h| h.enabled && !h.key.is_empty()) {
         builder = builder.header(&h.key, &h.value);
+    }
+
+    // ── 注入 Auth Header（auth_type 优先级高于手动 headers）──
+    if !params.auth_type.is_empty() && params.auth_type != "none" {
+        let cfg: serde_json::Value =
+            serde_json::from_str(&params.auth_config).unwrap_or(serde_json::Value::Null);
+
+        match params.auth_type.as_str() {
+            "bearer" => {
+                if let Some(token) = cfg["token"].as_str() {
+                    builder = builder.header("Authorization", format!("Bearer {token}"));
+                }
+            }
+            "basic" => {
+                let username = cfg["username"].as_str().unwrap_or("");
+                let password = cfg["password"].as_str().unwrap_or("");
+                use base64::Engine as _;
+                let encoded = base64::engine::general_purpose::STANDARD
+                    .encode(format!("{username}:{password}"));
+                builder = builder.header("Authorization", format!("Basic {encoded}"));
+            }
+            "api_key" => {
+                let key = cfg["key"].as_str().unwrap_or("X-Api-Key");
+                let value = cfg["value"].as_str().unwrap_or("");
+                let location = cfg["in"].as_str().unwrap_or("header");
+                if location == "header" {
+                    builder = builder.header(key, value);
+                } else {
+                    // query 方式：追加到已构建的 URL（使用保留的 base_url 副本）
+                    let mut url_with_key = base_url.clone();
+                    url_with_key.query_pairs_mut().append_pair(key, value);
+                    builder = client.request(method.clone(), url_with_key);
+                    // 重新添加 headers（因为 builder 被重置了）
+                    for h in params.headers.iter().filter(|h| h.enabled && !h.key.is_empty()) {
+                        builder = builder.header(&h.key, &h.value);
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 
     // ── 设置 Body ─────────────────────────────────────────────
@@ -75,6 +127,16 @@ pub async fn send(client: &reqwest::Client, params: &SendRequestParams) -> Resul
             builder = builder
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .body(params.body.clone());
+        }
+        "form_data" => {
+            // body 为 JSON 数组 [{key, value, enabled}]，构建 multipart/form-data
+            let fields: Vec<ParamItem> =
+                serde_json::from_str(&params.body).unwrap_or_default();
+            let mut form = reqwest::multipart::Form::new();
+            for f in fields.iter().filter(|f| f.enabled && !f.key.is_empty()) {
+                form = form.text(f.key.clone(), f.value.clone());
+            }
+            builder = builder.multipart(form);
         }
         _ => {} // none: 不设置 body
     }

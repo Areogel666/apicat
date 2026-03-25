@@ -76,3 +76,50 @@ pub async fn delete_request(db: State<'_, AppDb>, id: i64) -> CmdResult<()> {
         .await?;
     Ok(())
 }
+
+/// 复制接口（克隆所有字段，名称自动追加「副本」）
+#[tauri::command]
+pub async fn duplicate_request(db: State<'_, AppDb>, id: i64) -> CmdResult<ApiRequest> {
+    let src = sqlx::query_as::<_, ApiRequest>(
+        "SELECT id, collection_id, name, method, url, params, headers, body_type, body, auth_type, auth_config, sort_order, created_at, updated_at FROM api_requests WHERE id=?"
+    )
+    .bind(id)
+    .fetch_one(&db.0)
+    .await?;
+
+    let new_name = format!("{} 副本", src.name);
+    let row = sqlx::query_as::<_, ApiRequest>(
+        "INSERT INTO api_requests (collection_id, name, method, url, params, headers, body_type, body, auth_type, auth_config, sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?) RETURNING id, collection_id, name, method, url, params, headers, body_type, body, auth_type, auth_config, sort_order, created_at, updated_at"
+    )
+    .bind(src.collection_id)
+    .bind(&new_name)
+    .bind(&src.method)
+    .bind(&src.url)
+    .bind(&src.params)
+    .bind(&src.headers)
+    .bind(&src.body_type)
+    .bind(&src.body)
+    .bind(&src.auth_type)
+    .bind(&src.auth_config)
+    .bind(src.sort_order + 1)
+    .fetch_one(&db.0)
+    .await
+    .map_err(|e| map_unique_name_error(e, &new_name))?;
+    Ok(row)
+}
+
+/// 批量更新接口排序（拖拽后调用）
+#[tauri::command]
+pub async fn update_request_sort(
+    db: State<'_, AppDb>,
+    items: Vec<(i64, i64)>,  // (id, sort_order)
+) -> CmdResult<()> {
+    for (id, sort) in items {
+        sqlx::query("UPDATE api_requests SET sort_order=? WHERE id=?")
+            .bind(sort)
+            .bind(id)
+            .execute(&db.0)
+            .await?;
+    }
+    Ok(())
+}

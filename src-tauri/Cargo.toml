@@ -28,7 +28,7 @@ tokio = { version = "1", features = ["full"] }
 sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio-native-tls", "macros", "migrate"] }
 
 # HTTP 客户端（M3 接口调试时用）
-reqwest = { version = "0.12", features = ["json", "cookies", "rustls-tls"], default-features = false }
+reqwest = { version = "0.12", features = ["json", "cookies", "rustls-tls", "multipart"], default-features = false }
 
 # 错误处理
 thiserror = "1"
@@ -51,6 +51,9 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # 导入递归处理 Postman items 树（用于 async fn 中的递归调用）
 async-recursion = "1"
+
+# Basic Auth 编码（Bearer/Basic/API Key 认证）
+base64 = "0.22"
 
 # Unix fd 上限检测（§10.2）；Windows 编译时无 Unix syscall
 [target.'cfg(unix)'.dependencies]
