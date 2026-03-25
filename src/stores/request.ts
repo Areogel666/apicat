@@ -60,6 +60,41 @@ export const useRequestStore = defineStore('request', () => {
     if (activeRequestId.value === id) activeRequestId.value = null
   }
 
+  /** 复制接口（克隆所有字段，名称自动追加「副本」） */
+  async function duplicateRequest(id: number) {
+    const req = await invoke<ApiRequest>('duplicate_request', { id })
+    const list = requestMap.value[req.collection_id] ?? []
+    // 插入到原接口后面
+    const srcIdx = list.findIndex(r => r.id === id)
+    const insertAt = srcIdx >= 0 ? srcIdx + 1 : list.length
+    const newList = [...list]
+    newList.splice(insertAt, 0, req)
+    requestMap.value[req.collection_id] = newList
+    return req
+  }
+
+  /** 重命名接口（复用 updateRequest，只改 name） */
+  async function renameRequest(id: number, name: string) {
+    const current = Object.values(requestMap.value).flat().find(r => r.id === id)
+    if (!current) throw new Error('Request not found')
+    const updated = await invoke<ApiRequest>('update_request', {
+      id,
+      name,
+      method: current.method,
+      url: current.url,
+      params: current.params,
+      headers: current.headers,
+      body_type: current.body_type,
+      body: current.body,
+      auth_type: current.auth_type,
+      auth_config: current.auth_config,
+    })
+    const list = requestMap.value[current.collection_id] ?? []
+    const idx = list.findIndex(r => r.id === id)
+    if (idx !== -1) list[idx] = updated
+    return updated
+  }
+
   return {
     requestMap,
     activeRequestId,
@@ -68,5 +103,7 @@ export const useRequestStore = defineStore('request', () => {
     createRequest,
     updateRequest,
     deleteRequest,
+    duplicateRequest,
+    renameRequest,
   }
 })

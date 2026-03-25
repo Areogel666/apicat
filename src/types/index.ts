@@ -99,6 +99,8 @@ export interface SendRequestParams {
   body_type: string
   body: string
   path_params: ParamItem[]
+  auth_type?: string
+  auth_config?: string
 }
 
 export interface HttpResponse {
