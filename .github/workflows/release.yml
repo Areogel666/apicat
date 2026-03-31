@@ -85,6 +85,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Windows：增大栈空间，避免 windows crate 编译 OOM
           RUST_MIN_STACK: ${{ matrix.platform == 'windows-latest' && '8388608' || '' }}
+          # 更新包签名密钥（存储在 GitHub Secrets 中）
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'ApiCat ${{ github.ref_name }}'
@@ -94,6 +97,7 @@ jobs:
           prerelease: false
           target: ${{ matrix.target }}
           args: --bundles ${{ matrix.bundles }}
+          updaterJsonKeepUniversal: true   # 生成统一的 latest.json
 
       # ── 上传构建产物（可选，用于 CI 内部查看）──────────────
       - name: Upload artifacts

@@ -61,7 +61,9 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { NSelect, NButton, NDropdown, NModal, NInput, useDialog } from 'naive-ui'
+import { NSelect, NButton, NDropdown, NModal, NInput, useDialog, useMessage } from 'naive-ui'
+import { check } from '@tauri-apps/plugin-updater'
+import { relaunch } from '@tauri-apps/plugin-process'
 import { useProjectStore } from '../../stores/project'
 import { useEnvironmentStore } from '../../stores/environment'
 import EnvManager from '../env/EnvManager.vue'
@@ -73,6 +75,7 @@ import HeaderTemplateModal from './HeaderTemplateModal.vue'
 const projectStore = useProjectStore()
 const envStore = useEnvironmentStore()
 const dialog = useDialog()
+const message = useMessage()
 
 const showEnvManager = ref(false)
 const showCookieManager = ref(false)
@@ -88,12 +91,53 @@ const settingsMenuOptions = computed(() => [
   { label: '📤 导出接口...', key: 'export' },
   { type: 'divider', key: 'd1' },
   { label: '📋 公共 Headers 模板...', key: 'headerTemplate' },
+  { type: 'divider', key: 'd2' },
+  { label: '🔄 检查更新...', key: 'checkUpdate' },
 ])
 
 async function handleSettingsMenu(key: string) {
   if (key === 'import') showImportDialog.value = true
   else if (key === 'export') showExportDialog.value = true
   else if (key === 'headerTemplate') showHeaderTemplateModal.value = true
+  else if (key === 'checkUpdate') await checkForUpdate()
+}
+
+// ── 自动更新 ──────────────────────────────────────────────
+async function checkForUpdate() {
+  try {
+    message.loading('正在检查更新...', { duration: 0 })
+    const update = await check()
+    message.destroyAll()
+
+    if (!update) {
+      message.success('当前已是最新版本 🎉')
+      return
+    }
+
+    dialog.info({
+      title: `发现新版本 ${update.version}`,
+      content: update.body
+        ? `更新内容：\n${update.body}`
+        : '有新版本可用，是否立即更新并重启？',
+      positiveText: '立即更新',
+      negativeText: '稍后再说',
+      onPositiveClick: async () => {
+        const downloadMsg = message.loading('正在下载更新，请稍候...', { duration: 0 })
+        try {
+          await update.downloadAndInstall()
+          downloadMsg.destroy()
+          message.success('更新完成，正在重启...')
+          setTimeout(() => relaunch(), 1500)
+        } catch (e) {
+          downloadMsg.destroy()
+          message.error(`更新失败：${e}`)
+        }
+      }
+    })
+  } catch (e) {
+    message.destroyAll()
+    message.error(`检查更新失败：${e}`)
+  }
 }
 
 async function handleRenameProject() {
