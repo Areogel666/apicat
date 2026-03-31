@@ -15,7 +15,8 @@ export const useTestCaseStore = defineStore('testCase', () => {
   }
 
   async function loadTestCases(requestId: number) {
-    const cases = await invoke<TestCase[]>('list_test_cases', { request_id: requestId })
+    // Tauri 2.x #[command] 宏把 Rust snake_case 参数名转为 camelCase IPC key
+    const cases = await invoke<TestCase[]>('list_test_cases', { requestId })
     testCaseMap.value[requestId] = cases
     // 自动激活第一个收藏用例（仅在无激活时）
     if (activeTestCaseId.value === null) {
@@ -36,14 +37,14 @@ export const useTestCaseStore = defineStore('testCase', () => {
     body?: string | null
   }): Promise<TestCase> {
     const tc = await invoke<TestCase>('create_test_case', {
-      request_id: params.requestId,
-      collection_id: params.collectionId,
+      requestId: params.requestId,
+      collectionId: params.collectionId,
       name: params.name,
       method: params.method ?? null,
       url: params.url ?? null,
       headers: params.headers ?? '[]',
       params: params.params_ ?? '[]',
-      body_type: params.bodyType ?? null,
+      bodyType: params.bodyType ?? null,
       body: params.body ?? null,
     })
     const list = testCaseMap.value[params.requestId] ?? []
@@ -70,7 +71,7 @@ export const useTestCaseStore = defineStore('testCase', () => {
       url: data.url !== undefined ? data.url : current.url,
       headers: data.headers ?? current.headers,
       params: data.params ?? current.params,
-      body_type: data.body_type !== undefined ? data.body_type : current.body_type,
+      bodyType: data.body_type !== undefined ? data.body_type : current.body_type,
       body: data.body !== undefined ? data.body : current.body,
     })
 

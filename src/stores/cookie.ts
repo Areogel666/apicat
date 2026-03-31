@@ -8,16 +8,17 @@ export const useCookieStore = defineStore('cookie', () => {
   const projectCookies = ref<CookieItem[]>([])
 
   async function loadGlobalCookies() {
+    // Tauri 2.x #[command] 宏把 Rust snake_case 参数名转为 camelCase IPC key
     globalCookies.value = await invoke<CookieItem[]>('list_cookies', {
-      scope_type: 'global',
-      project_id: null,
+      scopeType: 'global',
+      projectId: null,
     })
   }
 
   async function loadProjectCookies(projectId: number) {
     projectCookies.value = await invoke<CookieItem[]>('list_cookies', {
-      scope_type: 'project',
-      project_id: projectId,
+      scopeType: 'project',
+      projectId,
     })
   }
 
@@ -30,8 +31,8 @@ export const useCookieStore = defineStore('cookie', () => {
     path: string,
   ) {
     const c = await invoke<CookieItem>('create_cookie', {
-      scope_type: scopeType,
-      project_id: projectId,
+      scopeType,
+      projectId,
       domain, name, value, path,
     })
     if (scopeType === 'global') {

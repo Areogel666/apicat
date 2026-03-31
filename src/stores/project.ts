@@ -15,7 +15,15 @@ export const useProjectStore = defineStore('project', () => {
   async function loadProjects() {
     loading.value = true
     try {
-      projects.value = await invoke<Project[]>('list_projects')
+      let list = await invoke<Project[]>('list_projects')
+      
+      // 如果没有任何项目，自动创建一个默认项目
+      if (list.length === 0) {
+        const defaultProj = await invoke<Project>('create_project', { name: 'Default Project', description: null })
+        list = [defaultProj]
+      }
+
+      projects.value = list
       // 默认选中第一个项目
       if (projects.value.length > 0 && !currentProjectId.value) {
         currentProjectId.value = projects.value[0].id

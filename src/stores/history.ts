@@ -8,7 +8,8 @@ export const useHistoryStore = defineStore('history', () => {
   const historyMap = ref<Record<number, HistoryRecord[]>>({})
 
   async function loadHistory(requestId: number) {
-    const rows = await invoke<HistoryRecord[]>('list_history', { request_id: requestId })
+    // Tauri 2.x #[command] 宏把 Rust snake_case 参数名转为 camelCase IPC key
+    const rows = await invoke<HistoryRecord[]>('list_history', { requestId })
     historyMap.value[requestId] = rows
   }
 

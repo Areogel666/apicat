@@ -15,14 +15,15 @@ export const useEnvironmentStore = defineStore('environment', () => {
 
   // ── 环境 CRUD ──────────────────────────────────────────────
   async function loadEnvironments(projectId: number) {
-    environments.value = await invoke<Environment[]>('list_environments', { project_id: projectId })
+    // Tauri 2.x #[command] 宏把 Rust snake_case 参数名转为 camelCase IPC key
+    environments.value = await invoke<Environment[]>('list_environments', { projectId })
   }
 
   async function createEnvironment(projectId: number, name: string, baseUrl?: string | null) {
     const env = await invoke<Environment>('create_environment', {
-      project_id: projectId,
+      projectId,
       name,
-      base_url: baseUrl ?? null,
+      baseUrl: baseUrl ?? null,
     })
     environments.value.push(env)
     return env
@@ -32,7 +33,7 @@ export const useEnvironmentStore = defineStore('environment', () => {
     const updated = await invoke<Environment>('update_environment', {
       id,
       name,
-      base_url: baseUrl ?? null,
+      baseUrl: baseUrl ?? null,
     })
     const idx = environments.value.findIndex(e => e.id === id)
     if (idx !== -1) environments.value[idx] = updated
@@ -48,24 +49,24 @@ export const useEnvironmentStore = defineStore('environment', () => {
   }
 
   async function activateEnvironment(projectId: number, envId: number) {
-    await invoke('activate_environment', { project_id: projectId, env_id: envId })
+    await invoke('activate_environment', { projectId, envId })
     // 本地更新 is_active
     environments.value.forEach(e => { e.is_active = e.id === envId ? 1 : 0 })
   }
 
   async function deactivateEnvironment(projectId: number) {
-    await invoke('deactivate_environment', { project_id: projectId })
+    await invoke('deactivate_environment', { projectId })
     environments.value.forEach(e => { e.is_active = 0 })
   }
 
   // ── 环境变量 CRUD ──────────────────────────────────────────
   async function loadVariables(envId: number) {
-    variables.value = await invoke<EnvVariable[]>('list_env_variables', { env_id: envId })
+    variables.value = await invoke<EnvVariable[]>('list_env_variables', { envId })
   }
 
   async function createVariable(envId: number, key: string, value: string, description?: string | null) {
     const v = await invoke<EnvVariable>('create_env_variable', {
-      env_id: envId, key, value, description: description ?? null,
+      envId, key, value, description: description ?? null,
     })
     variables.value.push(v)
     return v

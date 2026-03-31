@@ -7,6 +7,10 @@ export const useRequestStore = defineStore('request', () => {
   // collectionId → ApiRequest[]
   const requestMap = ref<Record<number, ApiRequest[]>>({})
   const activeRequestId = ref<number | null>(null)
+  // 记录已修改但未保存到 DB 的接口 ID（用于左侧树红色小点标记）
+  const dirtyRequestIds = ref<Set<number>>(new Set())
+  // 记录刚保存成功的接口 ID（用于左侧树绿色小点标记，1.5秒后自动消失）
+  const savedRequestIds = ref<Set<number>>(new Set())
 
   const activeRequest = computed<ApiRequest | null>(() => {
     if (!activeRequestId.value) return null
@@ -18,13 +22,13 @@ export const useRequestStore = defineStore('request', () => {
   })
 
   async function loadRequests(collectionId: number) {
-    const rows = await invoke<ApiRequest[]>('list_requests', { collection_id: collectionId })
+    const rows = await invoke<ApiRequest[]>('list_requests', { collectionId })
     requestMap.value[collectionId] = rows
   }
 
   async function createRequest(collectionId: number, name: string, method: string, url: string) {
     const req = await invoke<ApiRequest>('create_request', {
-      collection_id: collectionId, name, method, url,
+      collectionId, name, method, url,
     })
     const list = requestMap.value[collectionId] ?? []
     requestMap.value[collectionId] = [...list, req]
@@ -42,14 +46,18 @@ export const useRequestStore = defineStore('request', () => {
       url: data.url ?? current.url,
       params: data.params ?? current.params,
       headers: data.headers ?? current.headers,
-      body_type: data.body_type ?? current.body_type,
+      bodyType: data.body_type ?? current.body_type,
       body: data.body ?? current.body,
-      auth_type: data.auth_type ?? current.auth_type,
-      auth_config: data.auth_config ?? current.auth_config,
+      authType: data.auth_type ?? current.auth_type,
+      authConfig: data.auth_config ?? current.auth_config,
     })
     const list = requestMap.value[current.collection_id] ?? []
     const idx = list.findIndex(r => r.id === id)
     if (idx !== -1) list[idx] = updated
+    // 保存成功后清除 dirty 标记（替换整个 Set 以触发 Vue 3 响应式更新）
+    const cleanSet = new Set(dirtyRequestIds.value)
+    cleanSet.delete(id)
+    dirtyRequestIds.value = cleanSet
     return updated
   }
 
@@ -58,13 +66,15 @@ export const useRequestStore = defineStore('request', () => {
     const list = requestMap.value[collectionId] ?? []
     requestMap.value[collectionId] = list.filter(r => r.id !== id)
     if (activeRequestId.value === id) activeRequestId.value = null
+    // 删除接口时清除 dirty 标记（替换整个 Set 以触发 Vue 3 响应式更新）
+    const cleanSet = new Set(dirtyRequestIds.value)
+    cleanSet.delete(id)
+    dirtyRequestIds.value = cleanSet
   }
 
-  /** 复制接口（克隆所有字段，名称自动追加「副本」） */
   async function duplicateRequest(id: number) {
     const req = await invoke<ApiRequest>('duplicate_request', { id })
     const list = requestMap.value[req.collection_id] ?? []
-    // 插入到原接口后面
     const srcIdx = list.findIndex(r => r.id === id)
     const insertAt = srcIdx >= 0 ? srcIdx + 1 : list.length
     const newList = [...list]
@@ -73,7 +83,6 @@ export const useRequestStore = defineStore('request', () => {
     return req
   }
 
-  /** 重命名接口（复用 updateRequest，只改 name） */
   async function renameRequest(id: number, name: string) {
     const current = Object.values(requestMap.value).flat().find(r => r.id === id)
     if (!current) throw new Error('Request not found')
@@ -84,10 +93,10 @@ export const useRequestStore = defineStore('request', () => {
       url: current.url,
       params: current.params,
       headers: current.headers,
-      body_type: current.body_type,
+      bodyType: current.body_type,
       body: current.body,
-      auth_type: current.auth_type,
-      auth_config: current.auth_config,
+      authType: current.auth_type,
+      authConfig: current.auth_config,
     })
     const list = requestMap.value[current.collection_id] ?? []
     const idx = list.findIndex(r => r.id === id)
@@ -99,6 +108,8 @@ export const useRequestStore = defineStore('request', () => {
     requestMap,
     activeRequestId,
     activeRequest,
+    dirtyRequestIds,
+    savedRequestIds,
     loadRequests,
     createRequest,
     updateRequest,

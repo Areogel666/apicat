@@ -17,11 +17,12 @@ export const useResponseStore = defineStore('response', () => {
     loading.value = true
     error.value = null
     try {
+      // Tauri 2.x #[command] 宏把 Rust snake_case 参数名转为 camelCase IPC key
       response.value = await invoke<HttpResponse>('send_request', {
-        request_id: requestId,
+        requestId,
         params,
-        env_id: envId,
-        project_id: projectId,
+        envId,
+        projectId,
       })
     } catch (e) {
       error.value = String(e)

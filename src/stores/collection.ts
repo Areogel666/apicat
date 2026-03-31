@@ -8,7 +8,8 @@ export const useCollectionStore = defineStore('collection', () => {
   const collectionMap = ref<Record<number, Collection[]>>({})
 
   async function loadCollections(projectId: number) {
-    const rows = await invoke<Collection[]>('list_collections', { project_id: projectId })
+    // Tauri 2.x #[command] 宏把 Rust snake_case 参数名转为 camelCase IPC key
+    const rows = await invoke<Collection[]>('list_collections', { projectId })
     collectionMap.value[projectId] = rows
   }
 
@@ -18,8 +19,8 @@ export const useCollectionStore = defineStore('collection', () => {
 
   async function createCollection(projectId: number, name: string, parentId?: number) {
     const col = await invoke<Collection>('create_collection', {
-      project_id: projectId,
-      parent_id: parentId ?? null,
+      projectId,
+      parentId: parentId ?? null,
       name,
     })
     const list = collectionMap.value[projectId] ?? []
