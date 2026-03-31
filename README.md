@@ -5,8 +5,8 @@
     一款基于 Tauri、Rust 和 Vue 3 构建的轻量、高性能 API 调试与测试工具。
   </p>
   <p>
-    <img src="https://img.shields.io/badge/version-1.0.0--beta-orange" alt="version"/>
-    <img src="https://img.shields.io/badge/platform-Windows-blue" alt="platform"/>
+    <img src="https://img.shields.io/badge/version-1.0.0-orange" alt="version"/>
+    <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="platform"/>
     <img src="https://img.shields.io/badge/license-MIT-green" alt="license"/>
   </p>
 </div>
@@ -37,7 +37,7 @@ ApiCat is a modern desktop application for API debugging and testing, powered by
 
 ### 🚀 Quick Start (For Users)
 
-1. Download the latest installer (`.msi` or `.exe`) from the [Releases](../../releases) page.
+1. Download the latest installer (`.msi` or `.exe`) from the [Releases](https://github.com/Areogel666/apicat/releases) page.
 2. Install and launch **ApiCat**.
 3. Click **New Project** in the top bar to create a project.
 4. Use the `+` button in the sidebar to create a Collection (folder) and Request.
@@ -97,7 +97,7 @@ ApiCat 是一款基于 Tauri 2.0 + Rust + Vue 3 的轻量、高性能、无跨�
 
 ### 🚀 快速使用
 
-1. 从 [Releases](../../releases) 页面下载最新安装包（`.msi` 或 `.exe`）。
+1. 从 [Releases](https://github.com/Areogel666/apicat/releases) 页面下载最新安装包（`.msi` 或 `.exe`）。
 2. 双击安装并启动 **ApiCat**。
 3. 点击顶部「新建项目」创建一个项目。
 4. 在左侧边栏使用 `+` 按钮新建 Collection（文件夹）和 Request（接口）。
