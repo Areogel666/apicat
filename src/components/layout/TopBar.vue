@@ -4,11 +4,12 @@
     <div class="top-bar__left">
       <span class="top-bar__logo">🐱 ApiCat</span>
       <n-select
-        v-model:value="currentProjectId"
+        :value="currentProjectId"
         :options="projectOptions"
         placeholder="选择项目"
         size="small"
         style="width: 160px"
+        @update:value="handleProjectChange"
       />
     </div>
 
@@ -47,11 +48,20 @@
 
   <!-- 公共 Headers 模板弹窗 -->
   <HeaderTemplateModal v-model:show="showHeaderTemplateModal" />
+
+  <!-- 重命名项目弹窗 -->
+  <n-modal v-model:show="showRenameModal" preset="dialog" title="重命名项目">
+    <n-input v-model:value="renameInput" placeholder="输入新的项目名称" @keyup.enter="confirmRenameProject" />
+    <template #action>
+      <n-button @click="showRenameModal = false">取消</n-button>
+      <n-button type="primary" @click="confirmRenameProject">确定</n-button>
+    </template>
+  </n-modal>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { NSelect, NButton, NDropdown } from 'naive-ui'
+import { NSelect, NButton, NDropdown, NModal, NInput, useDialog } from 'naive-ui'
 import { useProjectStore } from '../../stores/project'
 import { useEnvironmentStore } from '../../stores/environment'
 import EnvManager from '../env/EnvManager.vue'
@@ -62,6 +72,7 @@ import HeaderTemplateModal from './HeaderTemplateModal.vue'
 
 const projectStore = useProjectStore()
 const envStore = useEnvironmentStore()
+const dialog = useDialog()
 
 const showEnvManager = ref(false)
 const showCookieManager = ref(false)
@@ -69,17 +80,53 @@ const showImportDialog = ref(false)
 const showExportDialog = ref(false)
 const showHeaderTemplateModal = ref(false)
 
-const settingsMenuOptions = [
+const showRenameModal = ref(false)
+const renameInput = ref('')
+
+const settingsMenuOptions = computed(() => [
   { label: '📥 导入接口...', key: 'import' },
   { label: '📤 导出接口...', key: 'export' },
   { type: 'divider', key: 'd1' },
   { label: '📋 公共 Headers 模板...', key: 'headerTemplate' },
-]
+])
 
-function handleSettingsMenu(key: string) {
+async function handleSettingsMenu(key: string) {
   if (key === 'import') showImportDialog.value = true
   else if (key === 'export') showExportDialog.value = true
   else if (key === 'headerTemplate') showHeaderTemplateModal.value = true
+}
+
+async function handleRenameProject() {
+  const pid = projectStore.currentProjectId
+  if (!pid) return
+  const current = projectStore.projects.find(p => p.id === pid)
+  renameInput.value = current?.name ?? ''
+  showRenameModal.value = true
+}
+
+async function confirmRenameProject() {
+  const pid = projectStore.currentProjectId
+  if (!pid) return
+  const current = projectStore.projects.find(p => p.id === pid)
+  const name = renameInput.value.trim()
+  if (!name) return
+  await projectStore.updateProject(pid, name, current?.description ?? undefined)
+  showRenameModal.value = false
+}
+
+async function handleDeleteProject() {
+  const pid = projectStore.currentProjectId
+  if (!pid) return
+  const current = projectStore.projects.find(p => p.id === pid)
+  dialog.warning({
+    title: '确认删除项目',
+    content: `确定删除项目「${current?.name}」及其所有数据吗？此操作不可撤销！`,
+    positiveText: '确认删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      await projectStore.deleteProject(pid)
+    }
+  })
 }
 
 // ── 项目下拉 ──────────────────────────────────────────────
@@ -88,9 +135,33 @@ const currentProjectId = computed({
   set: (v) => { projectStore.currentProjectId = v },
 })
 
-const projectOptions = computed(() =>
-  projectStore.projects.map(p => ({ label: p.name, value: p.id }))
-)
+const CREATE_PROJ_SENTINEL = -1
+const RENAME_PROJ_SENTINEL = -2
+const DELETE_PROJ_SENTINEL = -3
+
+const projectOptions = computed(() => {
+  const opts: Array<{label: string; value: number; disabled?: boolean}> = projectStore.projects.map(p => ({ label: p.name, value: p.id }))
+  opts.push({ label: '✏️ 重命名当前项目...', value: RENAME_PROJ_SENTINEL, disabled: !projectStore.currentProjectId })
+  opts.push({ label: '🗑️ 删除当前项目...', value: DELETE_PROJ_SENTINEL, disabled: !projectStore.currentProjectId })
+  opts.push({ label: '➕ 新建项目...', value: CREATE_PROJ_SENTINEL })
+  return opts
+})
+
+async function handleProjectChange(val: number) {
+  if (val === CREATE_PROJ_SENTINEL) {
+    const name = prompt('请输入新项目名称：', 'New Project')
+    if (name && name.trim()) {
+      const proj = await projectStore.createProject(name.trim())
+      projectStore.currentProjectId = proj.id
+    }
+  } else if (val === RENAME_PROJ_SENTINEL) {
+    await handleRenameProject()
+  } else if (val === DELETE_PROJ_SENTINEL) {
+    await handleDeleteProject()
+  } else {
+    projectStore.currentProjectId = val
+  }
+}
 
 // ── 环境下拉 ──────────────────────────────────────────────
 // 当前项目切换时，重新加载环境列表
@@ -110,7 +181,7 @@ const envOptions = computed(() => [
     label: e.name + (e.is_active ? ' ✓' : ''),
     value: e.id,
   })),
-  { label: '—— 管理环境...', value: ENV_MANAGE_SENTINEL },
+  { label: '管理环境...', value: ENV_MANAGE_SENTINEL },
 ])
 
 // 当前激活的 env value（用于 v-model）
