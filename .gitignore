@@ -17,12 +17,27 @@ dist-ssr
 src-tauri/target/
 
 # Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
+.vscode/
+.idea/
 .DS_Store
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+
+# Tauri gen (Android/iOS 自动生成)
+src-tauri/gen/
+
+# Tool configs (not committed)
+.claude/
+.opencode/
+.gstack/
+.cargo/
+
+# Vite cache
+.vite/
+
+# docs: only release/ is committed
+docs/fix/
+docs/plans/
