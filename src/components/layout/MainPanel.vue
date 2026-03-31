@@ -4,24 +4,40 @@
     <div class="request-area">
       <!-- URL 栏 -->
       <div class="url-bar">
-        <n-select
-          v-model:value="method"
-          :options="methodOptions"
-          size="medium"
-          style="width: 110px; flex-shrink: 0"
-        />
-        <!-- URL 输入框 + {{var}} 高亮层 -->
-        <div class="url-input-wrap">
-          <!-- 高亮覆盖层：pointer-events:none，仅视觉，{{var}} 用橙色底色标注 -->
-          <div class="url-highlight-layer" aria-hidden="true" v-html="urlHighlighted" />
-          <n-input
-            v-model:value="url"
-            placeholder="输入请求 URL，如 https://api.example.com/users"
-            size="medium"
-            class="url-input-transparent"
-            @keyup.enter="handleSend"
-          />
+        <div class="url-input-combo">
+          <n-dropdown :options="methodOptions" trigger="click" @select="(k) => method = String(k)">
+            <div class="method-trigger" :style="{ color: methodColor }">
+              {{ method }} <span style="font-size: 10px; margin-left: 2px">▾</span>
+            </div>
+          </n-dropdown>
+          <n-tag v-if="envStore.activeEnv" size="small" type="success" :bordered="false" style="margin: 0 4px; cursor: default">
+            {{ envTagText }}
+          </n-tag>
+          <!-- URL 输入框 + {{var}} 高亮层（仅有变量时才渲染高亮覆盖层） -->
+          <div class="url-input-wrap">
+            <!-- 高亮覆盖层：仅当 URL 含 {{var}} 时渲染，否则直接显示文字避免重影 -->
+            <div v-if="urlHasVars" class="url-highlight-layer" aria-hidden="true" v-html="urlHighlighted" />
+            <n-input
+              v-model:value="url"
+              placeholder="输入请求 URL，如 https://api.example.com/users"
+              size="medium"
+              :class="['url-input-transparent', urlHasVars ? 'url-vars-mode' : '']"
+              :bordered="false"
+              style="background: transparent"
+              @keyup.enter="handleSend"
+            />
+          </div>
         </div>
+        <n-button
+          v-if="requestDirty"
+          size="medium"
+          type="warning"
+          style="flex-shrink: 0"
+          title="保存接口 (Ctrl+S)"
+          @click="handleSaveRequest"
+        >
+          💾 保存
+        </n-button>
         <n-button
           type="primary"
           size="medium"
@@ -124,6 +140,14 @@
               </div>
             </div>
 
+            <!-- 自动注入的 Headers 提示（只读，灰色展示）-->
+            <div v-if="autoHeaders.length" class="auto-headers-tip">
+              <span class="auto-headers-label">自动注入（发送时追加）：</span>
+              <span v-for="h in autoHeaders" :key="h.key" class="auto-header-badge">
+                {{ h.key }}: {{ h.value }}
+              </span>
+            </div>
+
             <template v-if="headerMode === 'table'">
               <n-empty v-if="!requestHeaders.length" description="暂无 Headers" size="small" />
               <div v-for="(h, idx) in requestHeaders" :key="idx" class="param-row">
@@ -164,19 +188,53 @@
               <n-radio-button value="none">None</n-radio-button>
               <n-radio-button value="raw_json">JSON</n-radio-button>
               <n-radio-button value="raw_text">Text</n-radio-button>
-              <n-radio-button value="form_urlencoded">Form URL</n-radio-button>
+              <n-radio-button value="form_urlencoded">URL Encoded</n-radio-button>
               <n-radio-button value="form_data">Form Data</n-radio-button>
             </n-radio-group>
 
             <!-- 文本类 body -->
             <n-input
-              v-if="bodyType === 'raw_json' || bodyType === 'raw_text' || bodyType === 'form_urlencoded'"
+              v-if="bodyType === 'raw_json' || bodyType === 'raw_text'"
               v-model:value="bodyContent"
               type="textarea"
               :rows="8"
               placeholder="请求体内容"
               style="font-family: monospace; font-size: 12px"
             />
+
+            <!-- form-urlencoded：表格 + KV文本 双模式 -->
+            <template v-if="bodyType === 'form_urlencoded'">
+              <div class="params-mode-bar" style="margin-bottom:6px">
+                <span class="params-section-label" style="margin-bottom:0">URL Encoded 字段</span>
+                <div class="mode-tabs">
+                  <span :class="['mode-tab', urlencodedMode==='table' && 'active']" @click="urlencodedMode='table'">表格</span>
+                  <span :class="['mode-tab', urlencodedMode==='kv' && 'active']" @click="switchUrlencodedToKv">KV 文本</span>
+                </div>
+              </div>
+              <!-- 表格模式 -->
+              <template v-if="urlencodedMode === 'table'">
+                <n-empty v-if="!urlencodedParams.length" description="暂无字段" size="small" />
+                <div v-for="(f, idx) in urlencodedParams" :key="idx" class="param-row">
+                  <n-checkbox v-model:checked="f.enabled" />
+                  <n-input v-model:value="f.key" size="small" style="width:140px; flex-shrink:0" placeholder="字段名" />
+                  <n-input v-model:value="f.value" size="small" style="flex:1" placeholder="值" />
+                  <n-button size="tiny" quaternary @click="urlencodedParams.splice(idx, 1)">✕</n-button>
+                </div>
+                <n-button size="small" dashed style="margin-top:4px; width:100%" @click="addUrlencodedField">
+                  + 添加字段
+                </n-button>
+              </template>
+              <!-- KV文本模式 -->
+              <n-input
+                v-else-if="urlencodedMode === 'kv'"
+                v-model:value="urlencodedKvText"
+                type="textarea"
+                :rows="7"
+                placeholder="key: value（每行一条，# 开头为注释）"
+                style="font-family: monospace; font-size: 12px; margin-top: 4px"
+                @update:value="syncUrlencodedFromKv"
+              />
+            </template>
 
             <!-- form-data KV 表格 -->
             <template v-if="bodyType === 'form_data'">
@@ -318,6 +376,7 @@
     <!-- 压测配置弹窗 -->
     <StressConfigModal
       v-model:show="showStressConfig"
+      :test-cases="testCaseStore.getByRequestId(requestStore.activeRequest?.id ?? 0)"
       @start="handleStartStress"
     />
 
@@ -327,10 +386,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import {
   NSelect, NInput, NButton, NTabs, NTabPane, NEmpty,
   NTag, NDivider, NCheckbox, NRadioGroup, NRadioButton, NRadio,
+  NDropdown,
+  useMessage,
 } from 'naive-ui'
 import { parseUrl, buildUrl } from '../../utils/urlParser'
 import { parseKvText, toKvText, parseJsonToParams, toJsonText } from '../../utils/paramParser'
@@ -376,6 +437,35 @@ const headerMode = ref<ParamMode>('table')
 const headerKvText = ref('')
 const headerJsonText = ref('')
 
+/**
+ * 自动注入的 Headers：根据 body 类型和 auth 类型推导，
+ * 仅用于 UI 展示（灰色提示），实际注入在 Rust 侧或 handleSend 中完成
+ */
+const autoHeaders = computed<Array<{key: string; value: string}>>(() => {
+  const result: Array<{key: string; value: string}> = []
+  // Content-Type 根据 body 类型自动注入
+  const userHasContentType = requestHeaders.value.some(
+    h => h.enabled && h.key.toLowerCase() === 'content-type'
+  )
+  if (!userHasContentType) {
+    if (bodyType.value === 'raw_json') {
+      result.push({ key: 'Content-Type', value: 'application/json' })
+    } else if (bodyType.value === 'form_urlencoded') {
+      result.push({ key: 'Content-Type', value: 'application/x-www-form-urlencoded' })
+    } else if (bodyType.value === 'form_data') {
+      result.push({ key: 'Content-Type', value: 'multipart/form-data' })
+    }
+  }
+  // Auth 自动注入（Bearer / Basic）
+  if (authType.value === 'bearer' && authBearer.value) {
+    result.push({ key: 'Authorization', value: `Bearer ${authBearer.value}` })
+  } else if (authType.value === 'basic' && authBasicUser.value) {
+    const b64 = btoa(`${authBasicUser.value}:${authBasicPass.value}`)
+    result.push({ key: 'Authorization', value: `Basic ${b64}` })
+  }
+  return result
+})
+
 function switchHeaderMode(newMode: ParamMode) {
   if (headerMode.value === 'kv') {
     requestHeaders.value = parseKvText(headerKvText.value)
@@ -397,6 +487,7 @@ const envStore = useEnvironmentStore()
 const projectStore = useProjectStore()
 const testCaseStore = useTestCaseStore()
 const headerTemplateStore = useHeaderTemplateStore()
+const message = useMessage()
 
 // ── 请求编辑区状态 ────────────────────────────────────────────
 const method = ref('GET')
@@ -420,6 +511,60 @@ function syncFormData() {
     bodyContent.value = JSON.stringify(formDataParams.value)
   }
 }
+
+const urlencodedParams = ref<ParamItem[]>([])
+const urlencodedMode = ref<'table' | 'kv'>('table')
+const urlencodedKvText = ref('')
+
+function addUrlencodedField() {
+  urlencodedParams.value.push({ key: '', value: '', enabled: true })
+}
+
+/** 切换到KV文本模式时，先把表格序列化为 key: value 文本 */
+function switchUrlencodedToKv() {
+  urlencodedKvText.value = urlencodedParams.value
+    .filter(f => f.key)
+    .map(f => `${f.key}: ${f.value}`)
+    .join('\n')
+  urlencodedMode.value = 'kv'
+}
+
+/** KV文本变更时，解析回 urlencodedParams */
+function syncUrlencodedFromKv(text: string) {
+  const params: ParamItem[] = []
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+    const colonIdx = trimmed.indexOf(':')
+    if (colonIdx > 0) {
+      params.push({ key: trimmed.substring(0, colonIdx).trim(), value: trimmed.substring(colonIdx + 1).trim(), enabled: true })
+    } else {
+      params.push({ key: trimmed, value: '', enabled: true })
+    }
+  }
+  urlencodedParams.value = params
+}
+
+function syncUrlencodedData() {
+  if (bodyType.value === 'form_urlencoded') {
+    const enabledFields = urlencodedParams.value.filter(f => f.enabled && f.key)
+    const sp = new URLSearchParams()
+    enabledFields.forEach(f => sp.append(f.key, f.value))
+    bodyContent.value = sp.toString()
+  }
+}
+
+interface RequestDraft {
+  method: string
+  url: string
+  queryParams: ParamItem[]
+  requestHeaders: ParamItem[]
+  bodyType: string
+  bodyContent: string
+  formDataParams: ParamItem[]
+  urlencodedParams: ParamItem[]
+}
+const draftCache = new Map<number, RequestDraft>()
 
 // ── Auth 状态 ─────────────────────────────────────────────────
 const authType = ref('none')
@@ -473,36 +618,113 @@ function loadAuthFields(type: string, configStr: string) {
 }
 
 const methodOptions = [
-  { label: 'GET',     value: 'GET' },
-  { label: 'POST',    value: 'POST' },
-  { label: 'PUT',     value: 'PUT' },
-  { label: 'DELETE',  value: 'DELETE' },
-  { label: 'PATCH',   value: 'PATCH' },
-  { label: 'HEAD',    value: 'HEAD' },
-  { label: 'OPTIONS', value: 'OPTIONS' },
+  { label: 'GET',     value: 'GET', key: 'GET' },
+  { label: 'POST',    value: 'POST', key: 'POST' },
+  { label: 'PUT',     value: 'PUT', key: 'PUT' },
+  { label: 'DELETE',  value: 'DELETE', key: 'DELETE' },
+  { label: 'PATCH',   value: 'PATCH', key: 'PATCH' },
+  { label: 'HEAD',    value: 'HEAD', key: 'HEAD' },
+  { label: 'OPTIONS', value: 'OPTIONS', key: 'OPTIONS' },
 ]
 
-// ── 监听激活接口变化，同步到编辑区 ───────────────────────────
-watch(() => requestStore.activeRequest, async (req) => {
-  if (req) {
-    url.value = req.url
-    method.value = req.method
-    bodyType.value = req.body_type || 'none'
-    bodyContent.value = req.body || ''
-    // 加载 form-data 字段
-    if (req.body_type === 'form_data') {
-      try { formDataParams.value = JSON.parse(req.body || '[]') } catch { formDataParams.value = [] }
-    } else {
-      formDataParams.value = []
-    }
+const methodColorMap: Record<string, string> = {
+  GET: '#389e0d',
+  POST: '#1677ff',
+  PUT: '#d46b08',
+  DELETE: '#cf1322',
+  PATCH: '#722ed1',
+  HEAD: '#8c8c8c',
+  OPTIONS: '#8c8c8c'
+}
+const methodColor = computed(() => methodColorMap[method.value] || '#8c8c8c')
 
-    // 解析存储的 params/headers JSON
-    try { queryParams.value = JSON.parse(req.params) } catch { queryParams.value = [] }
-    try { requestHeaders.value = JSON.parse(req.headers) } catch { requestHeaders.value = [] }
+// ── 环境标签文本（显示 baseURL(环境名) 格式）─────────────────────
+const envTagText = computed(() => {
+  const env = envStore.activeEnv
+  if (!env) return ''
+  if (env.base_url) return `${env.base_url}(${env.name})`
+  return env.name
+})
+
+// ── 接口修改 dirty 标记 ────────────────────────────────────────────
+const requestDirty = ref(false)
+
+/** 标记当前激活接口为有未保存修改状态 */
+function markRequestDirty() {
+  if (isInitializing) return
+  const reqId = requestStore.activeRequest?.id
+  if (reqId == null) return
+  requestDirty.value = true
+  // 用 Set 替换赋值触发 Vue 3 响应式（直接 add/delete 不触发）
+  const newSet = new Set(requestStore.dirtyRequestIds)
+  newSet.add(reqId)
+  requestStore.dirtyRequestIds = newSet
+}
+
+// ── 监听激活接口变化，同步到编辑区 ───────────────────────────
+let isInitializing = false
+watch(() => requestStore.activeRequest, async (req, oldReq) => {
+  if (oldReq && requestDirty.value) {
+    draftCache.set(oldReq.id, {
+      method: method.value,
+      url: url.value,
+      queryParams: [...queryParams.value],
+      requestHeaders: [...requestHeaders.value],
+      bodyType: bodyType.value,
+      bodyContent: bodyContent.value,
+      formDataParams: [...formDataParams.value],
+      urlencodedParams: [...urlencodedParams.value],
+    })
+  }
+
+  isInitializing = true
+  let isDraft = false
+
+  if (req) {
+    const draft = draftCache.get(req.id)
+    if (draft) {
+      url.value = draft.url
+      method.value = draft.method
+      bodyType.value = draft.bodyType
+      bodyContent.value = draft.bodyContent
+      queryParams.value = draft.queryParams
+      requestHeaders.value = draft.requestHeaders
+      formDataParams.value = draft.formDataParams
+      urlencodedParams.value = draft.urlencodedParams
+      isDraft = true
+    } else {
+      url.value = req.url
+      method.value = req.method
+      bodyType.value = req.body_type || 'none'
+      bodyContent.value = req.body || ''
+      // 加载 form-data 字段
+      if (req.body_type === 'form_data') {
+        try { formDataParams.value = JSON.parse(req.body || '[]') } catch { formDataParams.value = [] }
+      } else {
+        formDataParams.value = []
+      }
+      
+      if (req.body_type === 'form_urlencoded') {
+        try {
+          const sp = new URLSearchParams(req.body || '')
+          const params: ParamItem[] = []
+          sp.forEach((value, key) => params.push({ key, value, enabled: true }))
+          urlencodedParams.value = params
+        } catch { urlencodedParams.value = [] }
+      } else {
+        urlencodedParams.value = []
+      }
+
+      // 解析存储的 params/headers JSON
+      try { queryParams.value = JSON.parse(req.params) } catch { queryParams.value = [] }
+      try { requestHeaders.value = JSON.parse(req.headers) } catch { requestHeaders.value = [] }
+    }
 
     // 切换接口时重置模式为 table、清空 dirty 状态
     queryMode.value = 'table'
     headerMode.value = 'table'
+    urlencodedMode.value = 'table'
+    urlencodedKvText.value = ''
     paramsDirty.value = false
     testCaseStore.activeTestCaseId = null
 
@@ -519,12 +741,39 @@ watch(() => requestStore.activeRequest, async (req) => {
     bodyContent.value = ''
     queryParams.value = []
     requestHeaders.value = []
+    formDataParams.value = []
+    urlencodedParams.value = []
     loadAuthFields('none', '{}')
     queryMode.value = 'table'
     headerMode.value = 'table'
     paramsDirty.value = false
     responseStore.clear()
   }
+
+  if (isDraft) {
+    requestDirty.value = true
+  } else {
+    requestDirty.value = false
+  }
+
+  nextTick(() => {
+    isInitializing = false
+    if (isDraft) return
+
+    // Bug1 修复：接口加载完毕后，从 URL 解析 query string 补全 queryParams
+    // （queryParams 优先用 DB 存储的；若为空且 URL 有 query string 则从 URL 解析）
+    const reqUrl = url.value
+    if (reqUrl && queryParams.value.length === 0) {
+      const qsIdx = reqUrl.indexOf('?')
+      if (qsIdx >= 0) {
+        const qs = reqUrl.substring(qsIdx + 1)
+        const up = new URLSearchParams(qs)
+        const parsed: ParamItem[] = []
+        up.forEach((val, key) => parsed.push({ key, value: val, enabled: true }))
+        if (parsed.length > 0) queryParams.value = parsed
+      }
+    }
+  })
 }, { immediate: true })
 
 // ── URL 解析 ──────────────────────────────────────────────────
@@ -553,6 +802,30 @@ const resolvedUrl = computed(() => {
     }))
   )
 })
+
+/**
+ * 发送前最终解析的完整 URL：
+ * - 若 url 已含协议头（http/https），直接使用
+ * - 若 url 是相对路径（如 /users/1）且有激活环境并配置了 base_url，
+ *   自动在前面补 base_url（避免 reqwest 报 "relative URL without a base"）
+ */
+const effectiveUrl = computed(() => {
+  const raw = resolvedUrl.value
+  if (!raw) return raw
+  // 已含协议头，无需处理
+  if (/^https?:\/\//i.test(raw)) return raw
+  // 尝试用激活环境的 base_url 拼接
+  const baseUrl = envStore.activeEnv?.base_url
+  if (baseUrl) {
+    const base = baseUrl.replace(/\/$/, '')   // 去掉末尾斜杠
+    const path = raw.startsWith('/') ? raw : `/${raw}`
+    return `${base}${path}`
+  }
+  return raw
+})
+
+/** URL 中是否包含 {{var}} 变量，用于控制输入框文字是否透明（有变量才透明以展示高亮层） */
+const urlHasVars = computed(() => /\{\{[^{}]*\}\}/.test(url.value))
 
 // ── URL {{var}} 高亮层 ────────────────────────────────────────
 /** 将 URL 中的 {{variable}} 替换为带背景色 span，其余字符转义为 HTML 实体 */
@@ -607,6 +880,74 @@ function applyHeaderTemplate() {
   else if (headerMode.value === 'json') headerJsonText.value = toJsonText(requestHeaders.value)
 }
 
+let syncingFromUrl = false
+let syncingFromParams = false
+
+watch(url, () => {
+  if (isInitializing || syncingFromParams) return
+  // 用户修改 URL，标记接口为 dirty
+  markRequestDirty()
+  syncingFromUrl = true
+
+  const qsIndex = url.value.indexOf('?')
+  if (qsIndex >= 0) {
+    const qs = url.value.substring(qsIndex + 1)
+    const urlParams = new URLSearchParams(qs)
+    const newParams: ParamItem[] = []
+    urlParams.forEach((val, key) => {
+      const existing = queryParams.value.find(p => p.key === key)
+      newParams.push({
+        key,
+        value: val,
+        enabled: existing ? existing.enabled : true
+      })
+    })
+    const existingDisabled = queryParams.value.filter(p => !p.enabled)
+    queryParams.value = [...newParams, ...existingDisabled]
+  } else {
+    queryParams.value = queryParams.value.filter(p => !p.enabled)
+  }
+
+  nextTick(() => { syncingFromUrl = false })
+})
+
+watch(queryParams, () => {
+  if (isInitializing || syncingFromUrl) return
+  markRequestDirty()
+  syncingFromParams = true
+
+  const enabledParams = queryParams.value.filter(p => p.enabled && p.key)
+  const qsIndex = url.value.indexOf('?')
+  const basePath = qsIndex >= 0 ? url.value.substring(0, qsIndex) : url.value
+
+  if (enabledParams.length > 0) {
+    const sp = new URLSearchParams()
+    enabledParams.forEach(p => sp.append(p.key, p.value))
+    url.value = `${basePath}?${sp.toString()}`
+  } else {
+    url.value = basePath
+  }
+
+  nextTick(() => { syncingFromParams = false })
+}, { deep: true })
+
+// 监听其他编辑区字段变化，标记接口 dirty
+watch(method, markRequestDirty)
+watch(bodyType, markRequestDirty)
+watch(bodyContent, markRequestDirty)
+watch(requestHeaders, markRequestDirty, { deep: true })
+
+// KV文本/JSON模式下，文本内容变化时即时解析回 queryParams（从而触发 URL 同步）
+watch(queryKvText, (text) => {
+  if (queryMode.value !== 'kv' || isInitializing) return
+  queryParams.value = parseKvText(text)
+})
+
+watch(queryJsonText, (text) => {
+  if (queryMode.value !== 'json' || isInitializing) return
+  queryParams.value = parseJsonToParams(text)
+})
+
 // ── 发送请求 ──────────────────────────────────────────────────
 async function handleSend() {
   // 非表格模式时先同步内容到 source of truth（queryParams / requestHeaders）
@@ -616,6 +957,7 @@ async function handleSend() {
   else if (headerMode.value === 'json') requestHeaders.value = parseJsonToParams(headerJsonText.value)
   // form-data 序列化
   if (bodyType.value === 'form_data') syncFormData()
+  if (bodyType.value === 'form_urlencoded') syncUrlencodedData()
 
   const activeReq = requestStore.activeRequest
   if (!activeReq) return
@@ -630,7 +972,7 @@ async function handleSend() {
     activeReq.id,
     {
       method: method.value,
-      url: resolvedUrl.value,
+      url: effectiveUrl.value,   // 自动拼接环境 base_url，避免相对路径报错
       query_params: queryParams.value,
       headers: requestHeaders.value,
       body_type: bodyType.value,
@@ -657,7 +999,7 @@ async function handleSend() {
       response_time_ms: resp.elapsed_ms,
       request_snapshot: JSON.stringify({
         method: method.value,
-        url: resolvedUrl.value,
+        url: effectiveUrl.value,   // 历史快照存完整 URL，便于回填
         query_params: queryParams.value,
         headers: requestHeaders.value,
         body_type: bodyType.value,
@@ -719,17 +1061,65 @@ async function handleActivateTestCase(id: number) {
   const cases = testCaseStore.getByRequestId(requestStore.activeRequest?.id ?? 0)
   const tc = cases.find(c => c.id === id)
   if (!tc) return
+  isInitializing = true
   testCaseStore.activeTestCaseId = id
   if (tc.method) method.value = tc.method
-  if (tc.url) url.value = tc.url
+
   if (tc.headers) { try { requestHeaders.value = JSON.parse(tc.headers) } catch {} }
-  if (tc.params) { try { queryParams.value = JSON.parse(tc.params) } catch {} }
+  
+  if (tc.params) {
+    try {
+      const params: ParamItem[] = JSON.parse(tc.params)
+      queryParams.value = params
+      // Rebuild URL: use tc.url as base, append enabled params as query string
+      const enabledParams = params.filter(p => p.enabled && p.key)
+      const basePath = tc.url ? (tc.url.includes('?') ? tc.url.split('?')[0] : tc.url) : ''
+      if (enabledParams.length > 0) {
+        const sp = new URLSearchParams()
+        enabledParams.forEach(p => sp.append(p.key, p.value))
+        url.value = `${basePath}?${sp.toString()}`
+      } else {
+        url.value = tc.url || ''
+      }
+    } catch {
+      queryParams.value = []
+      url.value = tc.url || ''
+    }
+  } else {
+    url.value = tc.url || ''
+  }
+
   if (tc.body_type) bodyType.value = tc.body_type
   if (tc.body !== null && tc.body !== undefined) bodyContent.value = tc.body
+  
+  if (tc.body_type === 'form_data') {
+    try { formDataParams.value = JSON.parse(tc.body || '[]') } catch { formDataParams.value = [] }
+  } else {
+    formDataParams.value = []
+  }
+
+  if (tc.body_type === 'form_urlencoded') {
+    try {
+      const sp = new URLSearchParams(tc.body || '')
+      const params: ParamItem[] = []
+      sp.forEach((value, key) => params.push({ key, value, enabled: true }))
+      urlencodedParams.value = params
+    } catch { urlencodedParams.value = [] }
+  } else {
+    urlencodedParams.value = []
+  }
+
   // 切换用例后重置模式为 table，避免 KV/JSON 模式显示旧数据
   queryMode.value = 'table'
   headerMode.value = 'table'
   paramsDirty.value = false
+  // Bug4 修复：先清除初始化标志，再防止 watch(queryParams) 反向覆写 URL
+  nextTick(() => {
+    isInitializing = false
+    // queryParams 已从 tc.params 加载完毕，防止 watcher 反向重写 URL
+    syncingFromParams = true
+    nextTick(() => { syncingFromParams = false })
+  })
 }
 
 async function handleSaveToActive() {
@@ -803,40 +1193,141 @@ async function handleCreateTestCase(name: string) {
 function handleRefill(snapshot: string) {
   try {
     const s = JSON.parse(snapshot)
+    isInitializing = true
     if (s.method) method.value = s.method
     if (s.url) url.value = s.url
     if (s.query_params) queryParams.value = s.query_params
     if (s.headers) requestHeaders.value = s.headers
     if (s.body_type) bodyType.value = s.body_type
     if ('body' in s) bodyContent.value = s.body ?? ''
+    
+    if (s.body_type === 'form_data') {
+      try { formDataParams.value = JSON.parse(s.body || '[]') } catch { formDataParams.value = [] }
+    } else {
+      formDataParams.value = []
+    }
+
+    if (s.body_type === 'form_urlencoded') {
+      try {
+        const sp = new URLSearchParams(s.body || '')
+        const params: ParamItem[] = []
+        sp.forEach((value, key) => params.push({ key, value, enabled: true }))
+        urlencodedParams.value = params
+      } catch { urlencodedParams.value = [] }
+    } else {
+      urlencodedParams.value = []
+    }
+
+    nextTick(() => { isInitializing = false })
   } catch {
     // snapshot 解析失败时静默忽略
   }
 }
+
+// ── 接口保存（Bug2：暂存修改后保存到 DB）──────────────────────────
+async function handleSaveRequest() {
+  const req = requestStore.activeRequest
+  if (!req) return
+  // 非表格模式时先同步到 source of truth
+  if (queryMode.value === 'kv') queryParams.value = parseKvText(queryKvText.value)
+  else if (queryMode.value === 'json') queryParams.value = parseJsonToParams(queryJsonText.value)
+  if (headerMode.value === 'kv') requestHeaders.value = parseKvText(headerKvText.value)
+  else if (headerMode.value === 'json') requestHeaders.value = parseJsonToParams(headerJsonText.value)
+  if (bodyType.value === 'form_data') syncFormData()
+  if (bodyType.value === 'form_urlencoded') syncUrlencodedData()
+  try {
+    await requestStore.updateRequest(req.id, {
+      method: method.value,
+      url: url.value,
+      params: JSON.stringify(queryParams.value),
+      headers: JSON.stringify(requestHeaders.value),
+      body_type: bodyType.value,
+      body: bodyContent.value,
+    })
+    draftCache.delete(req.id)
+    requestDirty.value = false
+    const cleanSet = new Set(requestStore.dirtyRequestIds); cleanSet.delete(req.id); requestStore.dirtyRequestIds = cleanSet
+    // 短暂显示绿色已保存小点
+    const savedSet = new Set(requestStore.savedRequestIds); savedSet.add(req.id); requestStore.savedRequestIds = savedSet
+    setTimeout(() => {
+      const s = new Set(requestStore.savedRequestIds); s.delete(req.id); requestStore.savedRequestIds = s
+    }, 1500)
+    message.success('已保存')
+  } catch (e) {
+    message.error('保存失败: ' + String(e))
+  }
+}
+
+// Ctrl+S 快捷键保存
+function onKeyDown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault()
+    if (requestDirty.value) handleSaveRequest()
+  }
+}
+onMounted(() => document.addEventListener('keydown', onKeyDown))
+onUnmounted(() => document.removeEventListener('keydown', onKeyDown))
 
 // ── 压测 ──────────────────────────────────────────────────────
 const stressStore = useStressStore()
 const showStressConfig = ref(false)
 const showStressResult = ref(false)
 
-async function handleStartStress(config: StressConfig) {
+async function handleStartStress(config: StressConfig, testCaseId: number | null) {
   // 先同步 kv/json 模式内容到 source of truth
   if (queryMode.value === 'kv') queryParams.value = parseKvText(queryKvText.value)
   else if (queryMode.value === 'json') queryParams.value = parseJsonToParams(queryJsonText.value)
   if (headerMode.value === 'kv') requestHeaders.value = parseKvText(headerKvText.value)
   else if (headerMode.value === 'json') requestHeaders.value = parseJsonToParams(headerJsonText.value)
   if (bodyType.value === 'form_data') syncFormData()
+  if (bodyType.value === 'form_urlencoded') syncUrlencodedData()
 
   showStressResult.value = true
 
+  // 若选择了用例，使用用例的参数覆盖当前参数
+  let stressMethod = method.value
+  let stressUrl = effectiveUrl.value
+  let stressQueryParams = queryParams.value.map(p => ({ key: p.key, value: p.value, enabled: p.enabled }))
+  let stressHeaders = requestHeaders.value.map(h => ({ key: h.key, value: h.value, enabled: h.enabled }))
+  let stressBodyType = bodyType.value
+  let stressBody = bodyContent.value
+
+  if (testCaseId !== null) {
+    const cases = testCaseStore.getByRequestId(requestStore.activeRequest?.id ?? 0)
+    const tc = cases.find(c => c.id === testCaseId)
+    if (tc) {
+      if (tc.method) stressMethod = tc.method
+      if (tc.url) {
+        // 和 effectiveUrl 一样：相对路径自动拼接激活环境的 base_url
+        const rawUrl = tc.url
+        if (/^https?:\/\//i.test(rawUrl)) {
+          stressUrl = rawUrl
+        } else {
+          const baseUrl = envStore.activeEnv?.base_url
+          if (baseUrl) {
+            const base = baseUrl.replace(/\/$/, '')
+            const path = rawUrl.startsWith('/') ? rawUrl : `/${rawUrl}`
+            stressUrl = `${base}${path}`
+          } else {
+            stressUrl = rawUrl
+          }
+        }
+      }
+      try { stressQueryParams = JSON.parse(tc.params) } catch {}
+      try { stressHeaders = JSON.parse(tc.headers) } catch {}
+      if (tc.body_type) stressBodyType = tc.body_type
+      if (tc.body != null) stressBody = tc.body
+    }
+  }
+
   await stressStore.startStress(
     {
-      method: method.value,
-      url: resolvedUrl.value,
-      query_params: queryParams.value.map(p => ({ key: p.key, value: p.value, enabled: p.enabled })),
-      headers: requestHeaders.value.map(h => ({ key: h.key, value: h.value, enabled: h.enabled })),
-      body_type: bodyType.value,
-      body: bodyContent.value,
+      method: stressMethod,
+      url: stressUrl,
+      query_params: stressQueryParams,
+      headers: stressHeaders,
+      body_type: stressBodyType,
+      body: stressBody,
       path_params: [],
     },
     config,
@@ -866,7 +1357,35 @@ async function handleStartStress(config: StressConfig) {
   display: flex;
   gap: 8px;
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
+}
+
+.url-input-combo {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  border: 1px solid var(--n-border-color, #e0e0e6);
+  border-radius: 3px;
+  background-color: var(--n-color, #fff);
+  transition: border-color 0.3s;
+  padding-left: 8px;
+}
+.url-input-combo:focus-within {
+  border-color: var(--n-primary-color, #18a058);
+  box-shadow: 0 0 0 2px rgba(24, 160, 88, 0.2);
+}
+.method-trigger {
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.method-trigger:hover {
+  background-color: var(--n-border-color, #f3f3f5);
 }
 
 .request-tabs {
@@ -919,13 +1438,17 @@ async function handleStartStress(config: StressConfig) {
   align-items: center;
 }
 
-/* n-input 透明文字（字体/大小与高亮层完全一致），高亮层在下面透出来 */
+/* n-input 默认正常显示文字 */
 .url-input-transparent :deep(.n-input__input-el) {
-  color: transparent;
-  caret-color: var(--n-text-color, #333);  /* 光标保持可见 */
   background: transparent;
   position: relative;
   z-index: 1;
+}
+
+/* 有 {{var}} 变量时才透明（高亮层透出），无变量时正常显示文字颜色 */
+.url-input-transparent.url-vars-mode :deep(.n-input__input-el) {
+  color: transparent;
+  caret-color: var(--n-text-color, #333);  /* 光标保持可见 */
 }
 
 .url-highlight-layer {
@@ -954,5 +1477,31 @@ async function handleStartStress(config: StressConfig) {
   border-radius: 3px;
   padding: 1px 2px;
   font-style: normal;
+}
+
+/* 自动注入 Headers 提示栏 */
+.auto-headers-tip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  margin-bottom: 6px;
+  background: var(--n-color-embedded, #f5f5f5);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--n-text-color-3, #999);
+}
+.auto-headers-label {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.auto-header-badge {
+  background: var(--n-border-color, #e0e0e6);
+  color: var(--n-text-color-2, #666);
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-family: monospace;
+  font-size: 11px;
 }
 </style>
