@@ -73,10 +73,11 @@ async function handleExport() {
     let defaultFilename: string
 
     if (format.value === 'apicat') {
-      content = await invoke<string>('export_apicat', { project_id: exportProjectId.value })
+      // Tauri 2.x #[command] 宏把 Rust snake_case 参数名转为 camelCase IPC key
+      content = await invoke<string>('export_apicat', { projectId: exportProjectId.value })
       defaultFilename = 'apicat-export.json'
     } else {
-      content = await invoke<string>('export_postman', { project_id: exportProjectId.value })
+      content = await invoke<string>('export_postman', { projectId: exportProjectId.value })
       defaultFilename = 'postman-collection.json'
     }
 

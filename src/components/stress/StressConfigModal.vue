@@ -4,13 +4,30 @@
     preset="dialog"
     title="压测配置"
     :show-icon="false"
-    style="width: 420px"
+    style="width: 460px"
     positive-text="开始压测"
     negative-text="取消"
     @positive-click="handleStart"
     @negative-click="show = false"
   >
     <div class="stress-config">
+      <!-- 用例选择（有用例时展示）-->
+      <div v-if="(testCases ?? []).length > 0" class="config-row config-row--col">
+        <span class="config-label">请求参数</span>
+        <n-radio-group v-model:value="paramSource" size="small" style="flex-direction:column; gap:6px">
+          <n-radio value="current">使用当前编辑区参数</n-radio>
+          <n-radio value="testcase">使用测试用例参数</n-radio>
+        </n-radio-group>
+        <n-select
+          v-if="paramSource === 'testcase'"
+          v-model:value="selectedTestCaseId"
+          :options="testCaseOptions"
+          placeholder="选择用例"
+          size="small"
+          style="margin-top:4px; width:100%"
+        />
+      </div>
+
       <!-- 并发数 -->
       <div class="config-row">
         <span class="config-label">并发数</span>
@@ -62,14 +79,18 @@
 </template>
 
 <script setup lang="ts">
-import { reactive } from 'vue'
-import { NModal, NInputNumber, NRadioGroup, NRadio } from 'naive-ui'
-import type { StressConfig } from '../../types'
+import { ref, reactive, computed } from 'vue'
+import { NModal, NInputNumber, NRadioGroup, NRadio, NSelect } from 'naive-ui'
+import type { StressConfig, TestCase } from '../../types'
 
 const show = defineModel<boolean>('show', { required: true })
 
+const props = defineProps<{
+  testCases?: TestCase[]
+}>()
+
 const emit = defineEmits<{
-  start: [config: StressConfig]
+  start: [config: StressConfig, testCaseId: number | null]
 }>()
 
 const config = reactive<StressConfig>({
@@ -78,8 +99,19 @@ const config = reactive<StressConfig>({
   value: 100,
 })
 
+const paramSource = ref<'current' | 'testcase'>('current')
+const selectedTestCaseId = ref<number | null>(null)
+
+const testCaseOptions = computed(() =>
+  (props.testCases ?? []).map(tc => ({
+    label: tc.name || `用例 #${tc.id}`,
+    value: tc.id,
+  }))
+)
+
 function handleStart() {
-  emit('start', { ...config })
+  const tcId = paramSource.value === 'testcase' ? selectedTestCaseId.value : null
+  emit('start', { ...config }, tcId)
   show.value = false
 }
 </script>
@@ -88,7 +120,7 @@ function handleStart() {
 .stress-config {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
   padding: 8px 0;
 }
 
@@ -98,11 +130,18 @@ function handleStart() {
   gap: 12px;
 }
 
+.config-row--col {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
 .config-label {
   width: 110px;
   font-size: 13px;
   color: var(--n-text-color, #333);
   flex-shrink: 0;
+  font-weight: 500;
 }
 
 .config-hint {

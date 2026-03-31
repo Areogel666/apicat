@@ -14,11 +14,25 @@
         v-for="tc in testCases"
         :key="tc.id"
         :class="['case-tab', tc.id === activeId && 'active']"
-        @click="emit('activate', tc.id)"
+        @click="handleTabClick(tc.id)"
+        @dblclick.stop="startInlineRename(tc)"
         @contextmenu.prevent="openMenu(tc, $event)"
       >
         <span v-if="tc.starred" class="star">⭐</span>
-        <span class="case-name">{{ tc.name }}</span>
+        <!-- 双击时显示内联编辑输入框 -->
+        <template v-if="renamingId === tc.id">
+          <n-input
+            :ref="el => { if (el) renameInputRef = el }"
+            v-model:value="renameValue"
+            size="tiny"
+            style="width: 90px"
+            @keyup.enter="commitInlineRename"
+            @keyup.escape="cancelInlineRename"
+            @blur="commitInlineRename"
+            @click.stop
+          />
+        </template>
+        <span v-else class="case-name">{{ tc.name }}</span>
       </div>
 
       <!-- 新建用例 -->
@@ -95,6 +109,47 @@ function confirmCreate() {
   showNewInput.value = false
 }
 
+// ── 单击激活（防与双击冲突：延迟100ms，如果双击则取消）──────
+let clickTimer: ReturnType<typeof setTimeout> | null = null
+
+function handleTabClick(id: number) {
+  // 若正在重命名该 tab，不触发 activate（防止 blur 冲突）
+  if (renamingId.value === id) return
+  if (clickTimer) clearTimeout(clickTimer)
+  clickTimer = setTimeout(() => {
+    emit('activate', id)
+    clickTimer = null
+  }, 200)
+}
+
+// ── 内联双击重命名 ──────────────────────────────────────────
+const renamingId = ref<number | null>(null)
+const renameValue = ref('')
+const renameInputRef = ref<any>(null)
+
+function startInlineRename(tc: TestCase) {
+  // 取消单击的 activate
+  if (clickTimer) { clearTimeout(clickTimer); clickTimer = null }
+  renamingId.value = tc.id
+  renameValue.value = tc.name
+  nextTick(() => {
+    renameInputRef.value?.focus?.()
+    renameInputRef.value?.select?.()
+  })
+}
+
+function commitInlineRename() {
+  const id = renamingId.value
+  if (id === null) return
+  const name = renameValue.value.trim()
+  if (name) emit('rename', id, name)
+  renamingId.value = null
+}
+
+function cancelInlineRename() {
+  renamingId.value = null
+}
+
 // ── 右键菜单 ───────────────────────────────────────────────
 const menuVisible = ref(false)
 const menuX = ref(0)
@@ -123,9 +178,9 @@ function handleMenuSelect(key: string) {
   const id = menuTargetId.value
   if (id === null) return
   if (key === 'rename') {
+    // 触发内联重命名（通过 startInlineRename）
     const tc = props.testCases.find(t => t.id === id)
-    const newN = window.prompt('新名称', tc?.name ?? '')
-    if (newN?.trim()) emit('rename', id, newN.trim())
+    if (tc) startInlineRename(tc)
   } else if (key === 'star') {
     emit('toggle-star', id)
   } else if (key === 'delete') {

@@ -98,13 +98,14 @@ async function handleImport() {
     const pid = targetProjectId.value
 
     let importedPid: number
+    // Tauri 2.x #[command] 宏把 Rust snake_case 参数名转为 camelCase IPC key
     if (format.value === 'postman') {
-      importedPid = await invoke<number>('import_postman', { project_id: pid, json_content: content })
+      importedPid = await invoke<number>('import_postman', { projectId: pid, jsonContent: content })
     } else if (format.value === 'apicat') {
-      importedPid = await invoke<number>('import_apicat', { project_id: pid, json_content: content })
+      importedPid = await invoke<number>('import_apicat', { projectId: pid, jsonContent: content })
     } else {
       const isYaml = selectedFilePath.value.endsWith('.yaml') || selectedFilePath.value.endsWith('.yml')
-      importedPid = await invoke<number>('import_openapi', { project_id: pid, content, is_yaml: isYaml })
+      importedPid = await invoke<number>('import_openapi', { projectId: pid, content, isYaml })
     }
 
     await projectStore.loadProjects()
