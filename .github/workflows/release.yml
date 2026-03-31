@@ -1,0 +1,108 @@
+name: Release
+
+# 触发条件：push 一个 v*.*.* 格式的 tag（如 v1.0.0）
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows — 构建 MSI 安装包
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: msi
+            artifact-name: windows-msi
+
+          # macOS (Apple Silicon + Intel 通用包)
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            bundles: dmg
+            artifact-name: macos-dmg-arm64
+
+          - platform: macos-13          # Intel runner
+            target: x86_64-apple-darwin
+            bundles: dmg
+            artifact-name: macos-dmg-x64
+
+          # Linux — 构建 AppImage（免安装，兼容性最好）和 deb
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: appimage,deb
+            artifact-name: linux-x64
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Node.js ──────────────────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # ── Rust ─────────────────────────────────────────────────
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      # ── Linux 系统依赖（WebKit2GTK + 其他 Tauri 所需库）─────
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev
+
+      # ── 前端依赖 ─────────────────────────────────────────────
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # ── Tauri 构建 ───────────────────────────────────────────
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Windows：增大栈空间，避免 windows crate 编译 OOM
+          RUST_MIN_STACK: ${{ matrix.platform == 'windows-latest' && '8388608' || '' }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'ApiCat ${{ github.ref_name }}'
+          releaseBody: |
+            See [CHANGELOG](https://github.com/${{ github.repository }}/blob/master/docs/release/) for details.
+          releaseDraft: true      # 先创建草稿，手动检查后再发布
+          prerelease: false
+          target: ${{ matrix.target }}
+          args: --bundles ${{ matrix.bundles }}
+
+      # ── 上传构建产物（可选，用于 CI 内部查看）──────────────
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
+            src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
+            src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb
+          if-no-files-found: ignore
+          retention-days: 7
