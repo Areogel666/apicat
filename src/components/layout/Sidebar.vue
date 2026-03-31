@@ -14,8 +14,9 @@
       <n-tree
         v-else
         :data="treeData"
-        :filter-text="searchText"
         :node-props="nodeProps"
+        :render-suffix="renderSuffix"
+        :render-label="renderLabel"
         :allow-drop="allowDrop"
         block-line
         draggable
@@ -28,10 +29,10 @@
 
     <!-- 底部操作 -->
     <div class="sidebar__footer">
-      <n-button size="small" block dashed @click="showNewCollectionDialog = true">
+      <n-button size="small" block dashed @click="openNewCollectionDialog()">
         + 新建文件夹
       </n-button>
-      <n-button size="small" block dashed style="margin-top:4px" @click="showNewRequestDialog = true">
+      <n-button size="small" block dashed style="margin-top:4px" @click="openNewRequestDialog()">
         + 新建接口
       </n-button>
     </div>
@@ -100,12 +101,26 @@
         <n-button type="primary" @click="createForce" :loading="creating">仍然创建</n-button>
       </template>
     </n-modal>
+
+    <!-- cURL 导入对话框 -->
+    <n-modal v-model:show="showCurlImportDialog" preset="dialog" title="从 cURL 导入" style="width: 500px">
+      <n-input
+        v-model:value="curlImportText"
+        type="textarea"
+        :rows="8"
+        placeholder="在此粘贴 cURL 文本..."
+      />
+      <template #action>
+        <n-button @click="showCurlImportDialog = false">取消</n-button>
+        <n-button type="primary" :loading="creating" @click="doImportCurl">导入</n-button>
+      </template>
+    </n-modal>
   </aside>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { NInput, NEmpty, NButton, NTree, NSpin, NModal, NSpace, NSelect, useMessage } from 'naive-ui'
+import { h, ref, computed, watch, onMounted, onUnmounted, defineComponent } from 'vue'
+import { NInput, NEmpty, NButton, NTree, NSpin, NModal, NSpace, NSelect, NDropdown, useMessage } from 'naive-ui'
 import type { TreeOption, TreeDropInfo } from 'naive-ui'
 import { invoke } from '@tauri-apps/api/core'
 import { useUiStore } from '../../stores/ui'
@@ -114,7 +129,7 @@ import { useCollectionStore } from '../../stores/collection'
 import { useRequestStore } from '../../stores/request'
 import { parseUrl } from '../../utils/urlParser'
 import { buildCurl } from '../../utils/curlBuilder'
-import type { Collection } from '../../types'
+import type { Collection, ParamItem } from '../../types'
 
 const uiStore = useUiStore()
 const projectStore = useProjectStore()
@@ -122,19 +137,69 @@ const collectionStore = useCollectionStore()
 const requestStore = useRequestStore()
 const message = useMessage()
 
+/**
+ * NodeStatusDot — 一个真正的 Vue 组件，有独立的 setup 响应式上下文。
+ * 这是解决圆点不更新的根本方案：
+ * - renderLabel/renderSuffix 是普通 prop 函数，在 Naive UI 内部调用时不在 Vue 响应式 Effect 里
+ * - 只有 defineComponent + setup 才有自己的 effect scope，能正确追踪 Pinia store 变化
+ * 使用 inline style 避免 scoped CSS 哈希匹配问题（NodeStatusDot 的 DOM 没有 Sidebar 的 scope 哈希）
+ */
+const NodeStatusDot = defineComponent({
+  props: {
+    reqId: { type: Number, required: true },
+  },
+  setup(props) {
+    // 这里的 computed 有独立的响应式上下文，能正确追踪 dirtyRequestIds/savedRequestIds 变化
+    const status = computed(() => {
+      const dirty = requestStore.dirtyRequestIds
+      const saved = requestStore.savedRequestIds
+      if (dirty.has(props.reqId)) return 'dirty'
+      if (saved.has(props.reqId)) return 'saved'
+      return null
+    })
+    return () => {
+      const s = status.value
+      if (!s) return null
+      // 用 inline style，不依赖 scoped CSS 哈希
+      const baseStyle = 'display:inline-block;width:7px;height:7px;border-radius:50%;flex-shrink:0;vertical-align:middle;position:relative;top:-1px;'
+      const colorStyle = s === 'dirty'
+        ? 'background:#f0a020;box-shadow:0 0 0 2px rgba(240,160,32,0.25);'
+        : 'background:#18a058;box-shadow:0 0 0 2px rgba(24,160,88,0.25);'
+      return h('span', {
+        style: baseStyle + colorStyle,
+        title: s === 'dirty' ? '有未保存的修改' : '已保存',
+      })
+    }
+  },
+})
+
 const sidebarWidth = uiStore.sidebarWidth
 const searchText = ref('')
 const loading = ref(false)
 const creating = ref(false)
 const expandedKeys = ref<string[]>([])
 
+// 搜索时自动展开所有文件夹，以便显示匹配的接口
+watch(searchText, (keyword) => {
+  if (!keyword.trim()) return
+  const pid = currentProjectId.value
+  if (!pid) return
+  const cols = collectionStore.getCollections(pid)
+  expandedKeys.value = cols.map(c => `col-${c.id}`)
+})
+
 // 对话框状态
 const showNewCollectionDialog = ref(false)
 const newCollectionName = ref('')
+const parentCollectionId = ref<number | null>(null)
 const showNewRequestDialog = ref(false)
 const newRequestUrl = ref('')
 const newRequestName = ref('')
 const newRequestMethod = ref('GET')
+const targetCollectionId = ref<number | null>(null)
+
+const showCurlImportDialog = ref(false)
+const curlImportText = ref('')
 
 const methodOptions = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'].map(m => ({ label: m, value: m }))
 
@@ -272,23 +337,24 @@ async function copyAsCurl() {
 // ── 删除节点 ─────────────────────────────────────────────
 async function deleteItem() {
   closeMenu()
-  const key = menuNodeKey.value
+  await performDeleteByKey(menuNodeKey.value)
+}
+
+async function performDeleteByKey(key: string) {
   const pid = currentProjectId.value
-  if (!pid) return
+  if (!pid || !key) return
 
   try {
     if (key.startsWith('req-')) {
       const id = parseInt(key.replace('req-', ''))
       const req = Object.values(requestStore.requestMap).flat().find(r => r.id === id)
       if (!req) return
-      if (!window.confirm(`确定删除接口「${req.name}」吗？`)) return
       await requestStore.deleteRequest(id, req.collection_id)
       message.success('接口已删除')
     } else {
       const id = parseInt(key.replace('col-', ''))
       const col = collectionStore.getCollections(pid).find(c => c.id === id)
       if (!col) return
-      if (!window.confirm(`确定删除文件夹「${col.name}」及其所有接口吗？`)) return
       await collectionStore.deleteCollection(id, pid)
       // 同步清理 requestStore 中该 collection 及其所有子 collection 的缓存
       // DB 层 ON DELETE CASCADE 已处理数据，这里只清理内存
@@ -313,6 +379,141 @@ async function deleteItem() {
   } catch (e) {
     message.error(String(e))
   }
+}
+
+const requestActionOptions = [
+  { label: '重命名', key: 'rename' },
+  { label: '复制接口', key: 'duplicate' },
+  { label: '复制为 cURL', key: 'curl' },
+  { label: '删除', key: 'delete' },
+]
+
+const collectionAddOptions = [
+  { label: '添加子文件夹', key: 'add-sub-collection' },
+  { label: '添加接口到此文件夹', key: 'add-request' },
+  { label: '📋 从 cURL 导入', key: 'import-curl' },
+]
+
+const collectionActionOptions = [
+  { label: '重命名', key: 'rename' },
+  { label: '删除文件夹', key: 'delete' },
+]
+
+function openNewCollectionDialog(parentId: number | null = null) {
+  parentCollectionId.value = parentId
+  showNewCollectionDialog.value = true
+}
+
+function openNewRequestDialog(collectionId: number | null = null) {
+  targetCollectionId.value = collectionId
+  showNewRequestDialog.value = true
+}
+
+function renderLabel(info: { option: TreeOption }) {
+  const label = String(info.option.label ?? '')
+  // 圆点已移至 renderSuffix（按钮左侧），此处只渲染 label
+  return h('span', { class: 'node-label' }, label)
+}
+
+
+function renderSuffix(info: { option: TreeOption; checked: boolean; selected: boolean }) {
+  const key = String(info.option.key ?? '')
+
+  if (key.startsWith('req-')) {
+    const reqId = parseInt(key.replace('req-', ''))
+    // suffix 容器：圆点（始终可见） + 操作按钮（hover 才显示）
+    return h('div', { class: 'node-suffix', onClick: (e: MouseEvent) => e.stopPropagation() }, [
+      // 圆点：NodeStatusDot 有独立响应式上下文，始终渲染（不受 node-actions opacity 影响）
+      h(NodeStatusDot, { reqId }),
+      // 操作按钮组（hover 时由 DOM style 控制 opacity）
+      h(
+        'div',
+        { class: 'node-actions' },
+        [
+          h(
+            NDropdown,
+            {
+              trigger: 'click',
+              options: requestActionOptions,
+              onSelect: async (actionKey: string | number) => {
+                menuNodeKey.value = key
+                menuNodeType.value = 'request'
+                if (actionKey === 'rename') {
+                  startRename()
+                } else if (actionKey === 'duplicate') {
+                  await duplicateItem()
+                } else if (actionKey === 'curl') {
+                  await copyAsCurl()
+                } else if (actionKey === 'delete') {
+                  await performDeleteByKey(key)
+                }
+              },
+            },
+            {
+              default: () => h('button', { class: 'node-action-btn', type: 'button', title: '更多操作' }, '•••'),
+            },
+          ),
+        ],
+      ),
+    ])
+  }
+
+  if (key.startsWith('col-')) {
+    const colId = parseInt(key.replace('col-', ''))
+    return h('div', { class: 'node-suffix', onClick: (e: MouseEvent) => e.stopPropagation() }, [
+      // 操作按钮组（hover 时显示）
+      h(
+        'div',
+        { class: 'node-actions' },
+        [
+          // + 新建子项
+          h(
+            NDropdown,
+            {
+              trigger: 'click',
+              options: collectionAddOptions,
+              onSelect: (actionKey: string | number) => {
+                if (actionKey === 'add-sub-collection') {
+                  openNewCollectionDialog(colId)
+                } else if (actionKey === 'add-request') {
+                  openNewRequestDialog(colId)
+                } else if (actionKey === 'import-curl') {
+                  targetCollectionId.value = colId
+                  curlImportText.value = ''
+                  showCurlImportDialog.value = true
+                }
+              },
+            },
+            {
+              default: () => h('button', { class: 'node-action-btn node-action-btn--add', type: 'button', title: '添加' }, '+'),
+            },
+          ),
+          // ••• 文件夹操作下拉
+          h(
+            NDropdown,
+            {
+              trigger: 'click',
+              options: collectionActionOptions,
+              onSelect: async (actionKey: string | number) => {
+                menuNodeKey.value = key
+                menuNodeType.value = 'collection'
+                if (actionKey === 'rename') {
+                  startRename()
+                } else if (actionKey === 'delete') {
+                  await performDeleteByKey(key)
+                }
+              },
+            },
+            {
+              default: () => h('button', { class: 'node-action-btn', type: 'button', title: '更多操作' }, '•••'),
+            },
+          ),
+        ],
+      ),
+    ])
+  }
+
+  return null
 }
 
 // ── 项目切换时加载数据 ────────────────────────────────────
@@ -344,15 +545,28 @@ const treeData = computed<TreeOption[]>(() => {
     }
   }
 
-  function buildCollectionNode(col: Collection): TreeOption {
-    const reqs = (requestStore.requestMap[col.id] ?? []).map(r => ({
-      key: `req-${r.id}`,
-      label: `${r.method} ${r.name}`,
-      isLeaf: true,
-      data: r,
-    } as TreeOption))
+  const keyword = searchText.value.trim().toLowerCase()
 
-    const subCols = (childMap[col.id] ?? []).map(buildCollectionNode)
+  function buildCollectionNode(col: Collection): TreeOption | null {
+    const reqs = (requestStore.requestMap[col.id] ?? [])
+      .filter(r => {
+        if (!keyword) return true
+        const label = `${r.method} ${r.name}`.toLowerCase()
+        return label.includes(keyword)
+      })
+      .map(r => ({
+        key: `req-${r.id}`,
+        label: `${r.method} ${r.name}`,
+        isLeaf: true,
+        data: r,
+      } as TreeOption))
+
+    const subCols = (childMap[col.id] ?? [])
+      .map(buildCollectionNode)
+      .filter((n): n is TreeOption => n !== null)
+
+    // 搜索时：若该文件夹无匹配的接口和子文件夹，则隐藏该文件夹
+    if (keyword && reqs.length === 0 && subCols.length === 0) return null
 
     return {
       key: `col-${col.id}`,
@@ -362,7 +576,9 @@ const treeData = computed<TreeOption[]>(() => {
     }
   }
 
-  return rootCols.map(buildCollectionNode)
+  return rootCols
+    .map(buildCollectionNode)
+    .filter((n): n is TreeOption => n !== null)
 })
 
 // ── 节点点击 → 激活接口 ───────────────────────────────────
@@ -373,18 +589,41 @@ function onSelectNode(keys: Array<string | number>) {
   requestStore.activeRequestId = id
 }
 
-// ── 节点 props（右键菜单） ────────────────────────────────
+// 组件 mount 完成后才激活 hover 事件，防止 WebView 初始化期间误触发
+const hoverEnabled = ref(false)
+onMounted(() => {
+  // 延迟 300ms 确保 WebView 完全初始化
+  setTimeout(() => { hoverEnabled.value = true }, 300)
+})
+
+// ── 节点 props（右键菜单 + hover 状态追踪） ───────────────
 function nodeProps({ option }: { option: TreeOption }) {
+  const key = option.key as string
   return {
     onContextmenu(e: MouseEvent) {
       e.preventDefault()
       e.stopPropagation()
-      const key = option.key as string
       if (key.startsWith('req-')) {
         openMenu(e, key, 'request')
       } else if (key.startsWith('col-')) {
         openMenu(e, key, 'collection')
       }
+    },
+    onMouseenter(e: MouseEvent) {
+      if (!hoverEnabled.value) return
+      const nodeEl = e.currentTarget as HTMLElement
+      nodeEl.querySelectorAll<HTMLElement>('.node-actions').forEach(el => {
+        el.style.opacity = '1'
+        el.style.pointerEvents = 'auto'
+      })
+    },
+    onMouseleave(e: MouseEvent) {
+      if (!hoverEnabled.value) return
+      const nodeEl = e.currentTarget as HTMLElement
+      nodeEl.querySelectorAll<HTMLElement>('.node-actions').forEach(el => {
+        el.style.opacity = '0'
+        el.style.pointerEvents = 'none'
+      })
     },
   }
 }
@@ -471,9 +710,14 @@ async function createCollection() {
   if (!pid || !newCollectionName.value.trim()) return
   creating.value = true
   try {
-    const col = await collectionStore.createCollection(pid, newCollectionName.value.trim())
+    const col = await collectionStore.createCollection(
+      pid,
+      newCollectionName.value.trim(),
+      parentCollectionId.value ?? undefined,
+    )
     showNewCollectionDialog.value = false
     newCollectionName.value = ''
+    parentCollectionId.value = null
     requestStore.requestMap[col.id] = []
     message.success('文件夹创建成功')
   } catch (e) {
@@ -506,21 +750,21 @@ async function doCreateRequest() {
 
   const parsed = parseUrl(url, newRequestMethod.value)
   const name = newRequestName.value.trim() || parsed.displayName
-  const targetCollectionId = cols[0].id
+  const targetCid = targetCollectionId.value ?? cols[0].id
 
   // 检查 Collection 内是否已有同名接口
-  const existingReqs = requestStore.requestMap[targetCollectionId] ?? []
+  const existingReqs = requestStore.requestMap[targetCid] ?? []
   const hasDuplicate = existingReqs.some(r => r.name === name)
 
   if (hasDuplicate) {
     // 暂存参数，弹出冲突对话框
     pendingRequestName.value = name
-    pendingCreateParams.value = { collectionId: targetCollectionId, name, method: newRequestMethod.value, url }
+    pendingCreateParams.value = { collectionId: targetCid, name, method: newRequestMethod.value, url }
     showDuplicateNameDialog.value = true
     return
   }
 
-  await executeCreateRequest(targetCollectionId, name, newRequestMethod.value, url)
+  await executeCreateRequest(targetCid, name, newRequestMethod.value, url)
 }
 
 /** 「重命名后创建」— 自动追加序号找最小可用名 */
@@ -559,9 +803,73 @@ async function executeCreateRequest(collectionId: number, name: string, method: 
     newRequestName.value = ''
     newRequestMethod.value = 'GET'
     pendingCreateParams.value = null
+    targetCollectionId.value = null
     message.success('接口创建成功')
   } catch (e) {
     message.error(String(e))
+  } finally {
+    creating.value = false
+  }
+}
+
+// cURL 解析与导入
+function parseCurl(curlText: string): { method: string; url: string; headers: ParamItem[]; bodyType: string; body: string } {
+  const text = curlText.trim().replace(/\s*\\\s*\n\s*/g, ' ') // join line continuations
+  const urlMatch = text.match(/https?:\/\/[^\s'"]+/)
+  const url = urlMatch ? urlMatch[0].replace(/['"]/g, '') : ''
+  const methodMatch = text.match(/-X\s+([A-Z]+)/i)
+  const method = methodMatch ? methodMatch[1].toUpperCase() : (text.includes('-d ') || text.includes('--data') ? 'POST' : 'GET')
+  const headers: ParamItem[] = []
+  const headerRe = /-H\s+['"]([^'"]+)['"]/g
+  let hm: RegExpExecArray | null
+  while ((hm = headerRe.exec(text)) !== null) {
+    const colonIdx = hm[1].indexOf(':')
+    if (colonIdx > 0) {
+      headers.push({ key: hm[1].substring(0, colonIdx).trim(), value: hm[1].substring(colonIdx + 1).trim(), enabled: true })
+    }
+  }
+  const dataMatch = text.match(/(?:--data|-d)\s+['"]([^'"]*)['"]/s) || text.match(/(?:--data|-d)\s+\$['"]([^'"]*)['"]/s)
+  const body = dataMatch ? dataMatch[1] : ''
+  let bodyType = 'none'
+  if (body) {
+    const ct = headers.find(h => h.key.toLowerCase() === 'content-type')?.value ?? ''
+    if (ct.includes('json')) bodyType = 'raw_json'
+    else if (ct.includes('form') && ct.includes('urlencoded')) bodyType = 'form_urlencoded'
+    else bodyType = 'raw_text'
+  }
+  return { method, url, headers, bodyType, body }
+}
+
+async function doImportCurl() {
+  const pid = currentProjectId.value
+  if (!pid || targetCollectionId.value === null) return
+  if (!curlImportText.value.trim()) {
+    message.warning('请输入 cURL 内容')
+    return
+  }
+  creating.value = true
+  try {
+    const parsed = parseCurl(curlImportText.value)
+    if (!parsed.url) {
+      message.error('无法解析 URL，请检查 cURL 格式')
+      return
+    }
+    const parsedName = parseUrl(parsed.url, parsed.method).displayName || 'Imported Request'
+    const req = await requestStore.createRequest(targetCollectionId.value, parsedName, parsed.method, parsed.url)
+    
+    // Update headers and body
+    await requestStore.updateRequest(req.id, {
+      headers: JSON.stringify(parsed.headers),
+      body_type: parsed.bodyType,
+      body: parsed.body
+    })
+    
+    message.success('cURL 导入成功')
+    showCurlImportDialog.value = false
+    curlImportText.value = ''
+    targetCollectionId.value = null
+  } catch (e) {
+    message.error('导入失败: ' + String(e))
   } finally {
     creating.value = false
   }
@@ -582,9 +890,17 @@ async function executeCreateRequest(collectionId: number, name: string, method: 
 .sidebar__tree { flex: 1; overflow-y: auto; padding: 4px 0; }
 .sidebar__footer { padding: 8px 10px; border-top: 1px solid var(--n-border-color, #e0e0e6); flex-shrink: 0; }
 
-.tree-node { width: 100%; }
+/* ── label 区域 ───────────────────────────────────────────── */
+.node-label {
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
-/* 右键菜单 */
+/* 右键菜单（在 Teleport body 下，由 Sidebar 组件控制，需要 scoped）*/
 .ctx-menu {
   position: fixed;
   z-index: 9999;
@@ -609,4 +925,65 @@ async function executeCreateRequest(collectionId: number, name: string, method: 
 .ctx-item:hover { background: var(--n-item-color-hover, rgba(0,0,0,0.05)); }
 .ctx-item--danger { color: var(--n-error-color, #d03050); }
 .ctx-item--danger:hover { background: rgba(208,48,80,0.07); }
+</style>
+
+<!-- 非 scoped：renderSuffix 返回的 VNode 由 Naive UI TreeNode 渲染，DOM 上不会有 Sidebar 的 scope 哈希 -->
+<!-- 这些类必须是全局 CSS 才能匹配到 n-tree 内部渲染的元素 -->
+<style>
+/* ── suffix 外层容器：圆点（始终可见）+ 按钮（hover 才显示）排成一行 */
+.node-suffix {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ── 操作按钮组：默认隐藏，nodeProps mouseenter/mouseleave 通过 DOM style 控制 */
+.node-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+/* ── 操作按钮基础样式 */
+.node-action-btn {
+  all: unset;
+  box-sizing: border-box;
+  width: 22px;
+  height: 20px;
+  border-radius: 4px;
+  background: transparent;
+  color: #999;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  line-height: 1;
+  user-select: none;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  -webkit-appearance: none !important;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.node-action-btn:hover {
+  background: rgba(0, 0, 0, 0.07);
+  color: #18a058;
+}
+
+/* + 按钮较大字号 */
+.node-action-btn--add {
+  font-size: 16px;
+  letter-spacing: 0;
+}
+
+.node-action-btn--add:hover {
+  background: rgba(24, 160, 88, 0.1);
+  color: #18a058;
+}
 </style>
