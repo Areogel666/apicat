@@ -1,14 +1,16 @@
 <template>
   <n-config-provider :theme="theme" :locale="zhCN" :date-locale="dateZhCN">
-    <n-message-provider>
-      <AppLayout />
-    </n-message-provider>
+    <n-dialog-provider>
+      <n-message-provider>
+        <AppLayout />
+      </n-message-provider>
+    </n-dialog-provider>
   </n-config-provider>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
-import { NConfigProvider, NMessageProvider, zhCN, dateZhCN, darkTheme } from 'naive-ui'
+import { NConfigProvider, NMessageProvider, NDialogProvider, zhCN, dateZhCN, darkTheme } from 'naive-ui'
 import AppLayout from './components/layout/AppLayout.vue'
 import { useUiStore } from './stores/ui'
 import { useProjectStore } from './stores/project'
