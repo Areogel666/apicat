@@ -13,6 +13,10 @@
         <n-tag :type="statusTagType(resp.status_code)" size="small">
           {{ resp.status_code }} {{ resp.status_text }}
         </n-tag>
+        <!-- 非 2xx 时明确标注请求失败 -->
+        <n-tag v-if="resp.status_code >= 400" type="error" size="small" :bordered="false">
+          ❌ 请求失败
+        </n-tag>
         <span class="status-meta">{{ resp.elapsed_ms }}ms</span>
         <span class="status-meta">{{ formatSize(resp.body_size) }}</span>
       </template>
@@ -24,7 +28,7 @@
     <!-- 响应 Tabs -->
     <n-tabs type="line" size="small" class="response-tabs">
       <!-- Body Tab -->
-      <n-tab-pane name="body" tab="Body (美化)">
+      <n-tab-pane name="body" tab="Body">
         <div class="tab-content">
           <n-empty v-if="!resp && !responseStore.loading" description="发送请求后，响应内容将在这里显示" style="margin-top:40px" />
           <n-spin v-else-if="responseStore.loading" style="margin-top:40px; display:flex; justify-content:center" />
@@ -144,6 +148,25 @@ function onRefill(snapshot: string) {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  min-height: 0;
+}
+
+/* 强制 n-tabs 内部的 tab-pane wrapper 撑开并允许 overflow */
+.response-tabs :deep(.n-tabs-pane-wrapper) {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.response-tabs :deep(.n-tab-pane) {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
 }
 
 .tab-content {
@@ -151,7 +174,7 @@ function onRefill(snapshot: string) {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  height: 100%;
+  min-height: 0;
 }
 
 .headers-list { overflow-y: auto; padding: 4px 0; }

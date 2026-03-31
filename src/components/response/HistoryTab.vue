@@ -53,12 +53,12 @@
       <n-modal v-model:show="showDiff" preset="card" title="JSON Diff" style="width: 90vw; max-width: 1000px">
         <div class="diff-container">
           <div class="diff-side">
-            <div class="diff-label">{{ diffPair[0]?.created_at ?? '' }}</div>
+            <div class="diff-label">{{ formatTime(diffPair[0]?.created_at ?? '') }}</div>
             <pre class="diff-content">{{ prettyBody(diffPair[0]?.response_body) }}</pre>
           </div>
           <div class="diff-divider" />
           <div class="diff-side">
-            <div class="diff-label">{{ diffPair[1]?.created_at ?? '' }}</div>
+            <div class="diff-label">{{ formatTime(diffPair[1]?.created_at ?? '') }}</div>
             <pre class="diff-content">{{ prettyBody(diffPair[1]?.response_body) }}</pre>
           </div>
         </div>
@@ -113,7 +113,15 @@ function refill(rec: HistoryRecord) {
 }
 
 function formatTime(iso: string): string {
-  const d = new Date(iso)
+  // SQLite 返回的格式是 "YYYY-MM-DD HH:MM:SS"（UTC，无时区标记）
+  // new Date() 对无时区标记的字符串行为不一致，需统一加 Z 转为 UTC 解析
+  let dateStr = iso.trim()
+  // 如果是 SQLite 格式（含空格而无T），将空格替换为T并追加Z
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(dateStr)) {
+    dateStr = dateStr.replace(' ', 'T') + 'Z'
+  }
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return iso  // 解析失败降级显示原字符串
   return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
 }
 
@@ -139,12 +147,14 @@ function prettyBody(body?: string): string {
   display: flex;
   flex-direction: column;
   height: 100%;
-  gap: 8px;
+  gap: 6px;
+  min-height: 0;
 }
 
 .history-list {
   flex: 1;
   overflow-y: auto;
+  min-height: 0;
 }
 
 .history-item {
@@ -165,8 +175,9 @@ function prettyBody(body?: string): string {
 .history-ms { color: var(--n-text-color-3, #999); font-size: 11px; min-width: 48px; text-align: right; }
 
 .history-actions {
-  padding: 4px 0;
-  flex-shrink: 0;
+  padding: 4px 0 2px;
+  flex-shrink: 0;   /* 始终显示，不被列表挤走 */
+  border-top: 1px solid var(--n-border-color, #f0f0f0);
 }
 
 .diff-container {

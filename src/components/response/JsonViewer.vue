@@ -7,12 +7,20 @@
 
     <!-- 操作栏 -->
     <div class="json-toolbar">
+      <!-- 内容类型标签 -->
+      <n-tag v-if="contentTypeLabel" size="tiny" :bordered="false" style="opacity:0.7">
+        {{ contentTypeLabel }}
+      </n-tag>
       <n-button size="tiny" quaternary @click="copyContent">
         📋 复制
       </n-button>
       <!-- JSON 模式：美化/原始切换；非 JSON 无此按钮 -->
       <n-button v-if="isJsonContent" size="tiny" quaternary @click="toggleFormat">
         {{ isRaw ? '美化/折叠' : '原始' }}
+      </n-button>
+      <!-- HTML/XML：格式化按钮 -->
+      <n-button v-if="isHtmlOrXml" size="tiny" quaternary @click="toggleFormat">
+        {{ isRaw ? '语法高亮' : '原始' }}
       </n-button>
     </div>
 
@@ -44,7 +52,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { NButton, useMessage } from 'naive-ui'
+import { NButton, NTag, useMessage } from 'naive-ui'
 import VueJsonPretty from 'vue-json-pretty'
 import 'vue-json-pretty/lib/styles.css'
 import hljs from 'highlight.js/lib/core'
@@ -72,6 +80,20 @@ const isJsonContent = computed(() => {
 const isHtmlOrXml = computed(() => {
   const ct = props.contentType ?? ''
   return ct.includes('html') || ct.includes('xml') || props.body.trimStart().startsWith('<')
+})
+
+/** 显示在工具栏的内容类型简短标签 */
+const contentTypeLabel = computed(() => {
+  const ct = props.contentType ?? ''
+  if (ct.includes('json')) return 'JSON'
+  if (ct.includes('html')) return 'HTML'
+  if (ct.includes('xml')) return 'XML'
+  if (ct.includes('text/plain')) return 'TEXT'
+  if (ct.includes('text/')) return 'TEXT'
+  if (ct) return ct.split(';')[0].trim()
+  if (props.body.trimStart().startsWith('{') || props.body.trimStart().startsWith('[')) return 'JSON'
+  if (props.body.trimStart().startsWith('<')) return 'HTML/XML'
+  return ''
 })
 
 /** 解析 JSON，解析失败返回 null */
