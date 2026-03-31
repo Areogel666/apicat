@@ -1,6 +1,7 @@
 //! 导入导出命令 — 全部使用 sqlx::query_as / sqlx::query（非宏，无需 DATABASE_URL）
 
 use crate::{db::AppDb, error::CmdResult, types::*};
+use sqlx::SqliteConnection;
 use tauri::State;
 
 // ═══════════════════════════════════════════════════════════
@@ -228,28 +229,20 @@ pub async fn import_apicat(
     let export: ApiCatExport = serde_json::from_str(&json_content)
         .map_err(|e| crate::error::AppError::Custom(format!("解析失败: {e}")))?;
 
-    // 开启事务：保证导入原子性，中途失败自动回滚，不留半成品
-    sqlx::query("BEGIN").execute(&db.0).await?;
-    let result = import_apicat_inner(&db, project_id, &export).await;
-    match result {
-        Ok(pid) => {
-            sqlx::query("COMMIT").execute(&db.0).await?;
-            Ok(pid)
-        }
-        Err(e) => {
-            let _ = sqlx::query("ROLLBACK").execute(&db.0).await;
-            Err(e)
-        }
-    }
+    // 使用 sqlx 事务 API，避免连接池复用导致的嵌套事务错误
+    let mut tx = db.0.begin().await?;
+    let pid = import_apicat_inner(&mut *tx, project_id, &export).await?;
+    tx.commit().await?;
+    Ok(pid)
 }
 
 async fn import_apicat_inner(
-    db: &AppDb,
+    conn: &mut SqliteConnection,
     project_id: i64,
     export: &ApiCatExport,
 ) -> CmdResult<i64> {
     let pid = ensure_project(
-        db,
+        conn,
         project_id,
         &export.project.name,
         export.project.description.as_deref(),
@@ -265,7 +258,7 @@ async fn import_apicat_inner(
         .bind(&env.name)
         .bind(&env.base_url)
         .bind(env.is_active)
-        .fetch_one(&db.0)
+        .fetch_one(&mut *conn)
         .await?;
 
         for var in &env.variables {
@@ -278,18 +271,18 @@ async fn import_apicat_inner(
             .bind(&var.value)
             .bind(&var.description)
             .bind(var.enabled)
-            .execute(&db.0)
+            .execute(&mut *conn)
             .await?;
         }
     }
 
-    import_collections_tree(db, pid, None, &export.project.collections).await?;
+    import_collections_tree(conn, pid, None, &export.project.collections).await?;
     Ok(pid)
 }
 
 #[async_recursion::async_recursion]
 async fn import_collections_tree(
-    db: &AppDb,
+    conn: &mut SqliteConnection,
     project_id: i64,
     parent_id: Option<i64>,
     collections: &[ExportCollection],
@@ -303,7 +296,7 @@ async fn import_collections_tree(
         .bind(parent_id)
         .bind(&coll.name)
         .bind(coll.sort_order)
-        .fetch_one(&db.0)
+        .fetch_one(&mut *conn)
         .await?;
 
         for req in &coll.requests {
@@ -324,11 +317,11 @@ async fn import_collections_tree(
             .bind(&req.auth_type)
             .bind(&req.auth_config)
             .bind(req.sort_order)
-            .execute(&db.0)
+            .execute(&mut *conn)
             .await?;
         }
 
-        import_collections_tree(db, project_id, Some(coll_id), &coll.children).await?;
+        import_collections_tree(conn, project_id, Some(coll_id), &coll.children).await?;
     }
     Ok(())
 }
@@ -347,31 +340,29 @@ pub async fn import_postman(
         .unwrap_or("导入的接口集合")
         .to_string();
 
-    // 开启事务：保证导入原子性，中途失败自动回滚
-    sqlx::query("BEGIN").execute(&db.0).await?;
-    let result = import_postman_inner(&db, project_id, &coll_name, &v).await;
-    match result {
-        Ok(pid) => { sqlx::query("COMMIT").execute(&db.0).await?; Ok(pid) }
-        Err(e)  => { let _ = sqlx::query("ROLLBACK").execute(&db.0).await; Err(e) }
-    }
+    // 使用 sqlx 事务 API，失败时依赖 Drop 自动回滚
+    let mut tx = db.0.begin().await?;
+    let pid = import_postman_inner(&mut *tx, project_id, &coll_name, &v).await?;
+    tx.commit().await?;
+    Ok(pid)
 }
 
 async fn import_postman_inner(
-    db: &AppDb,
+    conn: &mut SqliteConnection,
     project_id: i64,
     coll_name: &str,
     v: &serde_json::Value,
 ) -> CmdResult<i64> {
-    let pid = ensure_project(db, project_id, coll_name, None).await?;
+    let pid = ensure_project(conn, project_id, coll_name, None).await?;
     let empty: Vec<serde_json::Value> = vec![];
     let items = v["item"].as_array().unwrap_or(&empty).clone();
-    import_postman_items(db, pid, None, &items, 0).await?;
+    import_postman_items(conn, pid, None, &items, 0).await?;
     Ok(pid)
 }
 
 #[async_recursion::async_recursion]
 async fn import_postman_items(
-    db: &AppDb,
+    conn: &mut SqliteConnection,
     project_id: i64,
     parent_collection_id: Option<i64>,
     items: &[serde_json::Value],
@@ -385,7 +376,7 @@ async fn import_postman_items(
              VALUES (?,NULL,'默认',0) RETURNING id",
         )
         .bind(project_id)
-        .fetch_one(&db.0)
+        .fetch_one(&mut *conn)
         .await?;
         Some(id)
     } else {
@@ -405,12 +396,12 @@ async fn import_postman_items(
             .bind(parent_collection_id)
             .bind(&name)
             .bind(sort_offset + idx as i64)
-            .fetch_one(&db.0)
+            .fetch_one(&mut *conn)
             .await?;
 
             let empty: Vec<serde_json::Value> = vec![];
             let sub = item["item"].as_array().unwrap_or(&empty).clone();
-            import_postman_items(db, project_id, Some(coll_id), &sub, 0).await?;
+            import_postman_items(conn, project_id, Some(coll_id), &sub, 0).await?;
         } else {
             // 单个请求
             let req = &item["request"];
@@ -445,7 +436,32 @@ async fn import_postman_items(
                         req["body"]["raw"].as_str().unwrap_or("").to_string(),
                     )
                 }
-                "urlencoded" => ("form_urlencoded".to_string(), "".to_string()),
+                "urlencoded" => {
+                    // 从 Postman urlencoded 数组中提取 key=value&... 格式（简单 percent-encode）
+                    let encoded_body = req["body"]["urlencoded"]
+                        .as_array()
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|item| {
+                                    let key = item["key"].as_str().unwrap_or("");
+                                    let value = item["value"].as_str().unwrap_or("");
+                                    let disabled = item["disabled"].as_bool().unwrap_or(false);
+                                    if !key.is_empty() && !disabled {
+                                        Some(format!(
+                                            "{}={}",
+                                            simple_percent_encode(key),
+                                            simple_percent_encode(value)
+                                        ))
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                                .join("&")
+                        })
+                        .unwrap_or_default();
+                    ("form_urlencoded".to_string(), encoded_body)
+                }
                 _ => ("none".to_string(), "".to_string()),
             };
 
@@ -463,7 +479,7 @@ async fn import_postman_items(
                 .bind(&body_type)
                 .bind(&body)
                 .bind(idx as i64)
-                .execute(&db.0)
+                .execute(&mut *conn)
                 .await?;
             }
         }
@@ -488,17 +504,15 @@ pub async fn import_openapi(
             .map_err(|e| crate::error::AppError::Custom(format!("JSON 解析失败: {e}")))?
     };
 
-    // 开启事务：保证导入原子性，中途失败自动回滚
-    sqlx::query("BEGIN").execute(&db.0).await?;
-    let result = import_openapi_inner(&db, project_id, &v).await;
-    match result {
-        Ok(pid) => { sqlx::query("COMMIT").execute(&db.0).await?; Ok(pid) }
-        Err(e)  => { let _ = sqlx::query("ROLLBACK").execute(&db.0).await; Err(e) }
-    }
+    // 使用 sqlx 事务 API，失败时由事务析构自动回滚
+    let mut tx = db.0.begin().await?;
+    let pid = import_openapi_inner(&mut *tx, project_id, &v).await?;
+    tx.commit().await?;
+    Ok(pid)
 }
 
 async fn import_openapi_inner(
-    db: &AppDb,
+    conn: &mut SqliteConnection,
     project_id: i64,
     v: &serde_json::Value,
 ) -> CmdResult<i64> {
@@ -506,7 +520,7 @@ async fn import_openapi_inner(
         .as_str()
         .unwrap_or("OpenAPI 导入")
         .to_string();
-    let pid = ensure_project(db, project_id, &title, None).await?;
+    let pid = ensure_project(conn, project_id, &title, None).await?;
     let base_url = v["servers"][0]["url"].as_str().map(|s| s.to_string());
 
     // 从全局 tags 列表预建 Collection
@@ -527,7 +541,7 @@ async fn import_openapi_inner(
         .bind(pid)
         .bind(tag)
         .bind(idx as i64)
-        .fetch_one(&db.0)
+        .fetch_one(&mut *conn)
         .await?;
         tag_map.insert(tag.clone(), coll_id);
     }
@@ -565,7 +579,7 @@ async fn import_openapi_inner(
                 .bind(pid)
                 .bind(first_tag)
                 .bind(sort)
-                .fetch_one(&db.0)
+                .fetch_one(&mut *conn)
                 .await?;
                 tag_map.insert(first_tag.to_string(), id);
                 id
@@ -577,7 +591,7 @@ async fn import_openapi_inner(
                          VALUES (?,NULL,'其他',999) RETURNING id",
                     )
                     .bind(pid)
-                    .fetch_one(&db.0)
+                    .fetch_one(&mut *conn)
                     .await?;
                     default_coll_id = Some(id);
                 }
@@ -637,7 +651,7 @@ async fn import_openapi_inner(
             .bind(&body_type)
             .bind(&body)
             .bind(sort_order)
-            .execute(&db.0)
+            .execute(&mut *conn)
             .await?;
 
             sort_order += 1;
@@ -649,7 +663,7 @@ async fn import_openapi_inner(
 // ── 辅助 ────────────────────────────────────────────────────
 
 async fn ensure_project(
-    db: &AppDb,
+    conn: &mut SqliteConnection,
     project_id: i64,
     name: &str,
     description: Option<&str>,
@@ -662,7 +676,24 @@ async fn ensure_project(
     )
     .bind(name)
     .bind(description)
-    .fetch_one(&db.0)
+    .fetch_one(&mut *conn)
     .await?;
     Ok(id)
+}
+
+/// 简单的 application/x-www-form-urlencoded percent-encoding
+/// 将字符串中非 unreserved 字符转为 %XX 格式
+fn simple_percent_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() * 3);
+    for byte in s.as_bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9'
+            | b'-' | b'_' | b'.' | b'~' => {
+                out.push(*byte as char);
+            }
+            b' ' => out.push('+'),
+            b => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
 }

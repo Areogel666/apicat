@@ -41,7 +41,11 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Err
 
     for stmt in migration_sql.split(';') {
         let stmt = stmt.trim();
-        if stmt.is_empty() || stmt.starts_with("--") {
+        if stmt.is_empty() {
+            continue;
+        }
+        // 如果整段没有换行符且以注释开头，才是纯注释，否则里面包含了真实的 SQL，需要执行
+        if stmt.starts_with("--") && !stmt.contains('\n') {
             continue;
         }
         sqlx::query(stmt).execute(pool).await?;
