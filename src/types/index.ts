@@ -77,7 +77,7 @@ export interface TreeNode {
 
 // URL 解析结果
 export interface ParsedUrl {
-  displayName: string       // "POST /apm/intl/download"
+  displayName: string       // "/apm/intl/download"（不含 method，避免树节点拼接重复）
   pathTemplate: string      // "/apm/intl/download/{id}"
   pathParams: Array<{ key: string; value: string }>   // [{key:"{id}", value:"1676657"}]
   queryParams: Array<{ key: string; value: string }>  // [{key:"page", value:"1"}]

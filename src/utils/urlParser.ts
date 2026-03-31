@@ -15,12 +15,12 @@ function isPathParam(segment: string): boolean {
  * 解析 URL，提取路径参数和 query 参数，生成接口默认名称
  *
  * 例：POST http://localhost:8088/apm/intl/download/1676657?androidVersion=14
- * → displayName: "POST /apm/intl/download"
+ * → displayName: "/apm/intl/download"
  * → pathTemplate: "/apm/intl/download/{id}"
  * → pathParams: [{key:"{id}", value:"1676657"}]
  * → queryParams: [{key:"androidVersion", value:"14"}]
  */
-export function parseUrl(rawUrl: string, method: string): ParsedUrl {
+export function parseUrl(rawUrl: string, _method?: string): ParsedUrl {
   let url: URL
   try {
     // 处理没有协议头的 URL
@@ -28,7 +28,7 @@ export function parseUrl(rawUrl: string, method: string): ParsedUrl {
     url = new URL(normalized)
   } catch {
     return {
-      displayName: `${method} ${rawUrl}`,
+      displayName: rawUrl,
       pathTemplate: rawUrl,
       pathParams: [],
       queryParams: [],
@@ -78,7 +78,9 @@ export function parseUrl(rawUrl: string, method: string): ParsedUrl {
   })
 
   return {
-    displayName: `${method} ${displayPath}`,
+    // displayName 只保留路径部分，不含 method
+    // 因为树节点 label 会单独拼 "${r.method} ${r.name}"，避免重复出现两个 method
+    displayName: displayPath,
     pathTemplate: cleanPath,
     pathParams,
     queryParams,
