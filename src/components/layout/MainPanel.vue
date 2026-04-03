@@ -391,7 +391,7 @@ import {
   NSelect, NInput, NButton, NTabs, NTabPane, NEmpty,
   NTag, NDivider, NCheckbox, NRadioGroup, NRadioButton, NRadio,
   NDropdown,
-  useMessage,
+  useMessage, useDialog,
 } from 'naive-ui'
 import { parseUrl, buildUrl } from '../../utils/urlParser'
 import { parseKvText, toKvText, parseJsonToParams, toJsonText } from '../../utils/paramParser'
@@ -488,6 +488,7 @@ const projectStore = useProjectStore()
 const testCaseStore = useTestCaseStore()
 const headerTemplateStore = useHeaderTemplateStore()
 const message = useMessage()
+const dialog = useDialog()
 
 // ── 请求编辑区状态 ────────────────────────────────────────────
 const method = ref('GET')
@@ -1162,11 +1163,22 @@ async function handleToggleStar(id: number) {
 }
 
 async function handleDeleteTestCase(id: number) {
-  try {
-    await testCaseStore.deleteTestCase(id)
-  } catch (e) {
-    window.alert(String(e))
-  }
+  const cases = testCaseStore.getByRequestId(requestStore.activeRequest?.id ?? 0)
+  const tc = cases.find(c => c.id === id)
+  if (!tc) return
+  dialog.warning({
+    title: '确认删除',
+    content: `确定要删除测试用例「${tc.name}」吗？此操作不可撤销！`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      try {
+        await testCaseStore.deleteTestCase(id)
+      } catch (e) {
+        message.error(String(e))
+      }
+    },
+  })
 }
 
 async function handleRenameTestCase(id: number, name: string) {
@@ -1395,6 +1407,16 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
   flex-direction: column;
 }
 
+/* 穿透 Naive UI n-tabs 内部容器，使 tab-pane 参与 flex 布局并限定高度 */
+.request-tabs :deep(.n-tabs-pane-wrapper),
+.request-tabs :deep(.n-tab-pane) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  height: 0; /* flex 子项需要 height: 0 才能被压缩到容器高度 */
+}
+
 .divider {
   height: 4px;
   background: var(--n-border-color, #e0e0e6);
@@ -1402,7 +1424,7 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
   flex-shrink: 0;
 }
 
-.params-editor { padding: 8px 4px; overflow-y: auto; }
+.params-editor { padding: 8px 4px; overflow-y: auto; flex: 1; }
 .params-section-label { font-size: 11px; font-weight: 600; color: var(--n-text-color-3, #999); padding: 4px 0 6px; text-transform: uppercase; letter-spacing: 0.5px; }
 .param-row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
 .tab-content-placeholder { padding: 20px 0; }

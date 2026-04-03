@@ -114,6 +114,18 @@
       </div>
     </template>
   </n-modal>
+
+  <!-- 删除环境确认弹窗（在 n-modal 外层，避免层叠问题） -->
+  <n-modal v-model:show="showDeleteEnvConfirm" preset="dialog" title="确认删除" :show-icon="false">
+    <div style="font-size:14px; line-height:1.7; color:var(--n-text-color,#333)">
+      确定要删除环境 <strong>「{{ deleteEnvName }}」</strong> 吗？<br>
+      <span style="color:#d03050; font-size:12px">该环境及其所有变量将被删除，此操作不可撤销！</span>
+    </div>
+    <template #action>
+      <n-button @click="showDeleteEnvConfirm = false">取消</n-button>
+      <n-button type="error" @click="doDeleteEnv">删除</n-button>
+    </template>
+  </n-modal>
 </template>
 
 <script setup lang="ts">
@@ -140,6 +152,11 @@ const newEnvName = ref('')
 const newEnvInputRef = ref()
 const editName = ref('')
 const editBaseUrl = ref('')
+
+// 删除环境确认弹窗
+const showDeleteEnvConfirm = ref(false)
+const deleteEnvName = ref('')
+const deleteEnvId = ref<number | null>(null)
 
 const selectedEnv = computed(() =>
   envStore.environments.find(e => e.id === selectedEnvId.value) ?? null
@@ -189,8 +206,19 @@ async function handleCreateEnv() {
 }
 
 async function handleDeleteEnv(id: number) {
-  await envStore.deleteEnvironment(id)
-  if (selectedEnvId.value === id) selectedEnvId.value = null
+  const env = envStore.environments.find(e => e.id === id)
+  if (!env) return
+  deleteEnvId.value = id
+  deleteEnvName.value = env.name
+  showDeleteEnvConfirm.value = true
+}
+
+async function doDeleteEnv() {
+  if (deleteEnvId.value === null) return
+  showDeleteEnvConfirm.value = false
+  await envStore.deleteEnvironment(deleteEnvId.value)
+  if (selectedEnvId.value === deleteEnvId.value) selectedEnvId.value = null
+  deleteEnvId.value = null
 }
 
 async function handleSaveEnv() {

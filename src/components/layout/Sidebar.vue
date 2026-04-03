@@ -102,6 +102,19 @@
       </template>
     </n-modal>
 
+    <!-- 删除确认对话框 -->
+    <n-modal v-model:show="showDeleteConfirmDialog" preset="dialog" title="确认删除" :show-icon="false">
+      <div style="font-size:14px; line-height:1.7; color:var(--n-text-color,#333)">
+        确定要删除 <strong>「{{ deleteTargetName }}」</strong> 吗？<br>
+        <span v-if="deleteTargetIsCollection" style="color:#d03050; font-size:12px">该文件夹及其包含的所有接口都将被删除，此操作不可撤销！</span>
+        <span v-else style="color:#d03050; font-size:12px">此操作不可撤销！</span>
+      </div>
+      <template #action>
+        <n-button @click="showDeleteConfirmDialog = false">取消</n-button>
+        <n-button type="error" :loading="deleting" @click="confirmDelete">删除</n-button>
+      </template>
+    </n-modal>
+
     <!-- cURL 导入对话框 -->
     <n-modal v-model:show="showCurlImportDialog" preset="dialog" title="从 cURL 导入" style="width: 500px">
       <n-input
@@ -335,9 +348,50 @@ async function copyAsCurl() {
 }
 
 // ── 删除节点 ─────────────────────────────────────────────
+// 删除确认对话框状态
+const showDeleteConfirmDialog = ref(false)
+const deleteTargetName = ref('')
+const deleteTargetIsCollection = ref(false)
+const deleteTargetKey = ref('')
+const deleting = ref(false)
+
 async function deleteItem() {
   closeMenu()
-  await performDeleteByKey(menuNodeKey.value)
+  await promptDeleteByKey(menuNodeKey.value)
+}
+
+/** 展示删除确认弹窗 */
+async function promptDeleteByKey(key: string) {
+  const pid = currentProjectId.value
+  if (!pid || !key) return
+
+  if (key.startsWith('req-')) {
+    const id = parseInt(key.replace('req-', ''))
+    const req = Object.values(requestStore.requestMap).flat().find(r => r.id === id)
+    if (!req) return
+    deleteTargetName.value = req.name
+    deleteTargetIsCollection.value = false
+  } else {
+    const id = parseInt(key.replace('col-', ''))
+    const col = collectionStore.getCollections(pid).find(c => c.id === id)
+    if (!col) return
+    deleteTargetName.value = col.name
+    deleteTargetIsCollection.value = true
+  }
+
+  deleteTargetKey.value = key
+  showDeleteConfirmDialog.value = true
+}
+
+/** 确认删除后执行 */
+async function confirmDelete() {
+  deleting.value = true
+  try {
+    await performDeleteByKey(deleteTargetKey.value)
+    showDeleteConfirmDialog.value = false
+  } finally {
+    deleting.value = false
+  }
 }
 
 async function performDeleteByKey(key: string) {
@@ -445,7 +499,7 @@ function renderSuffix(info: { option: TreeOption; checked: boolean; selected: bo
                 } else if (actionKey === 'curl') {
                   await copyAsCurl()
                 } else if (actionKey === 'delete') {
-                  await performDeleteByKey(key)
+                  await promptDeleteByKey(key)
                 }
               },
             },
@@ -500,7 +554,7 @@ function renderSuffix(info: { option: TreeOption; checked: boolean; selected: bo
                 if (actionKey === 'rename') {
                   startRename()
                 } else if (actionKey === 'delete') {
-                  await performDeleteByKey(key)
+                  await promptDeleteByKey(key)
                 }
               },
             },
