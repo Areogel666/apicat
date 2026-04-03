@@ -1265,11 +1265,11 @@ async function handleSaveRequest() {
       body_type: bodyType.value,
       body: bodyContent.value,
     })
+    // 清除本地草稿缓存（updateRequest 内部已清除 dirtyRequestIds）
     const newCache = { ...requestStore.draftCache }
     delete newCache[req.id]
     requestStore.draftCache = newCache
     requestDirty.value = false
-    const cleanSet = new Set(requestStore.dirtyRequestIds); cleanSet.delete(req.id); requestStore.dirtyRequestIds = cleanSet
     // 短暂显示绿色已保存小点
     const savedSet = new Set(requestStore.savedRequestIds); savedSet.add(req.id); requestStore.savedRequestIds = savedSet
     setTimeout(() => {

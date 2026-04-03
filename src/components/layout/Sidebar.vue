@@ -408,6 +408,8 @@ async function performDeleteByKey(key: string) {
       const req = Object.values(requestStore.requestMap).flat().find(r => r.id === id)
       if (!req) return
       await requestStore.deleteRequest(id, req.collection_id)
+      // 接口删除后同步关闭对应 Tab（若已打开）
+      tabStore.closeTab(id)
       message.success('接口已删除')
     } else {
       const id = parseInt(key.replace('col-', ''))
@@ -430,6 +432,10 @@ async function performDeleteByKey(key: string) {
         }
       }
       for (const cid of toDelete) {
+        // 关闭该 collection 下所有已打开的 Tab
+        for (const req of requestStore.requestMap[cid] ?? []) {
+          tabStore.closeTab(req.id)
+        }
         delete requestStore.requestMap[cid]
       }
       message.success('文件夹已删除')
@@ -575,31 +581,28 @@ function renderSuffix(info: { option: TreeOption; checked: boolean; selected: bo
 }
 
 // ── 项目切换时加载数据，并保存/恢复 Tab 状态 ────────────────
-let prevProjectId: number | null = null
 watch(currentProjectId, async (pid, oldPid) => {
   if (!pid) return
   loading.value = true
 
-  // 1. 切换前：保存旧项目的 Tab 状态（首次加载 oldPid 可能为 undefined）
-  const savedOldPid = oldPid ?? prevProjectId
-  if (savedOldPid) {
-    await tabStore.saveState(savedOldPid)
+  // 切换前：保存旧项目的 Tab 状态（immediate 首次触发时 oldPid 为 undefined，跳过）
+  if (oldPid) {
+    await tabStore.saveState(oldPid)
   }
   tabStore.clearTabs()
 
   try {
-    // 2. 加载新项目数据
+    // 加载新项目数据
     await collectionStore.loadCollections(pid)
     const cols = collectionStore.getCollections(pid)
     await Promise.all(cols.map(c => requestStore.loadRequests(c.id)))
     expandedKeys.value = cols.slice(0, 3).map(c => `col-${c.id}`)
 
-    // 3. 切换后：恢复新项目的 Tab 状态
+    // 恢复新项目的 Tab 状态
     await tabStore.restoreState(pid, requestStore.requestMap)
   } finally {
     loading.value = false
   }
-  prevProjectId = pid
 }, { immediate: true })
 
 // ── 构建 NTree 数据 ───────────────────────────────────────
@@ -871,7 +874,9 @@ async function createForce() {
 async function executeCreateRequest(collectionId: number, name: string, method: string, url: string) {
   creating.value = true
   try {
-    await requestStore.createRequest(collectionId, name, method, url)
+    const req = await requestStore.createRequest(collectionId, name, method, url)
+    // 新建接口后自动在 TabBar 打开
+    tabStore.openTab(req)
     showNewRequestDialog.value = false
     newRequestUrl.value = ''
     newRequestName.value = ''
@@ -937,6 +942,8 @@ async function doImportCurl() {
       body_type: parsed.bodyType,
       body: parsed.body
     })
+    // cURL 导入成功后自动在 TabBar 打开
+    tabStore.openTab(req)
     
     message.success('cURL 导入成功')
     showCurlImportDialog.value = false

@@ -46,7 +46,7 @@ export const useRequestStore = defineStore('request', () => {
     })
     const list = requestMap.value[collectionId] ?? []
     requestMap.value[collectionId] = [...list, req]
-    activeRequestId.value = req.id
+    // 注意：不在此处设置 activeRequestId，由调用方通过 tabStore.openTab() 驱动激活
     return req
   }
 
@@ -127,11 +127,17 @@ export const useRequestStore = defineStore('request', () => {
     await invoke('delete_request', { id })
     const list = requestMap.value[collectionId] ?? []
     requestMap.value[collectionId] = list.filter(r => r.id !== id)
-    if (activeRequestId.value === id) activeRequestId.value = null
-    // 删除接口时清除 dirty 标记（替换整个 Set 以触发 Vue 3 响应式更新）
+    // 注意：activeRequestId 由 tabStore.closeTab() → MainPanel watch 驱动，此处不再直接重置
+    // 清除 dirty 标记
     const cleanSet = new Set(dirtyRequestIds.value)
     cleanSet.delete(id)
     dirtyRequestIds.value = cleanSet
+    // 清除草稿缓存（已删除接口无需保留草稿）
+    if (draftCache.value[id]) {
+      const newCache = { ...draftCache.value }
+      delete newCache[id]
+      draftCache.value = newCache
+    }
   }
 
   async function duplicateRequest(id: number) {

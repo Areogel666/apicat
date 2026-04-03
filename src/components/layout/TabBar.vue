@@ -88,11 +88,12 @@ const tabStore = useTabStore()
 const requestStore = useRequestStore()
 const message = useMessage()
 
-// ── 横向滚动（鼠标滚轮） ──────────────────────────────────
+// ── 横向滚动（鼠标滚轮 + Mac 触控板） ────────────────────
 const tabListRef = ref<HTMLElement | null>(null)
 function onWheel(e: WheelEvent) {
   if (tabListRef.value) {
-    tabListRef.value.scrollLeft += e.deltaY
+    // 优先使用 deltaX（Mac 触控板横向手势），deltaX 为 0 时才用 deltaY（鼠标竖向滚轮）
+    tabListRef.value.scrollLeft += e.deltaX || e.deltaY
   }
 }
 
@@ -314,8 +315,11 @@ function handleCtxClose(action: 'current' | 'others' | 'left' | 'right') {
 /* 右键菜单（Teleport 到 body，不受 scoped 影响，使用 :global 等价写法） */
 </style>
 
-<!-- 右键菜单样式需要全局（Teleport 到 body） -->
+<!-- 右键菜单样式必须全局：通过 <Teleport to="body"> 渲染，DOM 挂载在 body 下，
+     scoped CSS 哈希不匹配，因此需要全局样式。
+     类名已加 "tab-ctx-" 前缀，降低与其他全局样式冲突的风险。 -->
 <style>
+/* TabBar 右键菜单（Teleport 到 body，需全局样式） */
 .tab-ctx-menu {
   position: fixed;
   z-index: 9999;
