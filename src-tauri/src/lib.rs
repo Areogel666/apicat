@@ -38,6 +38,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_store::Builder::default().build())
         .setup(|app| {
             // Tauri 2.x setup 是同步回调，block_on 在当前线程完成 DB 初始化
             let pool = tauri::async_runtime::block_on(init_db(app))?;
