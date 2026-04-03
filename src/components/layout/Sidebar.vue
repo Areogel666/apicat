@@ -574,18 +574,32 @@ function renderSuffix(info: { option: TreeOption; checked: boolean; selected: bo
   return null
 }
 
-// ── 项目切换时加载数据 ────────────────────────────────────
-watch(currentProjectId, async (pid) => {
+// ── 项目切换时加载数据，并保存/恢复 Tab 状态 ────────────────
+let prevProjectId: number | null = null
+watch(currentProjectId, async (pid, oldPid) => {
   if (!pid) return
   loading.value = true
+
+  // 1. 切换前：保存旧项目的 Tab 状态（首次加载 oldPid 可能为 undefined）
+  const savedOldPid = oldPid ?? prevProjectId
+  if (savedOldPid) {
+    await tabStore.saveState(savedOldPid)
+  }
+  tabStore.clearTabs()
+
   try {
+    // 2. 加载新项目数据
     await collectionStore.loadCollections(pid)
     const cols = collectionStore.getCollections(pid)
     await Promise.all(cols.map(c => requestStore.loadRequests(c.id)))
     expandedKeys.value = cols.slice(0, 3).map(c => `col-${c.id}`)
+
+    // 3. 切换后：恢复新项目的 Tab 状态
+    await tabStore.restoreState(pid, requestStore.requestMap)
   } finally {
     loading.value = false
   }
+  prevProjectId = pid
 }, { immediate: true })
 
 // ── 构建 NTree 数据 ───────────────────────────────────────
