@@ -140,6 +140,7 @@ import { useUiStore } from '../../stores/ui'
 import { useProjectStore } from '../../stores/project'
 import { useCollectionStore } from '../../stores/collection'
 import { useRequestStore } from '../../stores/request'
+import { useTabStore } from '../../stores/tab'
 import { parseUrl } from '../../utils/urlParser'
 import { buildCurl } from '../../utils/curlBuilder'
 import type { Collection, ParamItem } from '../../types'
@@ -148,6 +149,7 @@ const uiStore = useUiStore()
 const projectStore = useProjectStore()
 const collectionStore = useCollectionStore()
 const requestStore = useRequestStore()
+const tabStore = useTabStore()
 const message = useMessage()
 
 /**
@@ -280,7 +282,9 @@ async function commitRename() {
   try {
     if (key.startsWith('req-')) {
       const id = parseInt(key.replace('req-', ''))
-      await requestStore.renameRequest(id, name)
+      const updated = await requestStore.renameRequest(id, name)
+      // 同步 Tab 标题（若该接口已打开）
+      tabStore.updateTabTitle(id, updated.method, name)
       message.success('重命名成功')
     } else {
       const id = parseInt(key.replace('col-', ''))
@@ -635,12 +639,14 @@ const treeData = computed<TreeOption[]>(() => {
     .filter((n): n is TreeOption => n !== null)
 })
 
-// ── 节点点击 → 激活接口 ───────────────────────────────────
+// ── 节点点击 → 通过 tabStore 打开接口 Tab ────────────────────
 function onSelectNode(keys: Array<string | number>) {
   const key = keys[0] as string
   if (!key?.startsWith('req-')) return
   const id = parseInt(key.replace('req-', ''))
-  requestStore.activeRequestId = id
+  const req = Object.values(requestStore.requestMap).flat().find(r => r.id === id)
+  if (!req) return
+  tabStore.openTab(req)
 }
 
 // 组件 mount 完成后才激活 hover 事件，防止 WebView 初始化期间误触发
