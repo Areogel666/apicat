@@ -555,17 +555,7 @@ function syncUrlencodedData() {
   }
 }
 
-interface RequestDraft {
-  method: string
-  url: string
-  queryParams: ParamItem[]
-  requestHeaders: ParamItem[]
-  bodyType: string
-  bodyContent: string
-  formDataParams: ParamItem[]
-  urlencodedParams: ParamItem[]
-}
-const draftCache = new Map<number, RequestDraft>()
+// draftCache 已提升到 requestStore，此处直接使用 requestStore.draftCache（Ref<Record<number, RequestDraft>>）
 
 // ── Auth 状态 ─────────────────────────────────────────────────
 const authType = ref('none')
@@ -666,7 +656,7 @@ function markRequestDirty() {
 let isInitializing = false
 watch(() => requestStore.activeRequest, async (req, oldReq) => {
   if (oldReq && requestDirty.value) {
-    draftCache.set(oldReq.id, {
+    requestStore.draftCache[oldReq.id] = {
       method: method.value,
       url: url.value,
       queryParams: [...queryParams.value],
@@ -675,14 +665,14 @@ watch(() => requestStore.activeRequest, async (req, oldReq) => {
       bodyContent: bodyContent.value,
       formDataParams: [...formDataParams.value],
       urlencodedParams: [...urlencodedParams.value],
-    })
+    }
   }
 
   isInitializing = true
   let isDraft = false
 
   if (req) {
-    const draft = draftCache.get(req.id)
+    const draft = requestStore.draftCache[req.id]
     if (draft) {
       url.value = draft.url
       method.value = draft.method
@@ -1256,7 +1246,9 @@ async function handleSaveRequest() {
       body_type: bodyType.value,
       body: bodyContent.value,
     })
-    draftCache.delete(req.id)
+    const newCache = { ...requestStore.draftCache }
+    delete newCache[req.id]
+    requestStore.draftCache = newCache
     requestDirty.value = false
     const cleanSet = new Set(requestStore.dirtyRequestIds); cleanSet.delete(req.id); requestStore.dirtyRequestIds = cleanSet
     // 短暂显示绿色已保存小点

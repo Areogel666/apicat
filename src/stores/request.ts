@@ -1,7 +1,19 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import type { ApiRequest } from '../types'
+import type { ApiRequest, ParamItem } from '../types'
+
+/** 接口编辑区草稿（与 MainPanel 中的 RequestDraft 保持一致） */
+export interface RequestDraft {
+  method: string
+  url: string
+  queryParams: ParamItem[]
+  requestHeaders: ParamItem[]
+  bodyType: string
+  bodyContent: string
+  formDataParams: ParamItem[]
+  urlencodedParams: ParamItem[]
+}
 
 export const useRequestStore = defineStore('request', () => {
   // collectionId → ApiRequest[]
@@ -11,6 +23,8 @@ export const useRequestStore = defineStore('request', () => {
   const dirtyRequestIds = ref<Set<number>>(new Set())
   // 记录刚保存成功的接口 ID（用于左侧树绿色小点标记，1.5秒后自动消失）
   const savedRequestIds = ref<Set<number>>(new Set())
+  // 编辑区草稿缓存：requestId → RequestDraft（切换接口时暂存未保存内容）
+  const draftCache = ref<Record<number, RequestDraft>>({})
 
   const activeRequest = computed<ApiRequest | null>(() => {
     if (!activeRequestId.value) return null
@@ -37,7 +51,10 @@ export const useRequestStore = defineStore('request', () => {
   }
 
   async function updateRequest(id: number, data: Partial<ApiRequest>) {
-    const current = activeRequest.value
+    // 优先用 id 查找目标接口（兼容非激活接口保存），再回退到 activeRequest
+    const current =
+      Object.values(requestMap.value).flat().find(r => r.id === id) ??
+      activeRequest.value
     if (!current) throw new Error('No active request')
     const updated = await invoke<ApiRequest>('update_request', {
       id,
@@ -59,6 +76,51 @@ export const useRequestStore = defineStore('request', () => {
     cleanSet.delete(id)
     dirtyRequestIds.value = cleanSet
     return updated
+  }
+
+  /**
+   * 将指定接口的当前草稿保存到 DB（等同 Ctrl+S）
+   * 若 draftCache 中无草稿则直接返回（无需保存）
+   */
+  async function saveRequest(id: number): Promise<void> {
+    const draft = draftCache.value[id]
+    if (!draft) return
+    // 将草稿序列化为接口字段
+    const req = Object.values(requestMap.value).flat().find(r => r.id === id)
+    if (!req) return
+
+    let body = draft.bodyContent
+    // form-data 序列化
+    if (draft.bodyType === 'form_data') {
+      body = JSON.stringify(draft.formDataParams)
+    } else if (draft.bodyType === 'form_urlencoded') {
+      const enabledFields = draft.urlencodedParams.filter(f => f.enabled && f.key)
+      const sp = new URLSearchParams()
+      enabledFields.forEach(f => sp.append(f.key, f.value))
+      body = sp.toString()
+    }
+
+    await updateRequest(id, {
+      method: draft.method,
+      url: draft.url,
+      params: JSON.stringify(draft.queryParams),
+      headers: JSON.stringify(draft.requestHeaders),
+      body_type: draft.bodyType,
+      body,
+    })
+    // 清除草稿缓存
+    const newCache = { ...draftCache.value }
+    delete newCache[id]
+    draftCache.value = newCache
+    // 触发 saved 圆点动画
+    const savedSet = new Set(savedRequestIds.value)
+    savedSet.add(id)
+    savedRequestIds.value = savedSet
+    setTimeout(() => {
+      const s = new Set(savedRequestIds.value)
+      s.delete(id)
+      savedRequestIds.value = s
+    }, 1500)
   }
 
   async function deleteRequest(id: number, collectionId: number) {
@@ -110,11 +172,13 @@ export const useRequestStore = defineStore('request', () => {
     activeRequest,
     dirtyRequestIds,
     savedRequestIds,
+    draftCache,
     loadRequests,
     createRequest,
     updateRequest,
     deleteRequest,
     duplicateRequest,
     renameRequest,
+    saveRequest,
   }
 })
