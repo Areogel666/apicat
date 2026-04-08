@@ -54,15 +54,11 @@ import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import { readTextFile } from '@tauri-apps/plugin-fs'
 import { useProjectStore } from '../../stores/project'
-import { useCollectionStore } from '../../stores/collection'
-import { useRequestStore } from '../../stores/request'
 
 const show = defineModel<boolean>('show', { required: true })
 const emit = defineEmits<{ imported: [projectId: number] }>()
 
 const projectStore = useProjectStore()
-const collectionStore = useCollectionStore()
-const requestStore = useRequestStore()
 const format = ref<'postman' | 'openapi' | 'apicat'>('postman')
 const targetProjectId = ref<number>(0)
 const selectedFilePath = ref<string | null>(null)
@@ -114,13 +110,14 @@ async function handleImport() {
 
     await projectStore.loadProjects()
 
-    // 重载导入项目的 collections 和 requests，使侧边栏立即刷新
-    await collectionStore.loadCollections(importedPid)
-    const cols = collectionStore.getCollections(importedPid)
-    await Promise.all(cols.map(c => requestStore.loadRequests(c.id)))
-
     // 自动切换到导入的项目
-    projectStore.currentProjectId = importedPid
+    // 若 importedPid 与当前项目相同，currentProjectId 值不变，Sidebar watch 不会触发，
+    // 通过递增 sidebarReloadTick 通知 Sidebar 强制重载数据
+    if (importedPid === projectStore.currentProjectId) {
+      projectStore.sidebarReloadTick++
+    } else {
+      projectStore.currentProjectId = importedPid
+    }
 
     successMsg.value = `导入成功，项目 ID: ${importedPid}`
     emit('imported', importedPid)

@@ -581,29 +581,75 @@ function renderSuffix(info: { option: TreeOption; checked: boolean; selected: bo
 }
 
 // ── 项目切换时加载数据，并保存/恢复 Tab 状态 ────────────────
+// loadSeq：每次触发 watch 时递增，异步回调结束时对比，过期回调不更新 loading
+let loadSeq = 0
+
 watch(currentProjectId, async (pid, oldPid) => {
   if (!pid) return
+  const seq = ++loadSeq
   loading.value = true
 
-  // 切换前：保存旧项目的 Tab 状态（immediate 首次触发时 oldPid 为 undefined，跳过）
-  if (oldPid) {
-    await tabStore.saveState(oldPid)
-  }
-  tabStore.clearTabs()
-
   try {
+    // 切换前：保存旧项目的 Tab 状态（immediate 首次触发时 oldPid 为 undefined，跳过）
+    // saveState 失败（如 store 权限问题）不阻断后续数据加载，单独 catch
+    if (oldPid) {
+      try {
+        await tabStore.saveState(oldPid)
+      } catch (e) {
+        console.warn('[Sidebar] saveState failed, continuing:', e)
+      }
+    }
+    // 如果在 saveState 期间又触发了新的 watch，当前回调已过期，直接退出
+    if (seq !== loadSeq) return
+    tabStore.clearTabs()
+
     // 加载新项目数据
     await collectionStore.loadCollections(pid)
+    await Promise.all(collectionStore.getCollections(pid).map(c => requestStore.loadRequests(c.id)))
+
+    // 再次检查，只有最新的回调才更新 UI 状态
+    if (seq !== loadSeq) return
     const cols = collectionStore.getCollections(pid)
-    await Promise.all(cols.map(c => requestStore.loadRequests(c.id)))
     expandedKeys.value = cols.slice(0, 3).map(c => `col-${c.id}`)
 
-    // 恢复新项目的 Tab 状态
-    await tabStore.restoreState(pid, requestStore.requestMap)
+    // 恢复新项目的 Tab 状态，失败不阻断 UI 渲染
+    try {
+      await tabStore.restoreState(pid, requestStore.requestMap)
+    } catch (e) {
+      console.warn('[Sidebar] restoreState failed:', e)
+    }
   } finally {
-    loading.value = false
+    // 只有最新的回调才能把 loading 置回 false
+    if (seq === loadSeq) {
+      loading.value = false
+    }
   }
 }, { immediate: true })
+
+// ── 导入后强制刷新当前项目数据 ───────────────────────────────
+// 场景：导入到"当前项目"时 currentProjectId 值不变，watch 不会触发，
+// 需要额外监听一个专用信号来强制重载侧边栏数据
+async function reloadCurrentProject() {
+  const pid = currentProjectId.value
+  if (!pid) return
+  const seq = ++loadSeq
+  loading.value = true
+  try {
+    await collectionStore.loadCollections(pid)
+    await Promise.all(collectionStore.getCollections(pid).map(c => requestStore.loadRequests(c.id)))
+    if (seq !== loadSeq) return
+    const cols = collectionStore.getCollections(pid)
+    expandedKeys.value = cols.slice(0, 3).map(c => `col-${c.id}`)
+  } finally {
+    if (seq === loadSeq) {
+      loading.value = false
+    }
+  }
+}
+
+watch(() => projectStore.sidebarReloadTick, (tick) => {
+  if (tick > 0) reloadCurrentProject()
+})
 
 // ── 构建 NTree 数据 ───────────────────────────────────────
 const treeData = computed<TreeOption[]>(() => {
