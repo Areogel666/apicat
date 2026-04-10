@@ -7,6 +7,9 @@ export const useProjectStore = defineStore('project', () => {
   const projects = ref<Project[]>([])
   const currentProjectId = ref<number | null>(null)
   const loading = ref(false)
+  // 导入到当前项目时 currentProjectId 值不变，watch 不触发。
+  // 通过递增此计数器通知 Sidebar 强制重载侧边栏数据。
+  const sidebarReloadTick = ref(0)
 
   const currentProject = computed(() =>
     projects.value.find(p => p.id === currentProjectId.value) ?? null
@@ -60,6 +63,7 @@ export const useProjectStore = defineStore('project', () => {
     currentProjectId,
     currentProject,
     loading,
+    sidebarReloadTick,
     loadProjects,
     createProject,
     updateProject,

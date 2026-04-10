@@ -57,6 +57,9 @@ async-recursion = "1"
 # Basic Auth 编码（Bearer/Basic/API Key 认证）
 base64 = "0.22"
 
+# Tab 状态持久化
+tauri-plugin-store = "2"
+
 # Unix fd 上限检测（§10.2）；Windows 编译时无 Unix syscall
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

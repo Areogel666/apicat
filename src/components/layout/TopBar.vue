@@ -136,7 +136,14 @@ async function checkForUpdate() {
     })
   } catch (e) {
     message.destroyAll()
-    message.error(`检查更新失败：${e}`)
+    const msg = String(e)
+    // plugin-updater 在 Release 尚未发布（latest.json 不存在）时抛出此错误
+    // 对用户来说等同于"没有可用更新"，避免显示底层技术报错
+    if (msg.includes('Could not fetch a valid release JSON')) {
+      message.info('当前已是最新版本 🎉')
+    } else {
+      message.error(`检查更新失败：${msg}`)
+    }
   }
 }
 

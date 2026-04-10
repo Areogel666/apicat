@@ -41,3 +41,6 @@ src-tauri/gen/
 # docs: only release/ is committed
 docs/fix/
 docs/plans/
+
+# Tauri build artifacts
+%USERPROFILE%/

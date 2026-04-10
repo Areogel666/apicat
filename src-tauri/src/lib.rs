@@ -5,7 +5,7 @@ mod commands;
 mod http;
 
 use commands::{
-    collection::{create_collection, delete_collection, list_collections, rename_collection, update_collection_sort},
+    collection::{create_collection, delete_collection, list_collections, rename_collection, update_collection_sort, move_collection},
     cookie::{
         create_cookie, delete_cookie, get_cookies_for_domain, list_cookies, update_cookie,
     },
@@ -15,7 +15,7 @@ use commands::{
         update_env_variable, update_environment,
     },
     project::{create_project, delete_project, list_projects, update_project},
-    request::{create_request, delete_request, duplicate_request, list_requests, update_request, update_request_sort},
+    request::{create_request, delete_request, duplicate_request, list_requests, update_request, update_request_sort, move_request},
     send_request::{list_history, send_request},
     test_case::{create_test_case, delete_test_case, list_test_cases, update_test_case},
     stress::start_stress,
@@ -38,6 +38,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_store::Builder::default().build())
         .setup(|app| {
             // Tauri 2.x setup 是同步回调，block_on 在当前线程完成 DB 初始化
             let pool = tauri::async_runtime::block_on(init_db(app))?;
@@ -63,8 +64,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             list_projects, create_project, update_project, delete_project,
-            list_collections, create_collection, rename_collection, delete_collection, update_collection_sort,
-            list_requests, create_request, update_request, delete_request, duplicate_request, update_request_sort,
+            list_collections, create_collection, rename_collection, delete_collection, update_collection_sort, move_collection,
+            list_requests, create_request, update_request, delete_request, duplicate_request, update_request_sort, move_request,
             send_request, list_history,
             list_environments, create_environment, update_environment, delete_environment,
             activate_environment, deactivate_environment,

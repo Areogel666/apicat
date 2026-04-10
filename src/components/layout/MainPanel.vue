@@ -1,5 +1,15 @@
 <template>
   <main class="main-panel">
+    <!-- Tab 标题栏（有 Tab 时显示） -->
+    <TabBar v-if="tabStore.openTabs.length > 0" />
+
+    <!-- 无激活 Tab 时显示引导页 -->
+    <div v-if="tabStore.activeRequestId === null" class="tab-empty-guide">
+      <n-empty description="← 从左侧选择接口开始调试" />
+    </div>
+
+    <!-- 有激活 Tab 时显示请求编辑区 + 响应区 -->
+    <template v-else>
     <!-- 上半：请求编辑区 -->
     <div class="request-area">
       <!-- URL 栏 -->
@@ -382,6 +392,7 @@
 
     <!-- 压测结果弹窗 -->
     <StressResultPanel v-model:show="showStressResult" />
+    </template><!-- end v-else (has active tab) -->
   </main>
 </template>
 
@@ -403,6 +414,8 @@ import { useProjectStore } from '../../stores/project'
 import { useTestCaseStore } from '../../stores/testCase'
 import { useStressStore } from '../../stores/stress'
 import { useHeaderTemplateStore } from '../../stores/headerTemplate'
+import { useTabStore } from '../../stores/tab'
+import TabBar from './TabBar.vue'
 import ResponsePanel from '../response/ResponsePanel.vue'
 import TestCaseBar from '../testcase/TestCaseBar.vue'
 import StressConfigModal from '../stress/StressConfigModal.vue'
@@ -487,8 +500,14 @@ const envStore = useEnvironmentStore()
 const projectStore = useProjectStore()
 const testCaseStore = useTestCaseStore()
 const headerTemplateStore = useHeaderTemplateStore()
+const tabStore = useTabStore()
 const message = useMessage()
 const dialog = useDialog()
+
+// tabStore.activeRequestId 是 Tab 的唯一激活来源，requestStore.activeRequestId 跟随它
+watch(() => tabStore.activeRequestId, (id) => {
+  requestStore.activeRequestId = id
+}, { immediate: true })
 
 // ── 请求编辑区状态 ────────────────────────────────────────────
 const method = ref('GET')
@@ -555,17 +574,7 @@ function syncUrlencodedData() {
   }
 }
 
-interface RequestDraft {
-  method: string
-  url: string
-  queryParams: ParamItem[]
-  requestHeaders: ParamItem[]
-  bodyType: string
-  bodyContent: string
-  formDataParams: ParamItem[]
-  urlencodedParams: ParamItem[]
-}
-const draftCache = new Map<number, RequestDraft>()
+// draftCache 已提升到 requestStore，此处直接使用 requestStore.draftCache（Ref<Record<number, RequestDraft>>）
 
 // ── Auth 状态 ─────────────────────────────────────────────────
 const authType = ref('none')
@@ -666,7 +675,7 @@ function markRequestDirty() {
 let isInitializing = false
 watch(() => requestStore.activeRequest, async (req, oldReq) => {
   if (oldReq && requestDirty.value) {
-    draftCache.set(oldReq.id, {
+    requestStore.draftCache[oldReq.id] = {
       method: method.value,
       url: url.value,
       queryParams: [...queryParams.value],
@@ -675,14 +684,14 @@ watch(() => requestStore.activeRequest, async (req, oldReq) => {
       bodyContent: bodyContent.value,
       formDataParams: [...formDataParams.value],
       urlencodedParams: [...urlencodedParams.value],
-    })
+    }
   }
 
   isInitializing = true
   let isDraft = false
 
   if (req) {
-    const draft = draftCache.get(req.id)
+    const draft = requestStore.draftCache[req.id]
     if (draft) {
       url.value = draft.url
       method.value = draft.method
@@ -1256,9 +1265,11 @@ async function handleSaveRequest() {
       body_type: bodyType.value,
       body: bodyContent.value,
     })
-    draftCache.delete(req.id)
+    // 清除本地草稿缓存（updateRequest 内部已清除 dirtyRequestIds）
+    const newCache = { ...requestStore.draftCache }
+    delete newCache[req.id]
+    requestStore.draftCache = newCache
     requestDirty.value = false
-    const cleanSet = new Set(requestStore.dirtyRequestIds); cleanSet.delete(req.id); requestStore.dirtyRequestIds = cleanSet
     // 短暂显示绿色已保存小点
     const savedSet = new Set(requestStore.savedRequestIds); savedSet.add(req.id); requestStore.savedRequestIds = savedSet
     setTimeout(() => {
@@ -1525,5 +1536,13 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
   padding: 1px 6px;
   font-family: monospace;
   font-size: 11px;
+}
+
+/* 无 Tab 时的空白引导页 */
+.tab-empty-guide {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 </style>
