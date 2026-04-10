@@ -443,8 +443,8 @@ const requestActionOptions = [
 ]
 
 const collectionAddOptions = [
-  { label: '添加子文件夹', key: 'add-sub-collection' },
   { label: '添加接口到此文件夹', key: 'add-request' },
+  { label: '添加子文件夹', key: 'add-sub-collection' },
   { label: '📋 从 cURL 导入', key: 'import-curl' },
 ]
 
