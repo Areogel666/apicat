@@ -123,3 +123,26 @@ pub async fn update_request_sort(
     }
     Ok(())
 }
+
+/// 将接口移动到新的 collection，并设置其在目标 collection 中的排序位置
+#[tauri::command]
+pub async fn move_request(
+    db: State<'_, AppDb>,
+    id: i64,
+    new_collection_id: i64,
+    sort_order: i64,
+) -> CmdResult<ApiRequest> {
+    let row = sqlx::query_as::<_, ApiRequest>(
+        "UPDATE api_requests SET collection_id=?, sort_order=?, updated_at=datetime('now') \
+         WHERE id=? \
+         RETURNING id, collection_id, name, method, url, params, headers, \
+                   body_type, body, auth_type, auth_config, sort_order, created_at, updated_at"
+    )
+    .bind(new_collection_id)
+    .bind(sort_order)
+    .bind(id)
+    .fetch_one(&db.0)
+    .await
+    .map_err(|e| crate::error::map_unique_name_error(e, ""))?;
+    Ok(row)
+}

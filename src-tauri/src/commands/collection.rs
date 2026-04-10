@@ -1,4 +1,4 @@
-use crate::{db::AppDb, error::CmdResult, types::Collection};
+use crate::{db::AppDb, error::{AppError, CmdResult}, types::Collection};
 use tauri::State;
 
 /// 获取项目下所有 collection（一次性拉全部，内存组装树，避免 N+1）
@@ -76,4 +76,50 @@ pub async fn update_collection_sort(
             .await?;
     }
     Ok(())
+}
+
+/// 移动 collection 到新的父目录（或提升到根层）
+/// - new_parent_id=None 表示移到根层
+/// - 循环引用防护：若 new_parent_id 是当前 collection 的后代，返回错误
+#[tauri::command]
+pub async fn move_collection(
+    db: State<'_, AppDb>,
+    id: i64,
+    new_parent_id: Option<i64>,
+    sort_order: i64,
+) -> CmdResult<Collection> {
+    // 循环引用防护：查询 id 的所有后代，确保 new_parent_id 不在其中
+    if let Some(target_parent) = new_parent_id {
+        // 用递归 CTE 取得所有后代 id
+        let descendants: Vec<(i64,)> = sqlx::query_as(
+            "WITH RECURSIVE sub(id) AS (
+               SELECT id FROM collections WHERE parent_id = ?
+               UNION ALL
+               SELECT c.id FROM collections c JOIN sub ON c.parent_id = sub.id
+             )
+             SELECT id FROM sub"
+        )
+        .bind(id)
+        .fetch_all(&db.0)
+        .await?;
+
+        let desc_ids: Vec<i64> = descendants.into_iter().map(|(i,)| i).collect();
+        if desc_ids.contains(&target_parent) {
+            return Err(AppError::Custom(
+                "不能将目录移入其自身的子目录（循环引用）".to_string()
+            ));
+        }
+    }
+
+    let row = sqlx::query_as::<_, Collection>(
+        "UPDATE collections SET parent_id=?, sort_order=? WHERE id=? \
+         RETURNING id, project_id, parent_id, name, sort_order, created_at"
+    )
+    .bind(new_parent_id)
+    .bind(sort_order)
+    .bind(id)
+    .fetch_one(&db.0)
+    .await?;
+
+    Ok(row)
 }

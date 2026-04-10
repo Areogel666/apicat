@@ -24,6 +24,8 @@
         :default-expanded-keys="expandedKeys"
         @update:selected-keys="onSelectNode"
         @drop="onDrop"
+        @dragstart="onDragStart"
+        @dragend="onDragEnd"
       />
     </div>
 
@@ -191,6 +193,8 @@ const NodeStatusDot = defineComponent({
 const sidebarWidth = uiStore.sidebarWidth
 const searchText = ref('')
 const loading = ref(false)
+// 记录当前正在被拖拽的节点，供 allowDrop 使用（Naive UI allowDrop 回调不含 dragNode）
+const currentDragNode = ref<TreeOption | null>(null)
 const creating = ref(false)
 const expandedKeys = ref<string[]>([])
 
@@ -751,11 +755,73 @@ function nodeProps({ option }: { option: TreeOption }) {
   }
 }
 
-// ── 拖拽排序 ─────────────────────────────────────────────
-/** 只允许同类同层拖拽（request → request，collection → collection），不允许放入文件夹内 */
-function allowDrop({ dropPosition }: { dropPosition: string; node: TreeOption }) {
-  // 不允许 inside 放置（放进文件夹内）
-  if (dropPosition === 'inside') return false
+// ── 拖拽排序 / 移动 ───────────────────────────────────────
+
+/** 拖拽开始：记录被拖拽节点（allowDrop 回调不含 dragNode，需从此处获取） */
+function onDragStart({ node }: { node: TreeOption }) {
+  currentDragNode.value = node
+}
+
+/** 拖拽结束：清空记录 */
+function onDragEnd() {
+  currentDragNode.value = null
+}
+
+/**
+ * 判断 candidateId 是否是 ancestorId 的后代（BFS）
+ * 用于 allowDrop 中防止目录循环引用
+ */
+function isDescendant(ancestorId: number, candidateId: number): boolean {
+  const pid = currentProjectId.value
+  if (!pid) return false
+  const cols = collectionStore.getCollections(pid)
+  const visited = new Set<number>()
+  const queue = [ancestorId]
+  while (queue.length) {
+    const cur = queue.shift()!
+    if (visited.has(cur)) continue
+    visited.add(cur)
+    const children = cols.filter(c => c.parent_id === cur).map(c => c.id)
+    if (children.includes(candidateId)) return true
+    queue.push(...children)
+  }
+  return false
+}
+
+/**
+ * allowDrop 规则矩阵：
+ *   接口 → 接口 before/after ✅   inside ❌
+ *   接口 → 目录 before/after ✅   inside ✅（移入目录）
+ *   目录 → 目录 before/after ✅   inside ✅（成为子目录，防循环）
+ *   目录 → 接口              ❌
+ *
+ * 注意：Naive UI allowDrop 回调参数不含 dragNode，需依赖 currentDragNode ref
+ */
+function allowDrop({ dropPosition, node }: { dropPosition: string; node: TreeOption }) {
+  const dragNode = currentDragNode.value
+  if (!dragNode) return false  // 拖拽尚未开始，拒绝
+
+  const dragKey = dragNode.key as string
+  const targetKey = node.key as string
+  const isDragReq = dragKey.startsWith('req-')
+  const isDragCol = dragKey.startsWith('col-')
+  const isTargetReq = targetKey.startsWith('req-')
+  const isTargetCol = targetKey.startsWith('col-')
+
+  // 目录不能拖到接口上（任何位置）
+  if (isDragCol && isTargetReq) return false
+
+  // 接口不能 inside 放到接口上（接口不是容器）
+  if (isDragReq && isTargetReq && dropPosition === 'inside') return false
+
+  // 目录移入目录时，防止循环引用（自身或后代）
+  if (isDragCol && isTargetCol && dropPosition === 'inside') {
+    const dragId = parseInt(dragKey.replace('col-', ''))
+    const targetId = parseInt(targetKey.replace('col-', ''))
+    if (dragId === targetId) return false
+    return !isDescendant(dragId, targetId)
+  }
+
   return true
 }
 
@@ -766,63 +832,237 @@ async function onDrop(info: TreeDropInfo) {
 
   const dragKey = dragNode.key as string
   const targetKey = node.key as string
+  if (dragKey === targetKey) return
 
-  if (dragKey.startsWith('req-') && targetKey.startsWith('req-')) {
-    // 检查是否跨 collection 拖拽（不支持，给出提示）
+  const isDragReq = dragKey.startsWith('req-')
+  const isDragCol = dragKey.startsWith('col-')
+  const isTargetReq = targetKey.startsWith('req-')
+  const isTargetCol = targetKey.startsWith('col-')
+
+  // ── 情形 1：接口 → 接口（before / after）────────────────────
+  if (isDragReq && isTargetReq) {
     const dragId = parseInt(dragKey.replace('req-', ''))
     const targetId = parseInt(targetKey.replace('req-', ''))
-    let dragCol: number | null = null
-    let targetCol: number | null = null
+
+    // 找到各自所属的 collection
+    let dragColId: number | null = null
+    let targetColId: number | null = null
     for (const [colId, reqs] of Object.entries(requestStore.requestMap)) {
-      if (reqs.some(r => r.id === dragId)) dragCol = parseInt(colId)
-      if (reqs.some(r => r.id === targetId)) targetCol = parseInt(colId)
+      const cid = parseInt(colId)
+      if (reqs.some(r => r.id === dragId)) dragColId = cid
+      if (reqs.some(r => r.id === targetId)) targetColId = cid
     }
-    if (dragCol !== targetCol) {
-      message.warning('暂不支持跨文件夹拖拽，请在同一文件夹内排序')
-      return
+    if (dragColId === null || targetColId === null) return
+
+    if (dragColId === targetColId) {
+      // 同 collection：原地重排
+      const items = [...(requestStore.requestMap[dragColId] ?? [])]
+      const dragIdx = items.findIndex(r => r.id === dragId)
+      const targetIdx = items.findIndex(r => r.id === targetId)
+      const [moved] = items.splice(dragIdx, 1)
+      const insertAt = dropPosition === 'before' ? targetIdx : targetIdx + 1
+      items.splice(insertAt > dragIdx ? insertAt - 1 : insertAt, 0, moved)
+      const sorted = items.map((r, i) => ({ ...r, sort_order: i }))
+      // 乐观更新
+      requestStore.requestMap[dragColId] = sorted
+      try {
+        await invoke('update_request_sort', {
+          items: sorted.map(r => [r.id, r.sort_order] as [number, number]),
+        })
+      } catch (e) {
+        message.error('排序保存失败: ' + String(e))
+        // 回滚：重新加载
+        await collectionStore.loadCollections(pid)
+      }
+    } else {
+      // 跨 collection：移动接口，插入到目标接口前后
+      const srcItems = [...(requestStore.requestMap[dragColId] ?? [])]
+      const dstItems = [...(requestStore.requestMap[targetColId] ?? [])]
+      const srcSnap = [...srcItems]
+      const dstSnap = [...dstItems]
+
+      const dragIdx = srcItems.findIndex(r => r.id === dragId)
+      const [movedReq] = srcItems.splice(dragIdx, 1)
+
+      const targetIdx = dstItems.findIndex(r => r.id === targetId)
+      const insertAt = dropPosition === 'before' ? targetIdx : targetIdx + 1
+      dstItems.splice(insertAt, 0, movedReq)
+
+      const sortedSrc = srcItems.map((r, i) => ({ ...r, sort_order: i }))
+      const sortedDst = dstItems.map((r, i) => ({ ...r, sort_order: i }))
+
+      // 乐观更新
+      requestStore.requestMap[dragColId] = sortedSrc
+      requestStore.requestMap[targetColId] = sortedDst
+
+      try {
+        await invoke('move_request', {
+          id: dragId,
+          newCollectionId: targetColId,
+          sortOrder: insertAt,
+        })
+        await invoke('update_request_sort', {
+          items: sortedDst.map(r => [r.id, r.sort_order] as [number, number]),
+        })
+        if (sortedSrc.length > 0) {
+          await invoke('update_request_sort', {
+            items: sortedSrc.map(r => [r.id, r.sort_order] as [number, number]),
+          })
+        }
+      } catch (e) {
+        message.error('移动失败: ' + String(e))
+        requestStore.requestMap[dragColId] = srcSnap
+        requestStore.requestMap[targetColId] = dstSnap
+      }
     }
-    // 找到共同的 collection（通过 requestMap 定位）
-    // 此时 dragCol === targetCol，直接用 dragCol
-    const collectionId = dragCol!
-    const items = [...(requestStore.requestMap[collectionId] ?? [])]
-    if (!items.length) return
+    return
+  }
 
-    // 重排数组
-    const dragIdx = items.findIndex(r => `req-${r.id}` === dragKey)
-    const targetIdx = items.findIndex(r => `req-${r.id}` === targetKey)
-    const [moved] = items.splice(dragIdx, 1)
-    const insertAt = dropPosition === 'before' ? targetIdx : targetIdx + 1
-    items.splice(insertAt > dragIdx ? insertAt - 1 : insertAt, 0, moved)
+  // ── 情形 2：接口 → 目录 before/after（忽略，无实际语义）──────
+  if (isDragReq && isTargetCol && (dropPosition === 'before' || dropPosition === 'after')) {
+    return
+  }
 
-    // 更新 sort_order 并持久化
-    const sorted = items.map((r, i) => ({ ...r, sort_order: i }))
-    requestStore.requestMap[collectionId] = sorted
+  // ── 情形 3：接口 → 目录 inside（移入目录末尾）────────────────
+  if (isDragReq && isTargetCol && dropPosition === 'inside') {
+    const dragId = parseInt(dragKey.replace('req-', ''))
+    const targetColId = parseInt(targetKey.replace('col-', ''))
+
+    let srcColId: number | null = null
+    for (const [colId, reqs] of Object.entries(requestStore.requestMap)) {
+      if (reqs.some(r => r.id === dragId)) { srcColId = parseInt(colId); break }
+    }
+    if (srcColId === null) return
+    if (srcColId === targetColId) return  // 已在目标目录，无需操作
+
+    const srcItems = [...(requestStore.requestMap[srcColId] ?? [])]
+    const dstItems = [...(requestStore.requestMap[targetColId] ?? [])]
+    const srcSnap = [...srcItems]
+    const dstSnap = [...dstItems]
+
+    const dragIdx = srcItems.findIndex(r => r.id === dragId)
+    const [movedReq] = srcItems.splice(dragIdx, 1)
+    dstItems.push(movedReq)
+
+    const sortedSrc = srcItems.map((r, i) => ({ ...r, sort_order: i }))
+    const sortedDst = dstItems.map((r, i) => ({ ...r, sort_order: i }))
+    const newSortOrder = sortedDst.length - 1
+
+    // 乐观更新
+    requestStore.requestMap[srcColId] = sortedSrc
+    requestStore.requestMap[targetColId] = sortedDst
+
     try {
-      await invoke('update_request_sort', {
-        items: sorted.map(r => [r.id, r.sort_order] as [number, number]),
+      await invoke('move_request', {
+        id: dragId,
+        newCollectionId: targetColId,
+        sortOrder: newSortOrder,
       })
+      if (sortedSrc.length > 0) {
+        await invoke('update_request_sort', {
+          items: sortedSrc.map(r => [r.id, r.sort_order] as [number, number]),
+        })
+      }
     } catch (e) {
-      message.error('保存排序失败: ' + String(e))
+      message.error('移动失败: ' + String(e))
+      requestStore.requestMap[srcColId] = srcSnap
+      requestStore.requestMap[targetColId] = dstSnap
     }
+    return
+  }
 
-  } else if (dragKey.startsWith('col-') && targetKey.startsWith('col-')) {
-    const cols = [...collectionStore.getCollections(pid)]
-    const dragIdx = cols.findIndex(c => `col-${c.id}` === dragKey)
-    const targetIdx = cols.findIndex(c => `col-${c.id}` === targetKey)
-    if (dragIdx === -1 || targetIdx === -1) return
+  // ── 情形 4：目录 → 目录（before / after / inside）────────────
+  if (isDragCol && isTargetCol) {
+    const dragId = parseInt(dragKey.replace('col-', ''))
+    const targetId = parseInt(targetKey.replace('col-', ''))
 
-    const [moved] = cols.splice(dragIdx, 1)
-    const insertAt = dropPosition === 'before' ? targetIdx : targetIdx + 1
-    cols.splice(insertAt > dragIdx ? insertAt - 1 : insertAt, 0, moved)
+    const allCols = [...collectionStore.getCollections(pid)]
+    const colsSnap = [...allCols]
 
-    const sorted = cols.map((c, i) => ({ ...c, sort_order: i }))
-    collectionStore.collectionMap[pid] = sorted
-    try {
-      await invoke('update_collection_sort', {
-        items: sorted.map(c => [c.id, c.sort_order] as [number, number]),
-      })
-    } catch (e) {
-      message.error('保存排序失败: ' + String(e))
+    const dragCol = allCols.find(c => c.id === dragId)
+    const targetCol = allCols.find(c => c.id === targetId)
+    if (!dragCol || !targetCol) return
+
+    if (dropPosition === 'inside') {
+      // 移入目标目录成为子目录
+      const siblings = allCols.filter(c => c.parent_id === targetId)
+      const newSortOrder = siblings.length
+
+      // 乐观更新内存
+      const idx = allCols.findIndex(c => c.id === dragId)
+      allCols[idx] = { ...dragCol, parent_id: targetId, sort_order: newSortOrder }
+      collectionStore.collectionMap[pid] = allCols
+
+      try {
+        await invoke('move_collection', {
+          id: dragId,
+          newParentId: targetId,
+          sortOrder: newSortOrder,
+        })
+      } catch (e) {
+        message.error('移动失败: ' + String(e))
+        collectionStore.collectionMap[pid] = colsSnap
+      }
+    } else {
+      // before / after：同层重排（或跨层移到与目标同级）
+      const newParentId = targetCol.parent_id  // 与目标同一父级
+
+      if (dragCol.parent_id === newParentId) {
+        // 同层重排，直接用已有排序逻辑
+        // 只操作同一 parent_id 的兄弟节点
+        const siblings = allCols.filter(c => c.parent_id === newParentId)
+        const dragIdx = siblings.findIndex(c => c.id === dragId)
+        const targetIdx = siblings.findIndex(c => c.id === targetId)
+        if (dragIdx === -1 || targetIdx === -1) return
+
+        const [moved] = siblings.splice(dragIdx, 1)
+        const insertAt = dropPosition === 'before' ? targetIdx : targetIdx + 1
+        siblings.splice(insertAt > dragIdx ? insertAt - 1 : insertAt, 0, moved)
+
+        const sortedSiblings = siblings.map((c, i) => ({ ...c, sort_order: i }))
+        // 把排序结果写回 allCols
+        for (const s of sortedSiblings) {
+          const i = allCols.findIndex(c => c.id === s.id)
+          if (i !== -1) allCols[i] = s
+        }
+        collectionStore.collectionMap[pid] = allCols
+
+        try {
+          await invoke('update_collection_sort', {
+            items: sortedSiblings.map(c => [c.id, c.sort_order] as [number, number]),
+          })
+        } catch (e) {
+          message.error('排序保存失败: ' + String(e))
+          collectionStore.collectionMap[pid] = colsSnap
+        }
+      } else {
+        // 跨层：移动到目标的同级，并在目标前后插入
+        const siblings = allCols.filter(c => c.parent_id === newParentId && c.id !== dragId)
+        const targetIdx = siblings.findIndex(c => c.id === targetId)
+        const insertAt = dropPosition === 'before' ? targetIdx : targetIdx + 1
+        siblings.splice(insertAt, 0, { ...dragCol, parent_id: newParentId })
+        const sortedSiblings = siblings.map((c, i) => ({ ...c, sort_order: i }))
+
+        for (const s of sortedSiblings) {
+          const i = allCols.findIndex(c => c.id === s.id)
+          if (i !== -1) allCols[i] = s
+        }
+        collectionStore.collectionMap[pid] = allCols
+
+        try {
+          await invoke('move_collection', {
+            id: dragId,
+            newParentId: newParentId ?? null,
+            sortOrder: insertAt,
+          })
+          await invoke('update_collection_sort', {
+            items: sortedSiblings.map(c => [c.id, c.sort_order] as [number, number]),
+          })
+        } catch (e) {
+          message.error('移动失败: ' + String(e))
+          collectionStore.collectionMap[pid] = colsSnap
+        }
+      }
     }
   }
 }
