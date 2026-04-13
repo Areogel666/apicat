@@ -770,17 +770,26 @@ watch(() => requestStore.activeRequest, async (req, oldReq) => {
     isInitializing = false
     if (isDraft) return
 
-    // Bug1 修复：接口加载完毕后，从 URL 解析 query string 补全 queryParams
-    // （queryParams 优先用 DB 存储的；若为空且 URL 有 query string 则从 URL 解析）
+    // Bug1 修复：接口加载完毕后，同步 URL ↔ queryParams
     const reqUrl = url.value
-    if (reqUrl && queryParams.value.length === 0) {
+    if (reqUrl) {
       const qsIdx = reqUrl.indexOf('?')
-      if (qsIdx >= 0) {
+      if (qsIdx >= 0 && queryParams.value.length === 0) {
+        // 方向 A：URL 有 query string 但 queryParams 为空 → 从 URL 解析
         const qs = reqUrl.substring(qsIdx + 1)
         const up = new URLSearchParams(qs)
         const parsed: ParamItem[] = []
         up.forEach((val, key) => parsed.push({ key, value: val, enabled: true }))
         if (parsed.length > 0) queryParams.value = parsed
+      } else if (qsIdx < 0 && queryParams.value.length > 0) {
+        // 方向 B：URL 无 query string 但 queryParams 有值（params 单独存储）→ 拼接到 URL
+        // 这发生在 AI 生成的镜像接口上：url="/apm/intl/app", params=[25个参数]
+        const enabledParams = queryParams.value.filter(p => p.enabled && p.key)
+        if (enabledParams.length > 0) {
+          const sp = new URLSearchParams()
+          enabledParams.forEach(p => sp.append(p.key, p.value))
+          url.value = `${reqUrl}?${sp.toString()}`
+        }
       }
     }
   })
@@ -1083,20 +1092,23 @@ async function handleActivateTestCase(id: number) {
       queryParams.value = params
       // Rebuild URL: use tc.url as base, append enabled params as query string
       const enabledParams = params.filter(p => p.enabled && p.key)
-      const basePath = tc.url ? (tc.url.includes('?') ? tc.url.split('?')[0] : tc.url) : ''
+      // tc.url=null 表示继承接口的 url，需 fallback 到 activeRequest.url
+      const reqUrl = requestStore.activeRequest?.url ?? ''
+      const rawBase = tc.url ?? reqUrl
+      const basePath = rawBase.includes('?') ? rawBase.split('?')[0] : rawBase
       if (enabledParams.length > 0) {
         const sp = new URLSearchParams()
         enabledParams.forEach(p => sp.append(p.key, p.value))
         url.value = `${basePath}?${sp.toString()}`
       } else {
-        url.value = tc.url || ''
+        url.value = basePath
       }
     } catch {
       queryParams.value = []
-      url.value = tc.url || ''
+      url.value = tc.url ?? requestStore.activeRequest?.url ?? ''
     }
   } else {
-    url.value = tc.url || ''
+    url.value = tc.url ?? requestStore.activeRequest?.url ?? ''
   }
 
   if (tc.body_type) bodyType.value = tc.body_type

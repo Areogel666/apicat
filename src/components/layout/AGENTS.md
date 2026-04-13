@@ -22,17 +22,12 @@
 ```
 
 ### 拖拽实现要点
-```ts
-// Naive UI NTree AllowDrop 类型不含 dragNode！
-// 正确做法：用 @dragstart 记录被拖拽节点
-const currentDragNode = ref<TreeOption | null>(null)
-// n-tree 绑定：@dragstart="onDragStart" @dragend="onDragEnd"
-
-// allowDrop 从 currentDragNode.value 读取，而非参数解构
-function allowDrop({ dropPosition, node }) { 
-  const dragNode = currentDragNode.value  // ← 唯一正确取法
-}
-```
+- **Tauri 2 + Windows**：必须在 `tauri.conf.json` 窗口配置中设置 `"dragDropEnabled": false`，
+  否则 WebView2 的文件拖放功能会拦截所有 HTML5 drag/drop 事件，导致拖拽完全失效。
+- **allowDrop**：Naive UI NTree AllowDrop 回调不提供 dragNode，只能做目标侧静态规则。
+  其余校验（循环引用、同位无效拖拽等）在 `onDrop` 中兜底。
+- **辅助函数**：`parseNodeKey` 解析 key、`findRequestOwner` 查接口所属目录、
+  `reorderArray` 统一数组重排、`isDescendant` 循环引用检测。
 
 ### 侧边栏加载防竞态
 ```ts
@@ -54,6 +49,7 @@ await loadCollections(pid)  // 必须在 try 外执行
 
 ## ANTI-PATTERNS
 - **不要**在 `allowDrop` 参数里解构 `dragNode`（NTree 不传此字段，会得到 undefined）
+- **不要**在 Tauri Windows 上启用 `dragDropEnabled`（默认 true），会阻断 HTML5 drag and drop
 - **不要**在 `saveState`/`restoreState` 异常时中断后续加载逻辑
 - **不要**在 `loadCollections` 之外手动操作 collectionStore/requestStore（用 `sidebarReloadTick` 信号触发）
 - Naive UI `NTree` 的 `expand-on-click` 与 `@update:selected-keys` 同时存在时，点击展开不触发 selected 事件
