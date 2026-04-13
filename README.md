@@ -32,6 +32,7 @@ ApiCat is a modern desktop application for API debugging and testing, powered by
 - **Draft Cache**: Unsaved edits are automatically cached when switching requests and restored on return — no changes lost.
 - **Request History**: Automatic request history recording with side-by-side Diff comparison between responses.
 - **Public Header Templates**: Save and reuse common headers (e.g., Auth tokens) across requests.
+- **Multi-Tab Workflow**: Open multiple requests in parallel tabs, switch freely, and restore session state across restarts.
 - **Productivity Boosters**: Inline method selector with color coding, URL ↔ QueryParams two-way binding, cURL import/export, drag-and-drop sorting, syntax-highlighted response viewer.
 - **Unsaved Change Indicator**: Orange dot on request nodes signals unsaved modifications; green dot confirms a successful save (auto-fades after 1.5s).
 
@@ -93,6 +94,7 @@ ApiCat 是一款基于 Tauri 2.0 + Rust + Vue 3 的轻量、高性能、无跨�
 - **草稿缓存**：切换接口时自动暂存未保存的编辑，切回时自动恢复，修改不丢失。
 - **请求历史**：自动记录每次请求历史，支持 Diff 对比两次响应差异。
 - **公共 Headers 模板**：将 Token、Content-Type 等常用 Header 保存为模板，一键应用。
+- **多标签页工作流**：并行打开多个请求标签页，自由切换，重启后恢复工作现场。
 - **效率工具**：Method 内联彩色选择器、URL ↔ Params 双向绑定、cURL 导入导出、拖拽排序、JSON 高亮与折叠。
 - **暂存状态指示**：左侧树节点旁的橙色圆点表示有未保存修改，绿色圆点表示刚保存成功（1.5s 后自动消失）。
 
