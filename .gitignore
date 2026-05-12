@@ -39,8 +39,9 @@ src-tauri/gen/
 .vite/
 
 # docs: only release/ is committed
-docs/fix/
-docs/plans/
+docs/*/fix/
+docs/*/plans/
+docs/*/issue.md
 
 # Tauri build artifacts
 %USERPROFILE%/

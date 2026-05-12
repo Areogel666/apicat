@@ -26,17 +26,40 @@
           <!-- URL 输入框 + {{var}} 高亮层（仅有变量时才渲染高亮覆盖层） -->
           <div class="url-input-wrap">
             <!-- 高亮覆盖层：仅当 URL 含 {{var}} 时渲染，否则直接显示文字避免重影 -->
-            <div v-if="urlHasVars" class="url-highlight-layer" aria-hidden="true" v-html="urlHighlighted" />
+            <div v-if="urlHasVars && !urlPreview" class="url-highlight-layer" aria-hidden="true" v-html="urlHighlighted" />
+            <!-- 编辑模式：正常输入原始 URL（含占位符） -->
             <n-input
+              v-if="!urlPreview"
               v-model:value="url"
-              placeholder="输入请求 URL，如 https://api.example.com/users"
+              placeholder="输入请求 URL,如 https://api.example.com/users"
               size="medium"
               :class="['url-input-transparent', urlHasVars ? 'url-vars-mode' : '']"
               :bordered="false"
               style="background: transparent"
               @keyup.enter="handleSend"
             />
+            <!-- 预览模式：只读显示真实发送 URL（占位符已替换 + base_url 已拼接） -->
+            <n-input
+              v-else
+              :value="effectiveUrl"
+              size="medium"
+              readonly
+              :bordered="false"
+              style="background: transparent; color: var(--n-text-color-2, #666); font-style: italic"
+              placeholder="(无 URL)"
+              :title="'真实发送 URL（只读预览，点眼睛图标切回编辑）'"
+            />
           </div>
+          <!-- 眼睛切换按钮：在原始 URL 与真实发送 URL 间切换显示 -->
+          <n-button
+            text
+            size="small"
+            style="margin: 0 4px; flex-shrink: 0"
+            :title="urlPreview ? '切换回编辑模式' : '预览真实发送 URL（占位符替换 + base_url 拼接）'"
+            @click="urlPreview = !urlPreview"
+          >
+            {{ urlPreview ? '✏️' : '👁' }}
+          </n-button>
         </div>
         <n-button
           v-if="requestDirty"
@@ -66,18 +89,67 @@
         >
           ⚡ 压测
         </n-button>
+        <n-button
+          size="medium"
+          style="flex-shrink: 0"
+          :disabled="!url"
+          title="复制为 cURL（占位符使用当前面板值替换）"
+          @click="handleCopyAsCurl"
+        >
+          📋 cURL
+        </n-button>
       </div>
 
       <!-- 请求配置 Tabs -->
       <n-tabs type="line" size="small" class="request-tabs">
         <n-tab-pane name="params" tab="Params">
           <div class="params-editor">
-            <!-- Path Params（由 URL 自动提取）-->
+            <!-- Path Params（由 URL 自动提取）-
+                 template mode (:id / {id}) ：key 可改名，value 填值后不改 URL，发请求/cURL 时替换；
+                 literal mode (123/UUID/abc123) ：key 只读，value 与 URL 字面量段双向同步 -->
             <template v-if="parsedUrl && parsedUrl.pathParams.length > 0">
               <div class="params-section-label">Path Params</div>
-              <div v-for="p in parsedUrl.pathParams" :key="p.key" class="param-row">
-                <n-tag size="small" type="info" style="width:120px; text-align:center; flex-shrink:0">{{ p.key }}</n-tag>
-                <n-input v-model:value="pathParamValues[p.key]" size="small" style="flex:1" placeholder="值" />
+              <div
+                v-for="(p, idx) in parsedUrl.pathParams"
+                :key="`pp-${idx}-${p.key}-${p.mode}`"
+                class="param-row"
+              >
+                <!-- template mode：key 可改名，同步改 URL 中的 :xxx / {xxx} -->
+                <n-input
+                  v-if="p.mode === 'template'"
+                  :value="p.key"
+                  size="small"
+                  style="width:140px; flex-shrink:0"
+                  placeholder="{key}"
+                  title="模板参数：改名将同步到 URL 中的占位符"
+                  @change="(val: string) => onPathKeyChange(p.key, val)"
+                />
+                <!-- literal mode：key 为只读派生标签，不可改名 -->
+                <n-tag
+                  v-else
+                  size="small"
+                  type="info"
+                  style="width:140px; text-align:center; flex-shrink:0"
+                  :title="`字面量参数：URL 中该段为 &quot;${p.segment}&quot;，key 不可改名`"
+                >
+                  {{ p.key }}
+                </n-tag>
+
+                <n-input
+                  :value="pathParamValues[p.key] ?? ''"
+                  size="small"
+                  style="flex:1"
+                  :placeholder="p.mode === 'template' ? '值（发送时替换占位符）' : '值（与 URL 双向同步）'"
+                  @update:value="(val: string) => onPathValueChange(p.key, val)"
+                />
+                <n-button
+                  size="tiny"
+                  quaternary
+                  title="从 URL 中删除该路径参数段"
+                  @click="removePathParam(p.key)"
+                >
+                  ✕
+                </n-button>
               </div>
               <n-divider style="margin: 8px 0" />
             </template>
@@ -404,7 +476,8 @@ import {
   NDropdown,
   useMessage, useDialog,
 } from 'naive-ui'
-import { parseUrl, buildUrl } from '../../utils/urlParser'
+import { parseUrl, buildUrl, resolveEffectiveUrl, hasUnresolvedPlaceholder } from '../../utils/urlParser'
+import { buildCurl } from '../../utils/curlBuilder'
 import { parseKvText, toKvText, parseJsonToParams, toJsonText } from '../../utils/paramParser'
 import { useRequestStore } from '../../stores/request'
 import { useResponseStore } from '../../stores/response'
@@ -504,14 +577,19 @@ const tabStore = useTabStore()
 const message = useMessage()
 const dialog = useDialog()
 
-// tabStore.activeRequestId 是 Tab 的唯一激活来源，requestStore.activeRequestId 跟随它
+// tabStore.activeRequestId 是 Tab 的唯一激活来源
+// request/response store 的 activeRequestId 都跟随它，确保响应面板按接口分桶展示
 watch(() => tabStore.activeRequestId, (id) => {
   requestStore.activeRequestId = id
+  responseStore.activeRequestId = id
 }, { immediate: true })
 
 // ── 请求编辑区状态 ────────────────────────────────────────────
 const method = ref('GET')
 const url = ref('')
+// URL 框显示模式：false = 编辑原始 URL（含占位符），true = 只读预览真实发送 URL
+// 不进 draftCache（纯 UI 状态），每个接口切换时不需要保留
+const urlPreview = ref(false)
 const pathParamValues = ref<Record<string, string>>({})
 const queryParams = ref<ParamItem[]>([])
 const requestHeaders = ref<ParamItem[]>([])
@@ -658,6 +736,12 @@ const envTagText = computed(() => {
 
 // ── 接口修改 dirty 标记 ────────────────────────────────────────────
 const requestDirty = ref(false)
+// paramsDirty（当前编辑区参数与激活用例是否有差异）的 ref 必须先于
+// watch(() => requestStore.activeRequest, ..., { immediate: true }) 声明，
+// 否则 immediate 回调的 else 分支里 `paramsDirty.value = false` 会触发
+// TDZ (Cannot access 'paramsDirty' before initialization)。
+// 真正的 checkParamsDirty 函数定义仍保留在文件后半部 (就近 TestCase 相关代码)。
+const paramsDirty = ref(false)
 
 /** 标记当前激活接口为有未保存修改状态 */
 function markRequestDirty() {
@@ -674,16 +758,30 @@ function markRequestDirty() {
 // ── 监听激活接口变化，同步到编辑区 ───────────────────────────
 let isInitializing = false
 watch(() => requestStore.activeRequest, async (req, oldReq) => {
-  if (oldReq && requestDirty.value) {
+  // 1. 保存旧接口的草稿
+  //    注意：无条件保存，不依赖 requestDirty —— 因为 pathParamValues 等
+  //    "临时调试字段" 变动不触发 dirty，但仍需跨 Tab 保留。
+  //    dirty 标记的唯一职责是控制"保存按钮亮起 / Ctrl+S 触发落库"，
+  //    与"切 Tab 时是否保留编辑态"完全解耦。
+  if (oldReq) {
     requestStore.draftCache[oldReq.id] = {
       method: method.value,
       url: url.value,
+      pathParamValues: { ...pathParamValues.value },
       queryParams: [...queryParams.value],
       requestHeaders: [...requestHeaders.value],
       bodyType: bodyType.value,
       bodyContent: bodyContent.value,
       formDataParams: [...formDataParams.value],
       urlencodedParams: [...urlencodedParams.value],
+      queryMode: queryMode.value,
+      queryKvText: queryKvText.value,
+      queryJsonText: queryJsonText.value,
+      headerMode: headerMode.value,
+      headerKvText: headerKvText.value,
+      headerJsonText: headerJsonText.value,
+      urlencodedMode: urlencodedMode.value,
+      urlencodedKvText: urlencodedKvText.value,
     }
   }
 
@@ -693,6 +791,7 @@ watch(() => requestStore.activeRequest, async (req, oldReq) => {
   if (req) {
     const draft = requestStore.draftCache[req.id]
     if (draft) {
+      // 2a. 从草稿恢复：所有编辑状态完整还原
       url.value = draft.url
       method.value = draft.method
       bodyType.value = draft.bodyType
@@ -701,8 +800,22 @@ watch(() => requestStore.activeRequest, async (req, oldReq) => {
       requestHeaders.value = draft.requestHeaders
       formDataParams.value = draft.formDataParams
       urlencodedParams.value = draft.urlencodedParams
+      // UI 模式状态跟随草稿
+      queryMode.value = draft.queryMode
+      queryKvText.value = draft.queryKvText
+      queryJsonText.value = draft.queryJsonText
+      headerMode.value = draft.headerMode
+      headerKvText.value = draft.headerKvText
+      headerJsonText.value = draft.headerJsonText
+      urlencodedMode.value = draft.urlencodedMode
+      urlencodedKvText.value = draft.urlencodedKvText
+      // pathParamValues：先清空再赋值，配合后续 watch(parsedUrl) 的合并逻辑。
+      // 由于 URL 已从 draft 恢复，parsedUrl 重算时会基于同样的 URL 产生同样的 key 集合，
+      // 此处直接赋值即可完整还原 value。
+      pathParamValues.value = { ...draft.pathParamValues }
       isDraft = true
     } else {
+      // 2b. 从 DB 加载：按接口原始定义初始化，清空所有临时调试状态
       url.value = req.url
       method.value = req.method
       bodyType.value = req.body_type || 'none'
@@ -713,7 +826,7 @@ watch(() => requestStore.activeRequest, async (req, oldReq) => {
       } else {
         formDataParams.value = []
       }
-      
+
       if (req.body_type === 'form_urlencoded') {
         try {
           const sp = new URLSearchParams(req.body || '')
@@ -728,43 +841,59 @@ watch(() => requestStore.activeRequest, async (req, oldReq) => {
       // 解析存储的 params/headers JSON
       try { queryParams.value = JSON.parse(req.params) } catch { queryParams.value = [] }
       try { requestHeaders.value = JSON.parse(req.headers) } catch { requestHeaders.value = [] }
+
+      // 重置 UI 模式为默认 table（仅无草稿时）
+      queryMode.value = 'table'
+      queryKvText.value = ''
+      queryJsonText.value = ''
+      headerMode.value = 'table'
+      headerKvText.value = ''
+      headerJsonText.value = ''
+      urlencodedMode.value = 'table'
+      urlencodedKvText.value = ''
+      // 关键：清空 pathParamValues，由后续 watch(parsedUrl) 根据新 URL 重建 key 集合
+      pathParamValues.value = {}
     }
 
-    // 切换接口时重置模式为 table、清空 dirty 状态
-    queryMode.value = 'table'
-    headerMode.value = 'table'
-    urlencodedMode.value = 'table'
-    urlencodedKvText.value = ''
     paramsDirty.value = false
     testCaseStore.activeTestCaseId = null
+    urlPreview.value = false        // 切接口总回到编辑模式
 
-    // 加载 Auth 字段
+    // 加载 Auth 字段（Auth 即时入库，总是从 req 读取，不走 draftCache）
     loadAuthFields(req.auth_type || 'none', req.auth_config || '{}')
 
     // 加载该接口历史 + 测试用例
     await historyStore.loadHistory(req.id)
     await testCaseStore.loadTestCases(req.id)
   } else {
+    // 3. 无激活接口：全部清空
     url.value = ''
     method.value = 'GET'
     bodyType.value = 'none'
     bodyContent.value = ''
+    pathParamValues.value = {}
     queryParams.value = []
     requestHeaders.value = []
     formDataParams.value = []
     urlencodedParams.value = []
     loadAuthFields('none', '{}')
     queryMode.value = 'table'
+    queryKvText.value = ''
+    queryJsonText.value = ''
     headerMode.value = 'table'
+    headerKvText.value = ''
+    headerJsonText.value = ''
+    urlencodedMode.value = 'table'
+    urlencodedKvText.value = ''
     paramsDirty.value = false
-    responseStore.clear()
+    urlPreview.value = false
+    // 注：不再主动 clear —— response 是基于 activeRequestId 的 computed 视图，
+    // activeRequestId 为 null 时自动返回 null，无需干预桶本身（允许保留响应直到 Tab 关闭）。
   }
 
-  if (isDraft) {
-    requestDirty.value = true
-  } else {
-    requestDirty.value = false
-  }
+  // dirty 状态以 requestStore.dirtyRequestIds 为权威来源
+  // （切 Tab 时无条件保存 draft 后，draft 存在 ≠ dirty，需用独立的 Set 追踪真正的脏状态）
+  requestDirty.value = req ? requestStore.dirtyRequestIds.has(req.id) : false
 
   nextTick(() => {
     isInitializing = false
@@ -801,14 +930,175 @@ const parsedUrl = computed<ParsedUrl | null>(() => {
   return parseUrl(url.value, method.value)
 })
 
+// 互锁标志：防止 URL ↔ pathParamValues 双向 watcher 循环触发
+// - 面板改 value → 写入 URL → 禁用 parsedUrl 重算对 pathParamValues 的回写
+// - URL 改 → 解析出新 pathParams → 同步 pathParamValues → 禁用 pathParamValues
+//   watcher 对 URL 的回写
+let syncingPathParamsFromUrl = false
+let syncingUrlFromPathParams = false
+
 watch(parsedUrl, (p) => {
   if (!p) return
+  // 若正在反向 (面板→URL) 写入，parsedUrl 只是顺势重算，不要覆盖 pathParamValues
+  if (syncingUrlFromPathParams) return
+
   const newVals: Record<string, string> = {}
   for (const { key, value } of p.pathParams) {
-    newVals[key] = pathParamValues.value[key] ?? value
+    // URL 是权威：按 URL 解析结果 value 覆盖；若 URL 中是占位符 (:id) 产出空 value，
+    // 尝试保留面板中已有的用户输入（兼容"填 :id 再输值"的工作流）
+    newVals[key] = value !== '' ? value : (pathParamValues.value[key] ?? '')
   }
+  syncingPathParamsFromUrl = true
   pathParamValues.value = newVals
+  // 微任务结束后释放锁
+  nextTick(() => { syncingPathParamsFromUrl = false })
 })
+
+/**
+ * 面板 value 修改时的处理（按 mode 分叉）。
+ *
+ * template mode（:id / {id}）：
+ *   只更新 pathParamValues，URL 保持占位符形态不变；
+ *   发送请求或复制 cURL 时由 buildUrl 把占位符替换为 value。
+ *
+ * literal mode（123 / UUID / abc123）：
+ *   同步修改 URL 中对应字面量段，实现所见即所得的双向绑定。
+ *   空值不回写 URL（避免 /download//orders 这种退化形态）。
+ */
+function onPathValueChange(key: string, newValue: string) {
+  if (isInitializing || syncingPathParamsFromUrl) return
+
+  const p = parsedUrl.value?.pathParams.find(pp => pp.key === key)
+  if (!p) return
+
+  // 先更新本地 pathParamValues（UI 即时反馈，两种 mode 都需要）
+  const next = { ...pathParamValues.value }
+  next[key] = newValue
+  pathParamValues.value = next
+
+  if (p.mode === 'template') {
+    // 模板型：只在内存里存值，URL 不变
+    // markRequestDirty 也不会触发（因为 URL 没变，但 pathParamValues 变了 ——
+    // 这是否要标 dirty？值属于"调试态"，不落 DB，不标 dirty 是合理的）
+    return
+  }
+
+  // literal mode：空值不回写（避免畸形 URL）
+  if (newValue === '') return
+
+  syncingUrlFromPathParams = true
+  replacePathSegmentInUrl(key, newValue)
+  nextTick(() => { syncingUrlFromPathParams = false })
+}
+
+/**
+ * 面板 key 改名（仅 template mode 生效）。
+ *
+ * - 支持 "userId" / "{userId}" / ":userId" 三种输入形态，内部归一化为裸名
+ * - 裸名校验：标识符规则（字母/下划线开头，后续 [\w]*）
+ * - 去重检测：不允许改成和其他 param key 一样
+ * - URL 同步：按原占位符风格保留
+ *     :id  → :newBare
+ *     {id} → {newBare}
+ * - pathParamValues 中 value 从旧 key 迁移到新 key
+ */
+function onPathKeyChange(oldKey: string, rawNewKey: string) {
+  if (isInitializing || syncingPathParamsFromUrl) return
+  const trimmed = (rawNewKey ?? '').trim()
+  if (!trimmed || trimmed === oldKey) return
+
+  const target = parsedUrl.value?.pathParams.find(pp => pp.key === oldKey)
+  if (!target || target.mode !== 'template') return
+
+  // 归一化裸名：去掉可能的 { } 或前导 :
+  let bare = trimmed
+  if (bare.startsWith('{') && bare.endsWith('}')) bare = bare.slice(1, -1)
+  if (bare.startsWith(':')) bare = bare.slice(1)
+  if (!bare || !/^[A-Za-z_][\w]*$/.test(bare)) return
+
+  // 去重检测
+  const newKey = `{${bare}}`
+  if (newKey === oldKey) return
+  const others = parsedUrl.value!.pathParams.filter(pp => pp.key !== oldKey)
+  if (others.some(pp => pp.key === newKey)) return
+
+  // 迁移 value（在 URL 变更前先迁移，避免 watch(parsedUrl) 重建时丢失）
+  const oldVal = pathParamValues.value[oldKey]
+  const migrated = { ...pathParamValues.value }
+  delete migrated[oldKey]
+  if (oldVal !== undefined) migrated[newKey] = oldVal
+  pathParamValues.value = migrated
+
+  // 同步修改 URL：按原占位符风格保留（:id 风 / {id} 风）
+  const newSegment = target.segment.startsWith(':') ? `:${bare}` : `{${bare}}`
+  syncingUrlFromPathParams = true
+  replacePathSegmentInUrl(oldKey, newSegment)
+  nextTick(() => { syncingUrlFromPathParams = false })
+}
+
+/**
+ * 反向同步：Path Params → URL
+ *
+ * 将给定 pathParam 的原始段在 url.value 中定位并替换为新内容。
+ * 返回 false 表示定位失败（URL 已变动或无匹配段），此时调用方应放弃操作。
+ *
+ * 定位策略：pathParams 数组按 parseUrl 扫描顺序排列，所以 `targetKey` 在数组
+ * 中的索引 = 在 URL path 中出现的第几个 pathParam 段。我们按"第 index+1 次
+ * 出现 segment"在 URL 中做唯一替换,避免同名字面量段（如两个 123）被一起替换。
+ */
+function replacePathSegmentInUrl(targetKey: string, newSegment: string | null): boolean {
+  const p = parsedUrl.value
+  if (!p) return false
+  const index = p.pathParams.findIndex(pp => pp.key === targetKey)
+  if (index < 0) return false
+  const target = p.pathParams[index]
+
+  // 计算"目标段在原 URL 中是第几次出现"——pathParams 按扫描顺序排列，
+  // 在同 segment 的 pathParam 中，当前项是第 N 个（N 从 0 开始）
+  let occurrence = 0
+  for (let i = 0; i < index; i++) {
+    if (p.pathParams[i].segment === target.segment) occurrence++
+  }
+
+  // 在 url.value 中按 `/` 分段定位，跳过前 occurrence 次命中，替换第 occurrence+1 次
+  const raw = url.value
+  const qsIdx = raw.indexOf('?')
+  const pathPart = qsIdx >= 0 ? raw.substring(0, qsIdx) : raw
+  const queryPart = qsIdx >= 0 ? raw.substring(qsIdx) : ''
+
+  // 分段（保留前导 `/` 的语义：以 `/` 切分后首项可能为空串表示绝对路径）
+  const segs = pathPart.split('/')
+  let hit = -1
+  let skipped = 0
+  for (let i = 0; i < segs.length; i++) {
+    if (segs[i] === target.segment) {
+      if (skipped === occurrence) { hit = i; break }
+      skipped++
+    }
+  }
+  if (hit < 0) return false
+
+  if (newSegment === null) {
+    // 删除：移除该段；注意保留周围的 `/` 结构
+    segs.splice(hit, 1)
+  } else {
+    segs[hit] = newSegment
+  }
+
+  const newPath = segs.join('/')
+  url.value = newPath + queryPart
+  return true
+}
+
+/**
+ * 从 URL 中删除指定 Path Params 对应的原始段。
+ * pathParamValues 中对应的 key 会在后续 watch(parsedUrl) 里被自动清理。
+ */
+function removePathParam(targetKey: string) {
+  syncingUrlFromPathParams = true
+  replacePathSegmentInUrl(targetKey, null)
+  nextTick(() => { syncingUrlFromPathParams = false })
+}
 
 // ── 构建发送时的真实 URL（path params 已替换）─────────────────
 const resolvedUrl = computed(() => {
@@ -824,23 +1114,10 @@ const resolvedUrl = computed(() => {
 
 /**
  * 发送前最终解析的完整 URL：
- * - 若 url 已含协议头（http/https），直接使用
- * - 若 url 是相对路径（如 /users/1）且有激活环境并配置了 base_url，
- *   自动在前面补 base_url（避免 reqwest 报 "relative URL without a base"）
+ * 调用 resolveEffectiveUrl 工具函数，与 Sidebar 的 cURL 复制共享同一套拼接规则。
  */
 const effectiveUrl = computed(() => {
-  const raw = resolvedUrl.value
-  if (!raw) return raw
-  // 已含协议头，无需处理
-  if (/^https?:\/\//i.test(raw)) return raw
-  // 尝试用激活环境的 base_url 拼接
-  const baseUrl = envStore.activeEnv?.base_url
-  if (baseUrl) {
-    const base = baseUrl.replace(/\/$/, '')   // 去掉末尾斜杠
-    const path = raw.startsWith('/') ? raw : `/${raw}`
-    return `${base}${path}`
-  }
-  return raw
+  return resolveEffectiveUrl(resolvedUrl.value, envStore.activeEnv?.base_url)
 })
 
 /** URL 中是否包含 {{var}} 变量，用于控制输入框文字是否透明（有变量才透明以展示高亮层） */
@@ -967,6 +1244,66 @@ watch(queryJsonText, (text) => {
   queryParams.value = parseJsonToParams(text)
 })
 
+// ── 复制当前编辑区为 cURL ───────────────────────────────────────
+// 与 Sidebar 的右键复制 cURL 区别：本入口使用当前 MainPanel 编辑区 ref（含未保存修改 +
+// pathParamValues 已填值），输出的 cURL URL 是 effectiveUrl —— 占位符已替换 + 拼 base_url。
+async function handleCopyAsCurl() {
+  // 与 handleSend 保持一致：先同步非表格模式内容到权威数据源，避免漏 KV/JSON 文本态改动
+  if (queryMode.value === 'kv') queryParams.value = parseKvText(queryKvText.value)
+  else if (queryMode.value === 'json') queryParams.value = parseJsonToParams(queryJsonText.value)
+  if (headerMode.value === 'kv') requestHeaders.value = parseKvText(headerKvText.value)
+  else if (headerMode.value === 'json') requestHeaders.value = parseJsonToParams(headerJsonText.value)
+
+  // 计算 body（form_data / form_urlencoded 需要序列化）
+  let bodyStr = bodyContent.value
+  if (bodyType.value === 'form_data') {
+    bodyStr = JSON.stringify(formDataParams.value)
+  } else if (bodyType.value === 'form_urlencoded') {
+    const enabledFields = urlencodedParams.value.filter(f => f.enabled && f.key)
+    const sp = new URLSearchParams()
+    enabledFields.forEach(f => sp.append(f.key, f.value))
+    bodyStr = sp.toString()
+  }
+
+  // 计算 auth_config（与 handleSend 保持同一套规则）
+  const authConfigStr = (() => {
+    if (authType.value === 'bearer') return JSON.stringify({ token: authBearer.value })
+    if (authType.value === 'basic') return JSON.stringify({ username: authBasicUser.value, password: authBasicPass.value })
+    if (authType.value === 'api_key') return JSON.stringify({ key: authApiKeyName.value, value: authApiKeyValue.value, in: authApiKeyIn.value })
+    return '{}'
+  })()
+
+  const curl = buildCurl({
+    method: method.value,
+    url: effectiveUrl.value,    // 占位符已替换 + base_url 已拼接
+    queryParams: queryParams.value,
+    headers: requestHeaders.value,
+    bodyType: bodyType.value,
+    body: bodyStr,
+    authType: authType.value,
+    authConfig: authConfigStr,
+  })
+
+  try {
+    await navigator.clipboard.writeText(curl)
+  } catch {
+    // Tauri 环境 clipboard 可能无权限，降级到 execCommand
+    const ta = document.createElement('textarea')
+    ta.value = curl
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    document.body.removeChild(ta)
+  }
+
+  // 编辑区场景占位符应已被 effectiveUrl 替换为空，若仍残留（用户未填值）给出提示
+  if (hasUnresolvedPlaceholder(effectiveUrl.value)) {
+    message.warning('cURL 包含未填值的占位符（:xxx / {xxx}），请在面板填值后再复制')
+  } else {
+    message.success('cURL 已复制到剪贴板')
+  }
+}
+
 // ── 发送请求 ──────────────────────────────────────────────────
 async function handleSend() {
   // 非表格模式时先同步内容到 source of truth（queryParams / requestHeaders）
@@ -1056,7 +1393,8 @@ async function handleSend() {
 }
 
 // ── 参数变更检测 ───────────────────────────────────────────────
-const paramsDirty = ref(false)
+// 注：`const paramsDirty = ref(false)` 已前移到 watch(requestStore.activeRequest)
+// 之前，避免 immediate 回调 TDZ 报错。此处只保留 checkParamsDirty 函数。
 
 function checkParamsDirty() {
   const activeId = testCaseStore.activeTestCaseId

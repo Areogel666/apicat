@@ -5,6 +5,134 @@ use sqlx::SqliteConnection;
 use tauri::State;
 
 // ═══════════════════════════════════════════════════════════
+//  URL path 段分类 helpers（Postman/OpenAPI 导入导出共用）
+// ═══════════════════════════════════════════════════════════
+
+/// 判断一个 path segment 是否是 `:xxx` 形态的 path variable。
+fn is_colon_param(seg: &str) -> bool {
+    seg.starts_with(':') && seg.len() > 1 && seg.chars().skip(1).all(is_param_name_char)
+}
+
+/// 判断一个 path segment 是否是 `{xxx}` 形态的 path variable。
+fn is_brace_param(seg: &str) -> bool {
+    seg.len() >= 3
+        && seg.starts_with('{')
+        && seg.ends_with('}')
+        && !seg[1..seg.len() - 1].is_empty()
+        && seg[1..seg.len() - 1].chars().all(is_param_name_char)
+        // 排除 {{var}} 这种环境变量插值
+        && !seg.starts_with("{{")
+}
+
+fn is_param_name_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_' || c == '-'
+}
+
+/// 将 Postman URL raw 字符串拆解为 Postman v2.1 URL 对象结构：
+///   {
+///     "raw": "...",
+///     "host": [...],           // host 按 `.` 切分；{{var}} 作为整体
+///     "path": ["users", ":id", ...],
+///     "query": [...],          // enabled query params
+///     "variable": [{"key":"id","value":""}, ...]
+///   }
+///
+/// 关键行为：
+/// - 支持 `:id` 和 `{id}` 两种占位符输入；输出 path 数组里统一转为 `:id`（Postman 规范风）
+/// - variable 数组根据 path 占位符生成；value 留空（ApiCat DB 里没有存 path variable 的值）
+/// - 若 raw 不含协议头且不以 `/` 开头（典型场景：相对路径），host 数组为空
+fn build_postman_url(raw: &str, query_params: &[serde_json::Value]) -> serde_json::Value {
+    // 拆分 query / hash
+    let (path_and_host, _query_str) = match raw.find(|c| c == '?' || c == '#') {
+        Some(idx) => (&raw[..idx], &raw[idx..]),
+        None => (raw, ""),
+    };
+
+    // 拆分协议+host 与 path
+    let (host_raw, path_raw) = if let Some(rest) = path_and_host
+        .strip_prefix("http://")
+        .or_else(|| path_and_host.strip_prefix("https://"))
+    {
+        match rest.find('/') {
+            Some(slash) => (&rest[..slash], &rest[slash..]),
+            None => (rest, ""),
+        }
+    } else {
+        // 无协议头：整串视为 path（含环境变量 {{baseUrl}} 前缀或纯相对路径）
+        ("", path_and_host)
+    };
+
+    // host 数组：按 `.` 切分；但若整个 host 是 {{var}} 形式，保留整体
+    let host: Vec<serde_json::Value> = if host_raw.is_empty() {
+        Vec::new()
+    } else if host_raw.starts_with("{{") && host_raw.ends_with("}}") {
+        vec![serde_json::Value::String(host_raw.to_string())]
+    } else {
+        host_raw.split('.').map(|s| serde_json::Value::String(s.to_string())).collect()
+    };
+
+    // path 数组：按 `/` 切分后的非空段；占位符统一化为 `:xxx` 风格
+    let mut path_arr: Vec<serde_json::Value> = Vec::new();
+    let mut variables: Vec<serde_json::Value> = Vec::new();
+    let mut used_keys: std::collections::HashSet<String> = Default::default();
+
+    for seg in path_raw.split('/').filter(|s| !s.is_empty()) {
+        let normalized = if is_colon_param(seg) {
+            // `:id` 原样
+            let name = seg[1..].to_string();
+            if used_keys.insert(name.clone()) {
+                variables.push(serde_json::json!({"key": name, "value": ""}));
+            }
+            seg.to_string()
+        } else if is_brace_param(seg) {
+            // `{id}` → `:id`
+            let name = seg[1..seg.len() - 1].to_string();
+            if used_keys.insert(name.clone()) {
+                variables.push(serde_json::json!({"key": name, "value": ""}));
+            }
+            format!(":{}", name)
+        } else {
+            // 静态段 / {{var}} 环境变量 / 字面量 id
+            seg.to_string()
+        };
+        path_arr.push(serde_json::Value::String(normalized));
+    }
+
+    // 重建 raw（占位符已统一为 :xxx），保证 raw / path / variable 三方一致
+    let proto_prefix = if raw.starts_with("https://") {
+        "https://"
+    } else if raw.starts_with("http://") {
+        "http://"
+    } else {
+        ""
+    };
+    let query_suffix = match raw.find(|c| c == '?' || c == '#') {
+        Some(idx) => &raw[idx..],
+        None => "",
+    };
+    let path_str: String = path_arr
+        .iter()
+        .filter_map(|v| v.as_str().map(|s| format!("/{}", s)))
+        .collect();
+    let rebuilt_raw = format!("{}{}{}{}", proto_prefix, host_raw, path_str, query_suffix);
+
+    let mut obj = serde_json::json!({
+        "raw": rebuilt_raw,
+        "path": path_arr,
+    });
+    if !host.is_empty() {
+        obj["host"] = serde_json::Value::Array(host);
+    }
+    if !query_params.is_empty() {
+        obj["query"] = serde_json::Value::Array(query_params.to_vec());
+    }
+    if !variables.is_empty() {
+        obj["variable"] = serde_json::Value::Array(variables);
+    }
+    obj
+}
+
+// ═══════════════════════════════════════════════════════════
 //  导出
 // ═══════════════════════════════════════════════════════════
 
@@ -171,6 +299,17 @@ fn build_postman_collection(name: &str, collections: &[ExportCollection]) -> ser
                             .map(|h| serde_json::json!({"key": h["key"], "value": h["value"]}))
                             .collect();
 
+                    // 将启用的 query params 转为 Postman url.query 条目
+                    let query_items: Vec<serde_json::Value> =
+                        serde_json::from_str::<Vec<serde_json::Value>>(&r.params)
+                            .unwrap_or_default()
+                            .into_iter()
+                            .filter(|p| {
+                                p.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true)
+                            })
+                            .map(|p| serde_json::json!({"key": p["key"], "value": p["value"]}))
+                            .collect();
+
                     let body = if r.body_type == "raw_json" {
                         serde_json::json!({
                             "mode": "raw", "raw": r.body,
@@ -188,12 +327,15 @@ fn build_postman_collection(name: &str, collections: &[ExportCollection]) -> ser
                         serde_json::json!({"mode": "raw", "raw": ""})
                     };
 
+                    // URL 对象：拆分 host/path/variable 数组，path params ({id}/:id) 填入 variable 数组
+                    let url_obj = build_postman_url(&r.url, &query_items);
+
                     serde_json::json!({
                         "name": r.name,
                         "request": {
                             "method": r.method,
                             "header": headers,
-                            "url": {"raw": r.url},
+                            "url": url_obj,
                             "body": body
                         },
                         "response": []
@@ -615,6 +757,14 @@ async fn import_openapi_inner(
                         .push(serde_json::json!({"key":pn,"value":pv,"enabled":true})),
                     "query" => params_json
                         .push(serde_json::json!({"key":pn,"value":pv,"enabled":true})),
+                    // "path" 参数：OpenAPI 里 path 参数以 {xxx} 形式出现在路径字符串本身中
+                    // （如 /users/{id}），下面 full_url 构建时已原样保留，
+                    // MainPanel.parseUrl 会自动识别 {xxx} 花括号占位符并展示在 Path Params 面板。
+                    // 此处 schema.default / example 值暂不导入 —— pathParamValues 不落 DB，
+                    // 与 Postman 导入行为保持一致。
+                    "path" => {}
+                    // "cookie" 参数：本应用暂不支持在接口级别管理 Cookie（走全局 CookieManager）
+                    "cookie" => {}
                     _ => {}
                 }
             }

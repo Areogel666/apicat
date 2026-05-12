@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { load } from '@tauri-apps/plugin-store'
 import type { ApiRequest } from '../types'
+import { useResponseStore } from './response'
 
 // Tab 数据结构
 export interface TabItem {
@@ -48,6 +49,18 @@ export const useTabStore = defineStore('tab', () => {
   }
 
   /**
+   * 丢弃指定接口 id 列表的关联资源（响应桶等）。
+   * 所有 close* 方法在删除 Tab 后统一调用此 helper，避免响应数据在内存中泄漏。
+   */
+  function _discardRequests(ids: number[]) {
+    if (ids.length === 0) return
+    const responseStore = useResponseStore()
+    for (const id of ids) {
+      responseStore.clear(id)
+    }
+  }
+
+  /**
    * 关闭指定 Tab，处理激活状态迁移：
    * - 关闭非激活 Tab：激活状态不变
    * - 关闭激活 Tab：激活左侧相邻；若为最左则激活新第一个；全关则 null
@@ -68,31 +81,41 @@ export const useTabStore = defineStore('tab', () => {
         activeRequestId.value = openTabs.value[newIdx].requestId
       }
     }
+
+    _discardRequests([requestId])
   }
 
   /** 关闭除指定 Tab 以外的所有 Tab（批量，调用方负责 dirty 确认） */
   function closeOtherTabs(keepRequestId: number) {
+    const closedIds = openTabs.value
+      .filter(t => t.requestId !== keepRequestId)
+      .map(t => t.requestId)
     openTabs.value = openTabs.value.filter(t => t.requestId === keepRequestId)
     activeRequestId.value = keepRequestId
+    _discardRequests(closedIds)
   }
 
   /** 关闭指定 Tab 左侧所有 Tab */
   function closeLeftTabs(requestId: number) {
     const idx = openTabs.value.findIndex(t => t.requestId === requestId)
     if (idx <= 0) return
+    const closedIds = openTabs.value.slice(0, idx).map(t => t.requestId)
     openTabs.value.splice(0, idx)
     // 若激活 Tab 在被关闭的范围内，切换到 requestId
     const stillActive = openTabs.value.some(t => t.requestId === activeRequestId.value)
     if (!stillActive) activeRequestId.value = requestId
+    _discardRequests(closedIds)
   }
 
   /** 关闭指定 Tab 右侧所有 Tab */
   function closeRightTabs(requestId: number) {
     const idx = openTabs.value.findIndex(t => t.requestId === requestId)
     if (idx === -1 || idx === openTabs.value.length - 1) return
+    const closedIds = openTabs.value.slice(idx + 1).map(t => t.requestId)
     openTabs.value.splice(idx + 1)
     const stillActive = openTabs.value.some(t => t.requestId === activeRequestId.value)
     if (!stillActive) activeRequestId.value = requestId
+    _discardRequests(closedIds)
   }
 
   /** 更新 Tab 标题（接口重命名后调用） */
@@ -165,8 +188,14 @@ export const useTabStore = defineStore('tab', () => {
 
   /** 清空当前 Tab 列表（切换项目前调用） */
   function clearTabs() {
+    const closedIds = openTabs.value.map(t => t.requestId)
     openTabs.value = []
     activeRequestId.value = null
+    // 切换项目：清理所有响应桶（跨项目数据隔离）
+    if (closedIds.length > 0) {
+      const responseStore = useResponseStore()
+      responseStore.clearAll()
+    }
   }
 
   return {

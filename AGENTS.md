@@ -35,9 +35,15 @@ apicat/
 │   ├── migrations/0001_init.sql # 全部建表 SQL（幂等，手动分号分割执行）
 │   └── capabilities/default.json # IPC 权限声明（必须显式声明每个插件）
 ├── docs/
-│   ├── plans/                  # 功能设计方案（1.0.0/, 1.0.1/）
-│   ├── fix/                    # Bug 修复记录（已加入 .gitignore，不提交）
-│   └── release/                # 发布说明（提交到 git）
+│   ├── 1.0.0/                  # 按版本组织：plans/（设计方案）+ fix/（Bug 修复）
+│   │   ├── plans/
+│   │   └── fix/
+│   ├── 1.0.1/
+│   │   ├── plans/
+│   │   └── fix/
+│   ├── 1.0.2/                  # 当前迭代：issue.md 为本地待办清单（不提交）
+│   │   └── issue.md
+│   └── release/                # 发布说明（仅此目录提交到 git，其余 */plans/, */fix/, */issue.md 已 gitignore）
 └── scripts/apicat-test-gen/    # AI 测试用例生成脚本
 ```
 
@@ -89,7 +95,7 @@ invoke('list_collections', { projectId: 1 })
 - **不要**在 `allowDrop` 回调参数里解构 `dragNode`——Naive UI NTree `AllowDrop` 类型不含此字段；用 `currentDragNode` ref 替代
 - **不要**在 Sidebar.vue 的 `saveState`/`restoreState` 抛出异常——必须用独立 `try/catch` 包裹，否则阻断 `loadCollections()`
 - **不要**使用 `@ts-ignore` 或 `as any`（vite.config.ts 唯一的 `@ts-expect-error` 是官方模板遗留，勿模仿）
-- **不要**提交 `docs/fix/` 目录（已加入 .gitignore）；只提交 `docs/release/`
+- **不要**提交 `docs/*/fix/`、`docs/*/plans/` 目录和 `docs/*/issue.md`（已加入 .gitignore）；只提交 `docs/release/`
 
 ## COMMANDS
 ```bash

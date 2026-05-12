@@ -79,7 +79,15 @@ export interface TreeNode {
 export interface ParsedUrl {
   displayName: string       // "/apm/intl/download"（不含 method，避免树节点拼接重复）
   pathTemplate: string      // "/apm/intl/download/{id}"
-  pathParams: Array<{ key: string; value: string }>   // [{key:"{id}", value:"1676657"}]
+  // segment：该 pathParam 在原始 URL 中的段文本（如 ":id" / "123" / "abc-uuid"）
+  // 用于反向定位并修改原始 URL，每个 pathParam 唯一对应一段
+  //
+  // mode：
+  //  - 'template' → 段本身是占位符（:id / {id}）。填值时 URL 保持占位符不变，
+  //                 发送/cURL 时用 value 替换。key 可改名，同步回 URL。
+  //  - 'literal'  → 段是字面量（123 / abc123 / UUID）。填值时改 URL 字面量；
+  //                 key 为只读派生标签，不可改名。
+  pathParams: Array<{ key: string; value: string; segment: string; mode: 'template' | 'literal' }>
   queryParams: Array<{ key: string; value: string }>  // [{key:"page", value:"1"}]
 }
 

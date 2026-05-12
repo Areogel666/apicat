@@ -3,16 +3,37 @@ import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { ApiRequest, ParamItem } from '../types'
 
-/** 接口编辑区草稿（与 MainPanel 中的 RequestDraft 保持一致） */
+/**
+ * 接口编辑区草稿（与 MainPanel 编辑区 ref 一一对应）
+ *
+ * 覆盖 MainPanel 全部组件级编辑状态，切换 Tab 时整体保存/恢复，
+ * 避免 Path Params、KV/JSON 模式、Auth 等任一字段跨接口泄漏。
+ */
 export interface RequestDraft {
   method: string
   url: string
+  // Path Params：key 由 URL 解析派生，value 由用户输入，需隔离持久化
+  pathParamValues: Record<string, string>
   queryParams: ParamItem[]
   requestHeaders: ParamItem[]
   bodyType: string
   bodyContent: string
   formDataParams: ParamItem[]
   urlencodedParams: ParamItem[]
+  // Query Params UI 模式
+  queryMode: 'table' | 'kv' | 'json'
+  queryKvText: string
+  queryJsonText: string
+  // Headers UI 模式
+  headerMode: 'table' | 'kv' | 'json'
+  headerKvText: string
+  headerJsonText: string
+  // Body: form-urlencoded UI 模式
+  urlencodedMode: 'table' | 'kv'
+  urlencodedKvText: string
+  // 注：Auth 字段不纳入 draftCache —— 现有实现中 Auth 改动通过
+  // syncAuthConfig() 即时调用 updateRequest 落库，不存在未保存草稿。
+  // 切 Tab 时从 req.auth_type / req.auth_config 按接口重新加载即可。
 }
 
 export const useRequestStore = defineStore('request', () => {

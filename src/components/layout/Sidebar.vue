@@ -150,7 +150,8 @@ import { useProjectStore } from '../../stores/project'
 import { useCollectionStore } from '../../stores/collection'
 import { useRequestStore } from '../../stores/request'
 import { useTabStore } from '../../stores/tab'
-import { parseUrl } from '../../utils/urlParser'
+import { useEnvironmentStore } from '../../stores/environment'
+import { parseUrl, resolveEffectiveUrl, hasUnresolvedPlaceholder } from '../../utils/urlParser'
 import { buildCurl } from '../../utils/curlBuilder'
 import type { Collection, ParamItem } from '../../types'
 
@@ -159,6 +160,7 @@ const projectStore = useProjectStore()
 const collectionStore = useCollectionStore()
 const requestStore = useRequestStore()
 const tabStore = useTabStore()
+const envStore = useEnvironmentStore()
 const message = useMessage()
 
 /**
@@ -334,9 +336,13 @@ async function copyAsCurl() {
   const headersArr = (() => { try { return JSON.parse(req.headers) } catch { return [] } })()
   const queryArr = (() => { try { return JSON.parse(req.params) } catch { return [] } })()
 
+  // 与 MainPanel.effectiveUrl 共享同一套拼接规则：
+  // 相对路径 + 激活环境有 base_url → 拼接为完整 URL；否则原样
+  const fullUrl = resolveEffectiveUrl(req.url, envStore.activeEnv?.base_url)
+
   const curl = buildCurl({
     method: req.method,
-    url: req.url,
+    url: fullUrl,
     queryParams: queryArr,
     headers: headersArr,
     bodyType: req.body_type,
@@ -347,7 +353,6 @@ async function copyAsCurl() {
 
   try {
     await navigator.clipboard.writeText(curl)
-    message.success('cURL 已复制到剪贴板')
   } catch {
     // Tauri 环境 clipboard API 可能需要权限，降级为 execCommand
     const ta = document.createElement('textarea')
@@ -356,6 +361,13 @@ async function copyAsCurl() {
     ta.select()
     document.execCommand('copy')
     document.body.removeChild(ta)
+  }
+
+  // 侧边栏走 DB URL —— 若 DB 存的 URL 含未替换占位符（:id / {id}），
+  // 粘贴到终端会请求到错误地址。提示用户可改用编辑区的 "📋 cURL" 填值后复制。
+  if (hasUnresolvedPlaceholder(fullUrl)) {
+    message.warning('cURL 含未替换的占位符（:xxx / {xxx}）；在编辑区填值后点 "📋 cURL" 可获得替换后的命令')
+  } else {
     message.success('cURL 已复制到剪贴板')
   }
 }
