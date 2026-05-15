@@ -79,6 +79,18 @@ function extractRawPathSegments(rawUrl: string): string[] {
 }
 
 /**
+ * 提取 URL 的协议+host 前缀（如 "https://api.example.com:8080"），不含末尾斜杠。
+ * 用户输入相对路径时返回空字符串。
+ *
+ * 与 extractRawPathSegments 共用同一套规则（regex `/^https?:\/\/[^/]+/i`），
+ * 保证两者拼回去后等于原始 URL 的 host+path 部分。
+ */
+function extractRawOrigin(rawUrl: string): string {
+  const protoMatch = rawUrl.match(/^https?:\/\/[^/]+/i)
+  return protoMatch ? protoMatch[0] : ''
+}
+
+/**
  * 解析 URL，提取路径参数和 query 参数，生成接口默认名称
  *
  * 例：POST http://localhost:8088/apm/intl/download/1676657?androidVersion=14
@@ -169,10 +181,15 @@ export function parseUrl(rawUrl: string, _method?: string): ParsedUrl {
     cleanSegments.push(key)
   }
 
-  const cleanPath = '/' + cleanSegments.join('/')
+  // pathTemplate 保留用户输入的协议+host 前缀（如有），避免在"完整 URL + 无环境 base_url"
+  // 场景下 buildUrl 输出相对路径，导致 reqwest::Url::parse 报 "relative URL without a base"。
+  // 当用户输的是相对路径时 origin 为空字符串，此时 pathTemplate 仍以 '/' 开头（旧行为）。
+  const origin = extractRawOrigin(rawUrl)
+  const cleanPath = origin + '/' + cleanSegments.join('/')
 
   // displayName 专用：用旧规则单独算一遍（仅考虑旧规则识别的段，排除它们得到的路径）
   // 与 pathParams 使用的新规则分离，确保接口默认名称行为向下兼容。
+  // displayName 不带协议+host —— 它是树节点的展示文本，简短的相对路径更易读。
   const displaySegments: string[] = []
   for (const seg of segments) {
     if (!isLegacyPathParam(seg)) displaySegments.push(seg)
