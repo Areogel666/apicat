@@ -19,6 +19,7 @@
           :row-class-name="rowClassName"
           :row-props="rowProps"
           size="small"
+          class="case-table"
         />
       </div>
 
@@ -355,10 +356,10 @@ watch(() => props.requestId, () => {
   min-height: 0;
 }
 
-/* 左列：用例列表 60% */
+/* 左列：用例列表 35%（默认偏小，给右侧历史详情更多空间） */
 .case-list {
-  flex: 1 1 60%;
-  min-width: 320px;
+  flex: 1 1 35%;
+  min-width: 280px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -367,10 +368,18 @@ watch(() => props.requestId, () => {
   background: var(--bg-elevated);
 }
 
-/* 右列：历史详情 40% */
+/* NDataTable 在 flex-height 模式下需要显式高度才能正确计算 tbody 滚动容器
+ * （否则 wrapper.height = NDataTable.height - thead.height = 0，tbody 不可见）。
+ * 用 flex:1 + min-height:0 让它撑满父容器分配的剩余高度。 */
+.case-list :deep(.case-table) {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 右列：历史详情 65%（主要查看区） */
 .history-pane {
-  flex: 1 1 40%;
-  min-width: 280px;
+  flex: 1 1 65%;
+  min-width: 320px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
