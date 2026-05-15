@@ -1,4 +1,4 @@
-use crate::{db::AppDb, error::CmdResult, types::TestCase};
+use crate::{db::AppDb, error::CmdResult, types::{TestCase, TestCaseHistory}};
 use tauri::State;
 
 const SELECT_COLS: &str = "id, request_id, collection_id, name, description, source, method, url, \
@@ -142,4 +142,76 @@ pub async fn delete_test_case(db: State<'_, AppDb>, id: i64) -> CmdResult<()> {
         .execute(&db.0)
         .await?;
     Ok(())
+}
+
+// ── M3-C：用例执行历史 ─────────────────────────────────────────
+
+const HIST_COLS: &str = "id, test_case_id, status_code, duration_ms, \
+    response_preview, error_message, created_at";
+
+/// 列出某用例的最近 10 条历史调用（按时间倒序）
+#[tauri::command]
+pub async fn list_test_case_history(
+    db: State<'_, AppDb>,
+    test_case_id: i64,
+) -> CmdResult<Vec<TestCaseHistory>> {
+    let sql = format!(
+        "SELECT {HIST_COLS} FROM test_case_history \
+         WHERE test_case_id=? ORDER BY created_at DESC, id DESC LIMIT 10"
+    );
+    let rows = sqlx::query_as::<_, TestCaseHistory>(&sql)
+        .bind(test_case_id)
+        .fetch_all(&db.0)
+        .await?;
+    Ok(rows)
+}
+
+/// 写入一条用例历史。触发器 trg_tch_keep_10 自动滚动淘汰最早的（>10 条）。
+#[tauri::command]
+pub async fn add_test_case_history(
+    db: State<'_, AppDb>,
+    test_case_id: i64,
+    status_code: Option<i64>,
+    duration_ms: Option<i64>,
+    response_preview: Option<String>,
+    error_message: Option<String>,
+) -> CmdResult<TestCaseHistory> {
+    let sql = format!(
+        "INSERT INTO test_case_history \
+            (test_case_id, status_code, duration_ms, response_preview, error_message) \
+         VALUES (?, ?, ?, ?, ?) \
+         RETURNING {HIST_COLS}"
+    );
+    let row = sqlx::query_as::<_, TestCaseHistory>(&sql)
+        .bind(test_case_id)
+        .bind(status_code)
+        .bind(duration_ms)
+        .bind(response_preview)
+        .bind(error_message)
+        .fetch_one(&db.0)
+        .await?;
+    Ok(row)
+}
+
+/// 批量删除用例（一次 DB 往返）。
+/// 关联的 test_case_history 由 FK CASCADE 自动清理。
+/// 注意：批量删除不走 delete_test_case 的"最后一个收藏用例"保护逻辑——
+/// 这是 UI 主动的批量操作，由前端 NPopconfirm 二次确认兜底。
+#[tauri::command]
+pub async fn delete_test_cases(
+    db: State<'_, AppDb>,
+    ids: Vec<i64>,
+) -> CmdResult<u64> {
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    // 拼接 IN 子句的占位符（参数化绑定，无注入风险）
+    let placeholders = std::iter::repeat("?").take(ids.len()).collect::<Vec<_>>().join(",");
+    let sql = format!("DELETE FROM test_cases WHERE id IN ({placeholders})");
+    let mut q = sqlx::query(&sql);
+    for id in &ids {
+        q = q.bind(id);
+    }
+    let result = q.execute(&db.0).await?;
+    Ok(result.rows_affected())
 }

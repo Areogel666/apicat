@@ -187,3 +187,16 @@ pub struct ExportRequest {
     pub auth_config: String, // JSON
     pub sort_order: i64,
 }
+
+// ── 用例执行历史（M3-C 新增）──────────────────────────────────
+// 每用例保留最新 10 条（由触发器 trg_tch_keep_10 滚动淘汰）
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct TestCaseHistory {
+    pub id: i64,
+    pub test_case_id: i64,
+    pub status_code: Option<i64>,    // null = 网络层失败
+    pub duration_ms: Option<i64>,    // null = 网络层失败
+    pub response_preview: Option<String>,  // 响应摘要（前端 ≤1KB 裁剪后）
+    pub error_message: Option<String>,     // 网络层错误（HTTP 错误进 status_code）
+    pub created_at: String,
+}

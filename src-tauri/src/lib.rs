@@ -17,7 +17,10 @@ use commands::{
     project::{create_project, delete_project, list_projects, update_project},
     request::{create_request, delete_request, duplicate_request, list_requests, update_request, update_request_sort, move_request},
     send_request::{list_history, send_request},
-    test_case::{create_test_case, delete_test_case, list_test_cases, update_test_case},
+    test_case::{
+        create_test_case, delete_test_case, list_test_cases, update_test_case,
+        list_test_case_history, add_test_case_history, delete_test_cases,
+    },
     stress::start_stress,
     io::{export_apicat, export_postman, import_apicat, import_postman, import_openapi},
 };
@@ -72,6 +75,7 @@ pub fn run() {
             list_env_variables, create_env_variable, update_env_variable, delete_env_variable,
             list_cookies, create_cookie, update_cookie, delete_cookie, get_cookies_for_domain,
             list_test_cases, create_test_case, update_test_case, delete_test_case,
+            list_test_case_history, add_test_case_history, delete_test_cases,
             start_stress,
             export_apicat, export_postman, import_apicat, import_postman, import_openapi,
         ])

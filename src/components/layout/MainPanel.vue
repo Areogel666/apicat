@@ -431,6 +431,11 @@
             </template>
           </div>
         </n-tab-pane>
+
+        <!-- M3-C：用例管理 Tab（与 Params/Headers/Body/Auth 平级） -->
+        <n-tab-pane name="testcases" tab="用例" display-directive="show:lazy">
+          <TestCaseManager :request-id="requestStore.activeRequest?.id ?? 0" />
+        </n-tab-pane>
       </n-tabs>
     </div>
 
@@ -492,6 +497,7 @@ import { useThemeStore } from '../../stores/theme'
 import TabBar from './TabBar.vue'
 import ResponsePanel from '../response/ResponsePanel.vue'
 import TestCaseBar from '../testcase/TestCaseBar.vue'
+import TestCaseManager from '../testcase/TestCaseManager.vue'
 import StressConfigModal from '../stress/StressConfigModal.vue'
 import StressResultPanel from '../stress/StressResultPanel.vue'
 import type { ParamItem, ParsedUrl, StressConfig } from '../../types'
@@ -1398,6 +1404,37 @@ async function handleSend() {
     }
     // 响应返回后检测参数是否与激活用例一致
     checkParamsDirty()
+  }
+
+  // M3-C：写入用例历史。仅当当前有激活用例时记录（无激活 = 用户在用"原始参数"调试，不算用例执行）
+  // 成功路径用 resp.status_code/elapsed_ms/body 摘要；失败路径用 responseStore.error
+  // 同步在 sendRequest 后做，await 失败也不影响响应展示（store 内部已 try/catch）
+  const activeTestCaseId = testCaseStore.activeTestCaseId
+  if (activeTestCaseId !== null) {
+    try {
+      if (resp) {
+        const preview = (resp.body ?? '').slice(0, 1024)  // 1KB 上限，避免 DB 膨胀
+        await testCaseStore.recordHistory({
+          testCaseId: activeTestCaseId,
+          statusCode: resp.status_code,
+          durationMs: resp.elapsed_ms,
+          responsePreview: preview,
+          errorMessage: null,
+        })
+      } else {
+        // 网络层失败（DNS/超时/连接拒绝），无 status / 无 duration
+        const errMsg = (responseStore.error ?? '请求失败').slice(0, 1024)
+        await testCaseStore.recordHistory({
+          testCaseId: activeTestCaseId,
+          statusCode: null,
+          durationMs: null,
+          responsePreview: null,
+          errorMessage: errMsg,
+        })
+      }
+    } catch (e) {
+      console.warn('[testCase] recordHistory failed:', e)
+    }
   }
 }
 

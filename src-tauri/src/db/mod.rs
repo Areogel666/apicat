@@ -51,5 +51,27 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Err
         sqlx::query(stmt).execute(pool).await?;
     }
 
+    // M3-C 触发器：trg_tch_keep_10
+    // 复合 BEGIN/END 块内部含 ';'，不能写在 0001_init.sql 里（会被 split(';') 拆坏）。
+    // 单独以一条 query 执行；CREATE TRIGGER IF NOT EXISTS 幂等。
+    sqlx::query(
+        r#"
+        CREATE TRIGGER IF NOT EXISTS trg_tch_keep_10
+        AFTER INSERT ON test_case_history
+        BEGIN
+          DELETE FROM test_case_history
+          WHERE test_case_id = NEW.test_case_id
+            AND id NOT IN (
+              SELECT id FROM test_case_history
+              WHERE test_case_id = NEW.test_case_id
+              ORDER BY created_at DESC, id DESC
+              LIMIT 10
+            );
+        END
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
     Ok(())
 }

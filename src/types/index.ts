@@ -196,3 +196,15 @@ export interface TestCase {
   created_at: string
   updated_at: string
 }
+
+// 用例执行历史（M3-C 新增），与 Rust types::TestCaseHistory 镜像
+// 每用例保留最新 10 条（由 SQLite 触发器 trg_tch_keep_10 自动滚动淘汰）
+export interface TestCaseHistory {
+  id: number
+  test_case_id: number
+  status_code: number | null    // null = 网络层失败（DNS/超时）
+  duration_ms: number | null    // null = 网络层失败
+  response_preview: string | null  // 响应摘要（前端 ≤1KB 裁剪后）
+  error_message: string | null     // 网络层错误（HTTP 错误进 status_code）
+  created_at: string
+}
