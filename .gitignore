@@ -45,3 +45,6 @@ docs/*/issue.md
 
 # Tauri build artifacts
 %USERPROFILE%/
+
+# Sisyphus / OpenCode session continuation cache
+.sisyphus/
