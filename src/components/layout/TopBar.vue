@@ -66,6 +66,7 @@ import { check } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { useProjectStore } from '../../stores/project'
 import { useEnvironmentStore } from '../../stores/environment'
+import { useThemeStore, type ThemeMode } from '../../stores/theme'
 import EnvManager from '../env/EnvManager.vue'
 import CookieManager from '../cookie/CookieManager.vue'
 import ImportDialog from '../io/ImportDialog.vue'
@@ -74,6 +75,7 @@ import HeaderTemplateModal from './HeaderTemplateModal.vue'
 
 const projectStore = useProjectStore()
 const envStore = useEnvironmentStore()
+const themeStore = useThemeStore()
 const dialog = useDialog()
 const message = useMessage()
 
@@ -86,12 +88,26 @@ const showHeaderTemplateModal = ref(false)
 const showRenameModal = ref(false)
 const renameInput = ref('')
 
+// 主题三选一菜单项（M3-B）
+// 选中项前缀 ●，未选中前缀 ○，构成单选视觉
+const themeChildren = computed(() => {
+  const m = themeStore.mode
+  const mark = (target: ThemeMode) => m === target ? '● ' : '○ '
+  return [
+    { label: `${mark('system')}跟随系统`, key: 'theme:system' },
+    { label: `${mark('light')}浅色`, key: 'theme:light' },
+    { label: `${mark('dark')}深色`, key: 'theme:dark' },
+  ]
+})
+
 const settingsMenuOptions = computed(() => [
   { label: '📥 导入接口...', key: 'import' },
   { label: '📤 导出接口...', key: 'export' },
   { type: 'divider', key: 'd1' },
   { label: '📋 公共 Headers 模板...', key: 'headerTemplate' },
   { type: 'divider', key: 'd2' },
+  { label: '🎨 主题', key: 'theme', children: themeChildren.value },
+  { type: 'divider', key: 'd3' },
   { label: '🔄 检查更新...', key: 'checkUpdate' },
 ])
 
@@ -100,6 +116,10 @@ async function handleSettingsMenu(key: string) {
   else if (key === 'export') showExportDialog.value = true
   else if (key === 'headerTemplate') showHeaderTemplateModal.value = true
   else if (key === 'checkUpdate') await checkForUpdate()
+  else if (key.startsWith('theme:')) {
+    const mode = key.slice('theme:'.length) as ThemeMode
+    await themeStore.setMode(mode)
+  }
 }
 
 // ── 自动更新 ──────────────────────────────────────────────
@@ -263,8 +283,8 @@ async function handleEnvChange(val: number) {
   justify-content: space-between;
   height: 48px;
   padding: 0 16px;
-  border-bottom: 1px solid var(--n-border-color, #e0e0e6);
-  background: var(--n-color, #fff);
+  border-bottom: 1px solid var(--border-base);
+  background: var(--bg-elevated);
   flex-shrink: 0;
   gap: 12px;
   -webkit-app-region: drag;

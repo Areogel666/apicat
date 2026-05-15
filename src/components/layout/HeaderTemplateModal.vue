@@ -1,6 +1,6 @@
 <template>
   <n-modal :show="show" preset="card" title="公共 Headers 模板" style="width: 640px" :on-update:show="(v: boolean) => emit('update:show', v)">
-    <div style="font-size:12px;color:var(--n-text-color-3,#999);margin-bottom:10px">
+    <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:10px">
       在此设置公共 Headers（如 Authorization 前缀、Content-Type 等），可一键应用到任意接口的 Headers 编辑区。
     </div>
 

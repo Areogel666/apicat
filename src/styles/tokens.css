@@ -1,0 +1,127 @@
+/**
+ * ApiCat Design Tokens（M3-B 主题底座）
+ *
+ * 所有自定义组件的色值/形态值从此引用，避免硬编码。
+ * NaiveUI 内置组件由 NConfigProvider 单独切 darkTheme，与此 token 体系并行驱动。
+ *
+ * 命名规范：
+ *   --bg-*       中性背景（base/surface/elevated/hover/active/selected）
+ *   --border-*   边框（base/strong）
+ *   --text-*     文字层级（primary/secondary/tertiary/disabled/inverse）
+ *   --color-*    品牌色 + 语义色（success/warning/error/info）
+ *   --method-*   HTTP 方法徽章色
+ *   --status-*   HTTP 状态码桶
+ *   --radius-*   圆角
+ *   --shadow-*   阴影
+ *
+ * 切换机制：<html data-theme="light|dark"> 由 themeStore 写入。
+ */
+
+:root,
+[data-theme="light"] {
+  /* === 1. 中性色 === */
+  --bg-base:        #ffffff;
+  --bg-surface:     #fafafa;
+  --bg-elevated:    #ffffff;
+  --bg-hover:       rgba(0, 0, 0, 0.04);
+  --bg-active:      rgba(0, 0, 0, 0.08);
+  --bg-selected:    rgba(24, 160, 88, 0.10);
+
+  --border-base:    #e5e5e5;
+  --border-strong:  #d0d0d0;
+
+  --text-primary:   rgba(0, 0, 0, 0.88);
+  --text-secondary: rgba(0, 0, 0, 0.56);
+  --text-tertiary:  rgba(0, 0, 0, 0.36);
+  --text-disabled:  rgba(0, 0, 0, 0.24);
+  --text-inverse:   #ffffff;
+
+  /* === 2. 品牌色（与 NaiveUI primary 对齐） === */
+  --color-primary:        #18a058;
+  --color-primary-hover:  #36ad6a;
+  --color-primary-press:  #0c7a43;
+  --color-primary-soft:   rgba(24, 160, 88, 0.12);
+
+  /* === 3. 语义色 === */
+  --color-success:  #18a058;
+  --color-warning:  #f0a020;
+  --color-error:    #d03050;
+  --color-info:     #2080f0;
+
+  /* HTTP 方法 */
+  --method-get:     #16a085;
+  --method-post:    #f39c12;
+  --method-put:     #2980b9;
+  --method-delete:  #c0392b;
+  --method-patch:   #8e44ad;
+  --method-head:    #7f8c8d;
+  --method-options: #95a5a6;
+
+  /* HTTP 状态码桶 */
+  --status-2xx:     #18a058;
+  --status-3xx:     #2080f0;
+  --status-4xx:     #f0a020;
+  --status-5xx:     #d03050;
+  --status-network: #909399;   /* 网络层失败 / 无 status */
+
+  /* === 4. 形态变量 === */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.10);
+  --shadow-lg: 0 6px 16px rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="dark"] {
+  --bg-base:        #18181c;
+  --bg-surface:     #1f1f23;
+  --bg-elevated:    #2a2a30;
+  --bg-hover:       rgba(255, 255, 255, 0.06);
+  --bg-active:      rgba(255, 255, 255, 0.10);
+  --bg-selected:    rgba(99, 205, 150, 0.16);
+
+  --border-base:    #2e2e33;
+  --border-strong:  #3a3a40;
+
+  --text-primary:   rgba(255, 255, 255, 0.92);
+  --text-secondary: rgba(255, 255, 255, 0.62);
+  --text-tertiary:  rgba(255, 255, 255, 0.40);
+  --text-disabled:  rgba(255, 255, 255, 0.24);
+  --text-inverse:   #18181c;
+
+  --color-primary:        #63cd96;
+  --color-primary-hover:  #7fdfa8;
+  --color-primary-press:  #4baa78;
+  --color-primary-soft:   rgba(99, 205, 150, 0.16);
+
+  --color-success:  #63cd96;
+  --color-warning:  #f2c97d;
+  --color-error:    #e88080;
+  --color-info:     #70c0e8;
+
+  --method-get:     #4dc4a3;
+  --method-post:    #f5b657;
+  --method-put:     #5fa3d6;
+  --method-delete:  #e88080;
+  --method-patch:   #b380d6;
+  --method-head:    #95a5a6;
+  --method-options: #aab2bd;
+
+  --status-2xx:     #63cd96;
+  --status-3xx:     #70c0e8;
+  --status-4xx:     #f2c97d;
+  --status-5xx:     #e88080;
+  --status-network: #aab2bd;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.40);
+  --shadow-md: 0 2px 12px rgba(0, 0, 0, 0.48);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.56);
+}
+
+/* 应用根背景跟随主题，避免 body 默认白底在切深色时一闪 */
+html, body, #app {
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+}

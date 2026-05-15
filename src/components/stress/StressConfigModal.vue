@@ -139,21 +139,21 @@ function handleStart() {
 .config-label {
   width: 110px;
   font-size: 13px;
-  color: var(--n-text-color, #333);
+  color: var(--text-primary);
   flex-shrink: 0;
   font-weight: 500;
 }
 
 .config-hint {
   font-size: 12px;
-  color: var(--n-text-color-3, #999);
+  color: var(--text-tertiary);
 }
 
 .config-tip {
   font-size: 12px;
-  color: var(--n-text-color-3, #999);
+  color: var(--text-tertiary);
   padding: 4px 8px;
-  background: var(--n-color-modal, #f9f9f9);
+  background: var(--bg-elevated);
   border-radius: 4px;
 }
 </style>

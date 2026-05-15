@@ -168,16 +168,16 @@ function prettyBody(body?: string): string {
   transition: background 0.1s;
 }
 
-.history-item:hover { background: var(--n-item-color-hover, rgba(0,0,0,0.05)); }
-.history-item.is-selected { background: var(--n-item-color-active, rgba(24,160,88,0.08)); }
+.history-item:hover { background: var(--bg-hover); }
+.history-item.is-selected { background: var(--bg-active); }
 
-.history-time { color: var(--n-text-color-3, #999); font-size: 11px; min-width: 80px; }
-.history-ms { color: var(--n-text-color-3, #999); font-size: 11px; min-width: 48px; text-align: right; }
+.history-time { color: var(--text-tertiary); font-size: 11px; min-width: 80px; }
+.history-ms { color: var(--text-tertiary); font-size: 11px; min-width: 48px; text-align: right; }
 
 .history-actions {
   padding: 4px 0 2px;
   flex-shrink: 0;   /* 始终显示，不被列表挤走 */
-  border-top: 1px solid var(--n-border-color, #f0f0f0);
+  border-top: 1px solid var(--border-base);
 }
 
 .diff-container {
@@ -196,9 +196,9 @@ function prettyBody(body?: string): string {
 
 .diff-label {
   font-size: 11px;
-  color: var(--n-text-color-3, #999);
+  color: var(--text-tertiary);
   padding: 4px 8px;
-  border-bottom: 1px solid var(--n-border-color, #e0e0e6);
+  border-bottom: 1px solid var(--border-base);
   flex-shrink: 0;
 }
 
@@ -216,7 +216,7 @@ function prettyBody(body?: string): string {
 
 .diff-divider {
   width: 1px;
-  background: var(--n-border-color, #e0e0e6);
+  background: var(--border-base);
   flex-shrink: 0;
 }
 </style>

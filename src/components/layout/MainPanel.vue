@@ -45,7 +45,7 @@
               size="medium"
               readonly
               :bordered="false"
-              style="background: transparent; color: var(--n-text-color-2, #666); font-style: italic"
+              style="background: transparent; color: var(--text-secondary); font-style: italic"
               placeholder="(无 URL)"
               :title="'真实发送 URL（只读预览，点眼睛图标切回编辑）'"
             />
@@ -349,7 +349,7 @@
             </div>
 
             <!-- None -->
-            <div v-if="authType === 'none'" style="color: var(--n-text-color-3,#999); font-size:13px; padding:8px 0">
+            <div v-if="authType === 'none'" style="color: var(--text-tertiary); font-size:13px; padding:8px 0">
               不使用认证
             </div>
 
@@ -365,7 +365,7 @@
                   @update:value="syncAuthConfig"
                 />
               </div>
-              <div style="font-size:11px;color:var(--n-text-color-3,#999);padding:4px 0">
+              <div style="font-size:11px;color:var(--text-tertiary);padding:4px 0">
                 将自动添加 <code>Authorization: Bearer &lt;token&gt;</code> 请求头
               </div>
             </template>
@@ -394,7 +394,7 @@
                   @update:value="syncAuthConfig"
                 />
               </div>
-              <div style="font-size:11px;color:var(--n-text-color-3,#999);padding:4px 0">
+              <div style="font-size:11px;color:var(--text-tertiary);padding:4px 0">
                 将自动添加 <code>Authorization: Basic &lt;base64&gt;</code> 请求头
               </div>
             </template>
@@ -488,6 +488,7 @@ import { useTestCaseStore } from '../../stores/testCase'
 import { useStressStore } from '../../stores/stress'
 import { useHeaderTemplateStore } from '../../stores/headerTemplate'
 import { useTabStore } from '../../stores/tab'
+import { useThemeStore } from '../../stores/theme'
 import TabBar from './TabBar.vue'
 import ResponsePanel from '../response/ResponsePanel.vue'
 import TestCaseBar from '../testcase/TestCaseBar.vue'
@@ -574,6 +575,7 @@ const projectStore = useProjectStore()
 const testCaseStore = useTestCaseStore()
 const headerTemplateStore = useHeaderTemplateStore()
 const tabStore = useTabStore()
+const themeStore = useThemeStore()
 const message = useMessage()
 const dialog = useDialog()
 
@@ -715,16 +717,23 @@ const methodOptions = [
   { label: 'OPTIONS', value: 'OPTIONS', key: 'OPTIONS' },
 ]
 
-const methodColorMap: Record<string, string> = {
-  GET: '#389e0d',
-  POST: '#1677ff',
-  PUT: '#d46b08',
-  DELETE: '#cf1322',
-  PATCH: '#722ed1',
-  HEAD: '#8c8c8c',
-  OPTIONS: '#8c8c8c'
+// HTTP 方法色：从 CSS 变量读取，跟随主题切换
+// methodColor 依赖 themeStore.effectiveMode 触发重算
+const methodTokenMap: Record<string, string> = {
+  GET: '--method-get',
+  POST: '--method-post',
+  PUT: '--method-put',
+  DELETE: '--method-delete',
+  PATCH: '--method-patch',
+  HEAD: '--method-head',
+  OPTIONS: '--method-options',
 }
-const methodColor = computed(() => methodColorMap[method.value] || '#8c8c8c')
+const methodColor = computed(() => {
+  void themeStore.effectiveMode  // 显式依赖，主题切换时重算
+  const token = methodTokenMap[method.value] ?? '--method-options'
+  const v = getComputedStyle(document.documentElement).getPropertyValue(token).trim()
+  return v || '#8c8c8c'  // 极早期 token 未注入时的兜底
+})
 
 // ── 环境标签文本（显示 baseURL(环境名) 格式）─────────────────────
 const envTagText = computed(() => {
@@ -1714,7 +1723,7 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
   flex-direction: column;
   flex: 1;
   overflow: hidden;
-  background: var(--n-color, #fff);
+  background: var(--bg-elevated);
 }
 
 .request-area {
@@ -1737,15 +1746,15 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
   display: flex;
   align-items: center;
   flex: 1;
-  border: 1px solid var(--n-border-color, #e0e0e6);
+  border: 1px solid var(--border-base);
   border-radius: 3px;
-  background-color: var(--n-color, #fff);
+  background-color: var(--bg-elevated);
   transition: border-color 0.3s;
   padding-left: 8px;
 }
 .url-input-combo:focus-within {
-  border-color: var(--n-primary-color, #18a058);
-  box-shadow: 0 0 0 2px rgba(24, 160, 88, 0.2);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary-soft);
 }
 .method-trigger {
   font-weight: 600;
@@ -1758,7 +1767,7 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
   gap: 2px;
 }
 .method-trigger:hover {
-  background-color: var(--n-border-color, #f3f3f5);
+  background-color: var(--border-base);
 }
 
 .request-tabs {
@@ -1780,13 +1789,13 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
 
 .divider {
   height: 4px;
-  background: var(--n-border-color, #e0e0e6);
+  background: var(--border-base);
   cursor: row-resize;
   flex-shrink: 0;
 }
 
 .params-editor { padding: 8px 4px; overflow-y: auto; flex: 1; }
-.params-section-label { font-size: 11px; font-weight: 600; color: var(--n-text-color-3, #999); padding: 4px 0 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+.params-section-label { font-size: 11px; font-weight: 600; color: var(--text-tertiary); padding: 4px 0 6px; text-transform: uppercase; letter-spacing: 0.5px; }
 .param-row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
 .tab-content-placeholder { padding: 20px 0; }
 
@@ -1799,7 +1808,7 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
 .mode-tabs {
   display: flex;
   gap: 0;
-  border: 1px solid var(--n-border-color, #e0e0e6);
+  border: 1px solid var(--border-base);
   border-radius: 4px;
   overflow: hidden;
 }
@@ -1807,11 +1816,11 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
   padding: 2px 8px;
   font-size: 11px;
   cursor: pointer;
-  color: var(--n-text-color-3, #999);
+  color: var(--text-tertiary);
   transition: background 0.1s, color 0.1s;
 }
-.mode-tab:hover { background: var(--n-item-color-hover, rgba(0,0,0,0.04)); color: var(--n-text-color, #333); }
-.mode-tab.active { background: var(--n-primary-color, #18a058); color: #fff; }
+.mode-tab:hover { background: var(--bg-hover); color: var(--text-primary); }
+.mode-tab.active { background: var(--color-primary); color: #fff; }
 
 /* ── URL {{var}} 高亮层 ── */
 .url-input-wrap {
@@ -1831,7 +1840,7 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
 /* 有 {{var}} 变量时才透明（高亮层透出），无变量时正常显示文字颜色 */
 .url-input-transparent.url-vars-mode :deep(.n-input__input-el) {
   color: transparent;
-  caret-color: var(--n-text-color, #333);  /* 光标保持可见 */
+  caret-color: var(--text-primary);  /* 光标保持可见 */
 }
 
 .url-highlight-layer {
@@ -1849,14 +1858,14 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
   pointer-events: none;     /* 不拦截鼠标事件 */
   overflow: hidden;
   white-space: pre;
-  color: var(--n-text-color, #333);
+  color: var(--text-primary);
   z-index: 0;
 }
 
-/* {{variable}} 标记样式 */
+/* {{variable}} 标记样式 —— 使用警告色（橙）token 统一 */
 .url-highlight-layer :deep(.url-var) {
   background: rgba(250, 140, 22, 0.18);
-  color: #d46b08;
+  color: var(--color-warning);
   border-radius: 3px;
   padding: 1px 2px;
   font-style: normal;
@@ -1870,18 +1879,18 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
   gap: 6px;
   padding: 4px 6px;
   margin-bottom: 6px;
-  background: var(--n-color-embedded, #f5f5f5);
+  background: var(--bg-surface);
   border-radius: 4px;
   font-size: 11px;
-  color: var(--n-text-color-3, #999);
+  color: var(--text-tertiary);
 }
 .auto-headers-label {
   font-weight: 500;
   white-space: nowrap;
 }
 .auto-header-badge {
-  background: var(--n-border-color, #e0e0e6);
-  color: var(--n-text-color-2, #666);
+  background: var(--border-base);
+  color: var(--text-secondary);
   border-radius: 3px;
   padding: 1px 6px;
   font-family: monospace;

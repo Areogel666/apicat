@@ -117,6 +117,6 @@ async function handleExport() {
   flex-shrink: 0;
   padding-top: 3px;
 }
-.export-error   { font-size: 12px; color: #d03050; }
-.export-success { font-size: 12px; color: #18a058; }
+.export-error   { font-size: 12px; color: var(--color-error); }
+.export-success { font-size: 12px; color: var(--color-success); }
 </style>

@@ -100,7 +100,7 @@
 
     <!-- 接口名重名冲突对话框 -->
     <n-modal v-model:show="showDuplicateNameDialog" preset="dialog" title="接口名已存在">
-      <div style="font-size:14px; line-height:1.7; color:var(--n-text-color,#333)">
+      <div style="font-size:14px; line-height:1.7; color:var(--text-primary)">
         当前文件夹中已存在同名接口：<br>
         <strong>「{{ pendingRequestName }}」</strong>
       </div>
@@ -113,10 +113,10 @@
 
     <!-- 删除确认对话框 -->
     <n-modal v-model:show="showDeleteConfirmDialog" preset="dialog" title="确认删除" :show-icon="false">
-      <div style="font-size:14px; line-height:1.7; color:var(--n-text-color,#333)">
+      <div style="font-size:14px; line-height:1.7; color:var(--text-primary)">
         确定要删除 <strong>「{{ deleteTargetName }}」</strong> 吗？<br>
-        <span v-if="deleteTargetIsCollection" style="color:#d03050; font-size:12px">该文件夹及其包含的所有接口都将被删除，此操作不可撤销！</span>
-        <span v-else style="color:#d03050; font-size:12px">此操作不可撤销！</span>
+        <span v-if="deleteTargetIsCollection" style="color:var(--color-error); font-size:12px">该文件夹及其包含的所有接口都将被删除，此操作不可撤销！</span>
+        <span v-else style="color:var(--color-error); font-size:12px">此操作不可撤销！</span>
       </div>
       <template #action>
         <n-button @click="showDeleteConfirmDialog = false">取消</n-button>
@@ -188,9 +188,10 @@ const NodeStatusDot = defineComponent({
       if (!s) return null
       // 用 inline style，不依赖 scoped CSS 哈希
       const baseStyle = 'display:inline-block;width:7px;height:7px;border-radius:50%;flex-shrink:0;vertical-align:middle;position:relative;top:-1px;'
+      // dirty: 警告色（橙）；saved: 主色（绿）
       const colorStyle = s === 'dirty'
-        ? 'background:#f0a020;box-shadow:0 0 0 2px rgba(240,160,32,0.25);'
-        : 'background:#18a058;box-shadow:0 0 0 2px rgba(24,160,88,0.25);'
+        ? 'background:var(--color-warning);box-shadow:0 0 0 2px rgba(240,160,32,0.25);'
+        : 'background:var(--color-primary);box-shadow:0 0 0 2px var(--color-primary-soft);'
       return h('span', {
         style: baseStyle + colorStyle,
         title: s === 'dirty' ? '有未保存的修改' : '已保存',
@@ -1165,14 +1166,14 @@ async function doImportCurl() {
   display: flex;
   flex-direction: column;
   height: 100%;
-  border-right: 1px solid var(--n-border-color, #e0e0e6);
-  background: var(--n-color-embedded, #f9f9f9);
+  border-right: 1px solid var(--border-base);
+  background: var(--bg-surface);
   flex-shrink: 0;
   overflow: hidden;
 }
 .sidebar__search { padding: 10px 10px 6px; flex-shrink: 0; display: flex; align-items: center; gap: 4px; }
 .sidebar__tree { flex: 1; overflow-y: auto; padding: 4px 0; }
-.sidebar__footer { padding: 8px 10px; border-top: 1px solid var(--n-border-color, #e0e0e6); flex-shrink: 0; }
+.sidebar__footer { padding: 8px 10px; border-top: 1px solid var(--border-base); flex-shrink: 0; }
 
 /* ── label 区域 ───────────────────────────────────────────── */
 .node-label {
@@ -1188,10 +1189,10 @@ async function doImportCurl() {
 .ctx-menu {
   position: fixed;
   z-index: 9999;
-  background: var(--n-color, #fff);
-  border: 1px solid var(--n-border-color, #e0e0e6);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-base);
   border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  box-shadow: var(--shadow-md);
   padding: 4px 0;
   min-width: 148px;
   font-size: 13px;
@@ -1199,16 +1200,16 @@ async function doImportCurl() {
 .ctx-item {
   padding: 7px 14px;
   cursor: pointer;
-  color: var(--n-text-color, #333);
+  color: var(--text-primary);
   user-select: none;
   display: flex;
   align-items: center;
   gap: 6px;
   transition: background 0.1s;
 }
-.ctx-item:hover { background: var(--n-item-color-hover, rgba(0,0,0,0.05)); }
-.ctx-item--danger { color: var(--n-error-color, #d03050); }
-.ctx-item--danger:hover { background: rgba(208,48,80,0.07); }
+.ctx-item:hover { background: var(--bg-hover); }
+.ctx-item--danger { color: var(--color-error); }
+.ctx-item--danger:hover { background: rgba(208, 48, 80, 0.07); }
 </style>
 
 <!-- 非 scoped：renderSuffix 返回的 VNode 由 Naive UI TreeNode 渲染，DOM 上不会有 Sidebar 的 scope 哈希 -->
@@ -1239,7 +1240,7 @@ async function doImportCurl() {
   height: 20px;
   border-radius: 4px;
   background: transparent;
-  color: #999;
+  color: var(--text-tertiary);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -1256,8 +1257,8 @@ async function doImportCurl() {
 }
 
 .node-action-btn:hover {
-  background: rgba(0, 0, 0, 0.07);
-  color: #18a058;
+  background: var(--bg-active);
+  color: var(--color-primary);
 }
 
 /* + 按钮较大字号 */
@@ -1267,7 +1268,7 @@ async function doImportCurl() {
 }
 
 .node-action-btn--add:hover {
-  background: rgba(24, 160, 88, 0.1);
-  color: #18a058;
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
 }
 </style>

@@ -191,8 +191,8 @@ function handleMenuSelect(key: string) {
 
 <style scoped>
 .test-case-bar {
-  border-top: 1px solid var(--n-border-color, #e0e0e6);
-  background: var(--n-color, #fff);
+  border-top: 1px solid var(--border-base);
+  background: var(--bg-elevated);
   flex-shrink: 0;
 }
 
@@ -201,11 +201,11 @@ function handleMenuSelect(key: string) {
   align-items: center;
   gap: 6px;
   padding: 4px 12px;
-  background: var(--n-warning-color-suppl, #fffbe6);
-  border-bottom: 1px solid var(--n-warning-color, #f0a020);
+  background: var(--color-warning);
+  border-bottom: 1px solid var(--color-warning);
   font-size: 12px;
 }
-.dirty-label { flex: 1; color: var(--n-text-color, #333); }
+.dirty-label { flex: 1; color: var(--text-primary); }
 
 .case-tabs-row {
   display: flex;
@@ -225,17 +225,17 @@ function handleMenuSelect(key: string) {
   font-size: 12px;
   cursor: pointer;
   white-space: nowrap;
-  color: var(--n-text-color-3, #999);
+  color: var(--text-tertiary);
   border: 1px solid transparent;
   transition: background 0.1s;
 }
-.case-tab:hover { background: var(--n-item-color-hover, rgba(0,0,0,0.04)); color: var(--n-text-color, #333); }
+.case-tab:hover { background: var(--bg-hover); color: var(--text-primary); }
 .case-tab.active {
-  background: var(--n-primary-color-suppl, rgba(24,160,88,0.08));
-  border-color: var(--n-primary-color, #18a058);
-  color: var(--n-primary-color, #18a058);
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
 }
-.case-tab-add { color: var(--n-primary-color, #18a058); font-weight: 500; }
+.case-tab-add { color: var(--color-primary); font-weight: 500; }
 .star { font-size: 10px; }
 .case-name { max-width: 100px; overflow: hidden; text-overflow: ellipsis; }
 

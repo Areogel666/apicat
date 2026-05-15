@@ -138,10 +138,10 @@ function onRefill(snapshot: string) {
   flex-shrink: 0;
 }
 
-.status-text { color: var(--n-text-color-3, #999); }
-.status-meta { color: var(--n-text-color-3, #999); font-size: 11px; }
-.status-error { color: #d03050; font-size: 12px; }
-.status-placeholder { font-weight: 600; font-size: 13px; color: var(--n-text-color-2, #666); }
+.status-text { color: var(--text-tertiary); }
+.status-meta { color: var(--text-tertiary); font-size: 11px; }
+.status-error { color: var(--color-error); font-size: 12px; }
+.status-placeholder { font-weight: 600; font-size: 13px; color: var(--text-secondary); }
 
 .response-tabs {
   flex: 1;
@@ -184,18 +184,18 @@ function onRefill(snapshot: string) {
   gap: 8px;
   padding: 3px 0;
   font-size: 12px;
-  border-bottom: 1px solid var(--n-border-color, #f0f0f0);
+  border-bottom: 1px solid var(--border-base);
 }
 
 .header-key {
   font-weight: 600;
-  color: var(--n-text-color-2, #666);
+  color: var(--text-secondary);
   min-width: 180px;
   word-break: break-all;
 }
 
 .header-value {
-  color: var(--n-text-color-1, #333);
+  color: var(--text-primary);
   word-break: break-all;
 }
 </style>

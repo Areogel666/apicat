@@ -151,10 +151,10 @@ async function handleImport() {
 }
 .file-name {
   font-size: 12px;
-  color: var(--n-text-color-3, #999);
+  color: var(--text-tertiary);
   word-break: break-all;
   align-self: center;
 }
-.import-error  { font-size: 12px; color: #d03050; }
-.import-success { font-size: 12px; color: #18a058; }
+.import-error  { font-size: 12px; color: var(--color-error); }
+.import-success { font-size: 12px; color: var(--color-success); }
 </style>

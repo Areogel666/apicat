@@ -15,7 +15,7 @@
           <n-button
             size="tiny"
             quaternary
-            style="flex-shrink:0; color:#d03050"
+            style="flex-shrink:0; color:var(--color-error)"
             @click.stop="handleDeleteEnv(env.id)"
           >✕</n-button>
         </div>
@@ -91,7 +91,7 @@
               placeholder="值"
               @blur="(e: FocusEvent) => updateVariableValue(v, (e.target as HTMLInputElement).value)"
             />
-            <n-button size="tiny" quaternary style="color:#d03050" @click="envStore.deleteVariable(v.id)">✕</n-button>
+            <n-button size="tiny" quaternary style="color:var(--color-error)" @click="envStore.deleteVariable(v.id)">✕</n-button>
           </div>
 
           <n-button size="small" dashed style="width:100%; margin-top:4px" @click="handleAddVariable">
@@ -117,9 +117,9 @@
 
   <!-- 删除环境确认弹窗（在 n-modal 外层，避免层叠问题） -->
   <n-modal v-model:show="showDeleteEnvConfirm" preset="dialog" title="确认删除" :show-icon="false">
-    <div style="font-size:14px; line-height:1.7; color:var(--n-text-color,#333)">
+    <div style="font-size:14px; line-height:1.7; color:var(--text-primary)">
       确定要删除环境 <strong>「{{ deleteEnvName }}」</strong> 吗？<br>
-      <span style="color:#d03050; font-size:12px">该环境及其所有变量将被删除，此操作不可撤销！</span>
+      <span style="color:var(--color-error); font-size:12px">该环境及其所有变量将被删除，此操作不可撤销！</span>
     </div>
     <template #action>
       <n-button @click="showDeleteEnvConfirm = false">取消</n-button>
@@ -272,7 +272,7 @@ async function toggleVariable(v: EnvVariable, enabled: boolean) {
 .env-list {
   width: 180px;
   flex-shrink: 0;
-  border-right: 1px solid var(--n-border-color, #e0e0e6);
+  border-right: 1px solid var(--border-base);
   padding: 8px;
   overflow-y: auto;
 }
@@ -287,8 +287,8 @@ async function toggleVariable(v: EnvVariable, enabled: boolean) {
   font-size: 13px;
   transition: background 0.1s;
 }
-.env-item:hover { background: var(--n-item-color-hover, rgba(0,0,0,0.05)); }
-.env-item.is-active-env { background: var(--n-item-color-active, rgba(24,160,88,0.08)); }
+.env-item:hover { background: var(--bg-hover); }
+.env-item.is-active-env { background: var(--bg-active); }
 .env-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .env-detail {
@@ -306,7 +306,7 @@ async function toggleVariable(v: EnvVariable, enabled: boolean) {
 .section-label {
   font-size: 11px;
   font-weight: 600;
-  color: var(--n-text-color-3, #999);
+  color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 4px;

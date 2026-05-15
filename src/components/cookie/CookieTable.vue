@@ -19,7 +19,7 @@
             @update:checked="(v) => emit('toggle', c.id, v)"
           />
         </div>
-        <n-button size="tiny" quaternary style="width:32px; color:#d03050" @click="emit('delete', c.id)">✕</n-button>
+        <n-button size="tiny" quaternary style="width:32px; color:var(--color-error)" @click="emit('delete', c.id)">✕</n-button>
       </div>
     </div>
   </div>
@@ -43,18 +43,18 @@ const emit = defineEmits<{
   padding: 4px 8px;
   font-size: 11px;
   font-weight: 600;
-  color: var(--n-text-color-3, #999);
+  color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  border-bottom: 1px solid var(--n-border-color, #e0e0e6);
+  border-bottom: 1px solid var(--border-base);
 }
 .table-row {
   display: flex;
   align-items: center;
   padding: 5px 8px;
   font-size: 12px;
-  border-bottom: 1px solid var(--n-border-color, #f5f5f5);
+  border-bottom: 1px solid var(--border-base);
 }
-.table-row:hover { background: var(--n-item-color-hover, rgba(0,0,0,0.03)); }
+.table-row:hover { background: var(--bg-hover); }
 .cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 4px; }
 </style>

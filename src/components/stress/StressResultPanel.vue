@@ -79,10 +79,18 @@
 import { ref, watch, onUnmounted, nextTick } from 'vue'
 import { NModal, NButton, NSpin } from 'naive-ui'
 import { useStressStore } from '../../stores/stress'
+import { useThemeStore } from '../../stores/theme'
 
 const show = defineModel<boolean>('show', { required: true })
 const stressStore = useStressStore()
+const themeStore = useThemeStore()
 const canvasRef = ref<HTMLCanvasElement | null>(null)
+
+/** 从 :root CSS 变量读取色值，用于 canvas 绘制时跟随主题 */
+function readToken(name: string, fallback: string): string {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return v || fallback
+}
 
 // ── Canvas 折线图绘制 ────────────────────────────────────────
 
@@ -101,12 +109,20 @@ function drawChart() {
 
   ctx.clearRect(0, 0, W, H)
 
+  // 从 token 读取主题相关色值（每次 draw 重新读，主题切换后调用 drawChart 即跟随）
+  const bgColor      = readToken('--bg-surface',     '#fafafa')
+  const textTertiary = readToken('--text-tertiary',  '#999')
+  const borderColor  = readToken('--border-base',    '#e8e8e8')
+  const tpsColor     = readToken('--color-success',  '#18a058')
+  const avgColor     = readToken('--color-info',     '#2080f0')
+  const p95Color     = readToken('--color-warning',  '#f0a020')
+
   // 背景
-  ctx.fillStyle = '#fafafa'
+  ctx.fillStyle = bgColor
   ctx.fillRect(0, 0, W, H)
 
   if (points.length < 2) {
-    ctx.fillStyle = '#999'
+    ctx.fillStyle = textTertiary
     ctx.font = '12px sans-serif'
     ctx.textAlign = 'center'
     ctx.fillText('等待数据...', W / 2, H / 2)
@@ -118,7 +134,7 @@ function drawChart() {
   const maxMs = Math.max(...points.map(p => p.p95_ms), 1)
 
   // 网格线
-  ctx.strokeStyle = '#e8e8e8'
+  ctx.strokeStyle = borderColor
   ctx.lineWidth = 1
   for (let i = 0; i <= 4; i++) {
     const y = PAD.top + (innerH * i) / 4
@@ -150,12 +166,12 @@ function drawChart() {
     ctx!.stroke()
   }
 
-  drawLine(points.map(p => p.tps), maxTps, '#18a058', 2)      // TPS — 绿色
-  drawLine(points.map(p => p.avg_ms), maxMs, '#2080f0', 1.5)  // avg — 蓝色
-  drawLine(points.map(p => p.p95_ms), maxMs, '#f0a020', 1.5)  // p95 — 橙色
+  drawLine(points.map(p => p.tps), maxTps, tpsColor, 2)      // TPS — 绿色
+  drawLine(points.map(p => p.avg_ms), maxMs, avgColor, 1.5)  // avg — 蓝色
+  drawLine(points.map(p => p.p95_ms), maxMs, p95Color, 1.5)  // p95 — 橙色
 
   // X 轴时间标签
-  ctx.fillStyle = '#999'
+  ctx.fillStyle = textTertiary
   ctx.font = '10px sans-serif'
   ctx.textAlign = 'center'
   const labelCount = Math.min(5, points.length)
@@ -177,6 +193,11 @@ watch(show, (v) => {
   if (v) nextTick(drawChart)
 })
 
+// 主题切换 → 重绘 canvas（CSS 变量已变，需要重新读取）
+watch(() => themeStore.effectiveMode, () => {
+  if (show.value) nextTick(drawChart)
+})
+
 function handleClose() {
   stressStore.reset()
   show.value = false
@@ -196,13 +217,13 @@ onUnmounted(() => {
 }
 
 .stat-card {
-  background: var(--n-color-modal, #f6f6f6);
+  background: var(--bg-elevated);
   border-radius: 6px;
   padding: 10px 12px;
   text-align: center;
 }
-.stat-card.success .stat-value { color: #18a058; }
-.stat-card.fail .stat-value { color: #d03050; }
+.stat-card.success .stat-value { color: var(--color-success); }
+.stat-card.fail .stat-value { color: var(--color-error); }
 
 .stat-value {
   font-size: 20px;
@@ -211,12 +232,12 @@ onUnmounted(() => {
 }
 .stat-label {
   font-size: 11px;
-  color: var(--n-text-color-3, #999);
+  color: var(--text-tertiary);
   margin-top: 2px;
 }
 
 .chart-area {
-  border: 1px solid var(--n-border-color, #e0e0e6);
+  border: 1px solid var(--border-base);
   border-radius: 6px;
   overflow: hidden;
   margin-bottom: 12px;
@@ -233,21 +254,21 @@ onUnmounted(() => {
   gap: 16px;
   padding: 6px 12px;
   font-size: 11px;
-  background: var(--n-color-modal, #f6f6f6);
-  border-top: 1px solid var(--n-border-color, #e0e0e6);
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border-base);
 }
-.tps-color { color: #18a058; }
-.avg-color { color: #2080f0; }
-.p95-color { color: #f0a020; }
+.tps-color { color: var(--color-success); }
+.avg-color { color: var(--color-info); }
+.p95-color { color: var(--color-warning); }
 
 .status-bar {
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: var(--n-text-color-3, #999);
+  color: var(--text-tertiary);
   padding: 4px 0;
 }
-.status-bar.done { color: #18a058; }
-.status-bar.error { color: #d03050; }
+.status-bar.done { color: var(--color-success); }
+.status-bar.error { color: var(--color-error); }
 </style>

@@ -242,8 +242,8 @@ function handleCtxClose(action: 'current' | 'others' | 'left' | 'right') {
 .tab-bar {
   height: 36px;
   flex-shrink: 0;
-  border-bottom: 1px solid var(--n-border-color, #e0e0e6);
-  background: var(--n-color-embedded, #f5f5f5);
+  border-bottom: 1px solid var(--border-base);
+  background: var(--bg-surface);
   overflow: hidden;
 }
 
@@ -265,25 +265,25 @@ function handleCtxClose(action: 'current' | 'others' | 'left' | 'right') {
   max-width: 180px;
   flex-shrink: 0;
   cursor: pointer;
-  border-right: 1px solid var(--n-border-color, #e0e0e6);
+  border-right: 1px solid var(--border-base);
   font-size: 12px;
-  color: var(--n-text-color-3, #999);
+  color: var(--text-tertiary);
   user-select: none;
   position: relative;
   transition: background 0.1s, color 0.1s;
 }
-.tab-item:hover { background: var(--n-item-color-hover, rgba(0,0,0,0.04)); color: var(--n-text-color, #333); }
+.tab-item:hover { background: var(--bg-hover); color: var(--text-primary); }
 .tab-item--active {
-  background: var(--n-color, #fff);
-  color: var(--n-text-color, #333);
-  border-bottom: 2px solid var(--n-primary-color, #18a058);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--color-primary);
 }
 
 .tab-dirty-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #f0a020;
+  background: var(--color-warning);
   flex-shrink: 0;
 }
 
@@ -303,14 +303,14 @@ function handleCtxClose(action: 'current' | 'others' | 'left' | 'right') {
   align-items: center;
   justify-content: center;
   font-size: 10px;
-  color: #bbb;
+  color: var(--text-disabled);
   cursor: pointer;
   flex-shrink: 0;
   opacity: 0;       /* 默认隐藏 */
   transition: opacity 0.1s, background 0.1s;
 }
 .tab-item:hover .tab-close { opacity: 1; }
-.tab-close:hover { background: rgba(208,48,80,0.12); color: #d03050; }
+.tab-close:hover { background: rgba(208, 48, 80, 0.12); color: var(--color-error); }
 
 /* 右键菜单（Teleport 到 body，不受 scoped 影响，使用 :global 等价写法） */
 </style>
@@ -323,10 +323,10 @@ function handleCtxClose(action: 'current' | 'others' | 'left' | 'right') {
 .tab-ctx-menu {
   position: fixed;
   z-index: 9999;
-  background: var(--n-color, #fff);
-  border: 1px solid var(--n-border-color, #e0e0e6);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-base);
   border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  box-shadow: var(--shadow-md);
   padding: 4px 0;
   min-width: 140px;
   font-size: 13px;
@@ -334,9 +334,9 @@ function handleCtxClose(action: 'current' | 'others' | 'left' | 'right') {
 .tab-ctx-item {
   padding: 7px 14px;
   cursor: pointer;
-  color: var(--n-text-color, #333);
+  color: var(--text-primary);
   user-select: none;
   transition: background 0.1s;
 }
-.tab-ctx-item:hover { background: var(--n-item-color-hover, rgba(0,0,0,0.05)); }
+.tab-ctx-item:hover { background: var(--bg-hover); }
 </style>
