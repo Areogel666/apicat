@@ -2,6 +2,16 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { HttpResponse, SendRequestParams } from '../types'
+import type { ResponseFormat, ViewMode } from '../components/response/useResponseFormat'
+
+/**
+ * 用户手动覆盖的响应格式：
+ *   - 'auto'      跟随 detectFormat 自动识别
+ *   - 其他值      强制按该格式渲染
+ *
+ * 仅内存级按 requestId 分桶，不持久化（格式选择是"查看态"，重启不记忆符合直觉）。
+ */
+export type FormatOverride = ResponseFormat | 'auto'
 
 /**
  * 单个接口的响应桶。每个 requestId 一份，互不干扰。
@@ -25,6 +35,12 @@ interface ResponseBucket {
 export const useResponseStore = defineStore('response', () => {
   const buckets = ref<Map<number, ResponseBucket>>(new Map())
   const activeRequestId = ref<number | null>(null)
+
+  // ── 响应面板视图状态（按 requestId 分桶，内存级隔离，不入 DB） ──
+  // 用户手动覆盖的格式：key=requestId，value='auto'|具体格式
+  const formatOverrideMap = ref<Record<number, FormatOverride>>({})
+  // 用户选择的视图模式：key=requestId，value=raw/pretty/preview
+  const viewModeMap = ref<Record<number, ViewMode>>({})
 
   function getBucket(id: number): ResponseBucket {
     let b = buckets.value.get(id)
@@ -101,13 +117,38 @@ export const useResponseStore = defineStore('response', () => {
     const targetId = requestId ?? activeRequestId.value
     if (targetId == null) return
     buckets.value.delete(targetId)
+    // 同步清理视图状态，避免 Map 泄漏
+    delete formatOverrideMap.value[targetId]
+    delete viewModeMap.value[targetId]
     touch()
   }
 
   /** 全量清空所有响应桶（切换项目等场景） */
   function clearAll(): void {
     buckets.value.clear()
+    formatOverrideMap.value = {}
+    viewModeMap.value = {}
     touch()
+  }
+
+  // ── 视图状态 getter/setter ───────────────────────────────────
+
+  /** 读取格式覆盖，未设置时返回 'auto' */
+  function getFormatOverride(requestId: number): FormatOverride {
+    return formatOverrideMap.value[requestId] ?? 'auto'
+  }
+
+  function setFormatOverride(requestId: number, format: FormatOverride): void {
+    formatOverrideMap.value[requestId] = format
+  }
+
+  /** 读取视图模式，未设置时返回 null（由组件根据格式给默认值） */
+  function getViewMode(requestId: number): ViewMode | null {
+    return viewModeMap.value[requestId] ?? null
+  }
+
+  function setViewMode(requestId: number, mode: ViewMode): void {
+    viewModeMap.value[requestId] = mode
   }
 
   return {
@@ -121,5 +162,10 @@ export const useResponseStore = defineStore('response', () => {
     sendRequest,
     clear,
     clearAll,
+    // format/view state
+    getFormatOverride,
+    setFormatOverride,
+    getViewMode,
+    setViewMode,
   }
 })

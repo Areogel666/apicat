@@ -1,123 +1,200 @@
 <template>
-  <div class="json-viewer">
+  <div
+    ref="viewerEl"
+    class="json-viewer"
+    @mouseenter="isHovering = true"
+    @mouseleave="isHovering = false"
+  >
     <!-- 截断警告条 -->
     <div v-if="isTruncated" class="truncated-warning">
       ⚠️ 响应体过大，仅显示前 2MB
     </div>
 
-    <!-- 操作栏 -->
+    <!-- 工具栏：左=格式选择+复制，右=视图模式切换 -->
     <div class="json-toolbar">
-      <!-- 内容类型标签 -->
-      <n-tag v-if="contentTypeLabel" size="tiny" :bordered="false" style="opacity:0.7">
-        {{ contentTypeLabel }}
-      </n-tag>
-      <n-button size="tiny" quaternary @click="copyContent">
-        📋 复制
-      </n-button>
-      <!-- JSON 模式：美化/原始切换；非 JSON 无此按钮 -->
-      <n-button v-if="isJsonContent" size="tiny" quaternary @click="toggleFormat">
-        {{ isRaw ? '美化/折叠' : '原始' }}
-      </n-button>
-      <!-- HTML/XML：格式化按钮 -->
-      <n-button v-if="isHtmlOrXml" size="tiny" quaternary @click="toggleFormat">
-        {{ isRaw ? '语法高亮' : '原始' }}
-      </n-button>
+      <FormatSelector
+        :model-value="formatOverride"
+        :detected="detectedFormat"
+        @update:model-value="onFormatChange"
+      />
+      <n-button size="tiny" quaternary @click="copyContent">📋 复制</n-button>
+      <div class="toolbar-spacer" />
+      <ViewModeSwitch
+        :model-value="viewMode"
+        :format="effectiveFormat"
+        @update:model-value="onViewModeChange"
+      />
     </div>
 
-    <!-- JSON 内容：原始模式用 <pre>，美化模式用 vue-json-pretty 折叠树 -->
-    <template v-if="isJsonContent">
-      <pre v-if="isRaw || parsedJson === null" class="json-content"><code>{{ body }}</code></pre>
-      <div v-else class="json-tree-wrapper">
-        <VueJsonPretty
-          :data="parsedJson"
-          :deep="3"
-          :show-length="true"
-          :show-line="true"
-          :collapsed-on-click-brackets="true"
-          :show-icon="true"
-        />
-      </div>
-    </template>
-
-    <!-- HTML/XML：highlight.js 语法高亮 -->
-    <pre
-      v-else-if="isHtmlOrXml"
-      class="json-content hljs"
-    ><code v-html="highlightedCode" /></pre>
-
-    <!-- 其他：纯文本 -->
-    <pre v-else class="json-content"><code>{{ body }}</code></pre>
+    <!-- 渲染区：按格式路由到对应子组件 -->
+    <!-- JSON -->
+    <JsonRenderer
+      v-if="effectiveFormat === 'json'"
+      :body="body"
+      :view-mode="viewMode"
+      :is-hovering="isHovering"
+      @fallback-to-raw="onFallbackToRaw"
+    />
+    <!-- Markdown: raw 走 CodeRenderer 高亮源码，preview 走 MarkdownRenderer -->
+    <MarkdownRenderer
+      v-else-if="effectiveFormat === 'markdown' && viewMode === 'preview'"
+      :body="body"
+    />
+    <CodeRenderer
+      v-else-if="effectiveFormat === 'markdown'"
+      :body="body"
+      language="markdown"
+    />
+    <!-- XML: pretty 传格式化后的 body，raw 传原文；两者都用 xml 语法高亮 -->
+    <CodeRenderer
+      v-else-if="effectiveFormat === 'xml'"
+      :body="xmlDisplayBody"
+      language="xml"
+    />
+    <!-- YAML: pretty = js-yaml dump 重排；两者都用 yaml 语法高亮 -->
+    <CodeRenderer
+      v-else-if="effectiveFormat === 'yaml'"
+      :body="yamlDisplayBody"
+      language="yaml"
+    />
+    <!-- HTML: preview 走 sandbox iframe；raw 走 xml 高亮（hljs 的 xml 语言覆盖 HTML） -->
+    <HtmlPreviewRenderer
+      v-else-if="effectiveFormat === 'html' && viewMode === 'preview'"
+      :body="body"
+    />
+    <CodeRenderer
+      v-else-if="effectiveFormat === 'html'"
+      :body="body"
+      language="xml"
+    />
+    <!-- Text: 纯文本 <pre>，无高亮 -->
+    <PlainRenderer v-else-if="effectiveFormat === 'text'" :body="body" />
+    <!-- 理论上所有格式都已覆盖；兜底走 PlainRenderer 防呆 -->
+    <PlainRenderer v-else :body="body" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { NButton, NTag, useMessage } from 'naive-ui'
-import VueJsonPretty from 'vue-json-pretty'
-import 'vue-json-pretty/lib/styles.css'
-import hljs from 'highlight.js/lib/core'
-import xml from 'highlight.js/lib/languages/xml'  // covers html + xml
-import 'highlight.js/styles/github.css'
+import { ref, computed, watch } from 'vue'
+import { NButton, useMessage } from 'naive-ui'
+import { useResponseStore, type FormatOverride } from '../../stores/response'
+import {
+  detectFormat,
+  defaultViewMode,
+  availableViewModes,
+  formatXml,
+  formatYaml,
+  type ResponseFormat,
+  type ViewMode,
+} from './useResponseFormat'
+import FormatSelector from './FormatSelector.vue'
+import ViewModeSwitch from './ViewModeSwitch.vue'
+import JsonRenderer from './formatters/JsonRenderer.vue'
+import PlainRenderer from './formatters/PlainRenderer.vue'
+import CodeRenderer from './formatters/CodeRenderer.vue'
+import MarkdownRenderer from './formatters/MarkdownRenderer.vue'
+import HtmlPreviewRenderer from './formatters/HtmlPreviewRenderer.vue'
 
-// 仅注册需要的语言，避免引入整个 hljs 包
-hljs.registerLanguage('xml', xml)
+/**
+ * 响应体渲染路由器
+ *
+ * 原来这是一个 JSON 专属渲染器；M2 重构为"路由器"，根据格式分派到对应的子渲染器。
+ * 文件名暂保留 JsonViewer，避免上游连锁改名。
+ *
+ * 职责：
+ *   1. detectFormat 识别格式 + 合并用户手动覆盖 → effectiveFormat
+ *   2. 根据 format + viewMode 路由到对应子组件
+ *   3. 维护 isHovering（供 JsonRenderer 做 Ctrl+F 判断）
+ *   4. 格式/视图模式按 requestId 隔离（写入 response store）
+ */
 
 const props = defineProps<{
   body: string
-  contentType?: string  // 来自响应头 Content-Type
+  contentType?: string
   isTruncated?: boolean
 }>()
 
 const message = useMessage()
-const isRaw = ref(false)
+const responseStore = useResponseStore()
 
-const isJsonContent = computed(() => {
-  const ct = props.contentType ?? ''
-  const trimmed = props.body.trimStart()
-  return ct.includes('json') || trimmed.startsWith('{') || trimmed.startsWith('[')
-})
+// 根元素 ref + 鼠标悬停态（传给 JsonRenderer 做 Ctrl+F 范围判断）
+const viewerEl = ref<HTMLElement | null>(null)
+void viewerEl
+const isHovering = ref(false)
 
-const isHtmlOrXml = computed(() => {
-  const ct = props.contentType ?? ''
-  return ct.includes('html') || ct.includes('xml') || props.body.trimStart().startsWith('<')
-})
+/** 根据 Content-Type 和 body 自动识别的格式 */
+const detectedFormat = computed<ResponseFormat>(() =>
+  detectFormat(props.contentType ?? '', props.body),
+)
 
-/** 显示在工具栏的内容类型简短标签 */
-const contentTypeLabel = computed(() => {
-  const ct = props.contentType ?? ''
-  if (ct.includes('json')) return 'JSON'
-  if (ct.includes('html')) return 'HTML'
-  if (ct.includes('xml')) return 'XML'
-  if (ct.includes('text/plain')) return 'TEXT'
-  if (ct.includes('text/')) return 'TEXT'
-  if (ct) return ct.split(';')[0].trim()
-  if (props.body.trimStart().startsWith('{') || props.body.trimStart().startsWith('[')) return 'JSON'
-  if (props.body.trimStart().startsWith('<')) return 'HTML/XML'
-  return ''
-})
+/** 当前 requestId（可能为 null，例如尚无激活接口） */
+const activeId = computed(() => responseStore.activeRequestId)
 
-/** 解析 JSON，解析失败返回 null */
-const parsedJson = computed(() => {
-  try {
-    return JSON.parse(props.body)
-  } catch {
-    return null
+/** 用户手动覆盖的格式（'auto' 表示跟随自动识别） */
+const formatOverride = computed<FormatOverride>(() =>
+  activeId.value != null ? responseStore.getFormatOverride(activeId.value) : 'auto',
+)
+
+/** 真实生效的格式：override !== 'auto' 时用覆盖值，否则用自动识别 */
+const effectiveFormat = computed<ResponseFormat>(() =>
+  formatOverride.value === 'auto' ? detectedFormat.value : formatOverride.value,
+)
+
+/** 当前视图模式：优先取 store 里用户选过的，否则用该格式的默认模式 */
+const viewMode = computed<ViewMode>(() => {
+  if (activeId.value == null) return defaultViewMode(effectiveFormat.value)
+  const stored = responseStore.getViewMode(activeId.value)
+  if (stored !== null && availableViewModes(effectiveFormat.value).includes(stored)) {
+    return stored
   }
+  return defaultViewMode(effectiveFormat.value)
 })
 
-/** highlight.js 高亮 HTML/XML 内容，返回带 span 的 HTML 字符串 */
-const highlightedCode = computed(() => {
-  if (!props.body) return ''
-  try {
-    return hljs.highlight(props.body, { language: 'xml' }).value
-  } catch {
-    return escapeHtml(props.body)
-  }
-})
-
-function toggleFormat() {
-  isRaw.value = !isRaw.value
+/** 格式变更时重置 viewMode 为该格式的默认值（旧 mode 可能对新格式无意义） */
+function onFormatChange(next: FormatOverride) {
+  if (activeId.value == null) return
+  responseStore.setFormatOverride(activeId.value, next)
+  const newFormat: ResponseFormat =
+    next === 'auto' ? detectedFormat.value : next
+  responseStore.setViewMode(activeId.value, defaultViewMode(newFormat))
 }
+
+function onViewModeChange(next: ViewMode) {
+  if (activeId.value == null) return
+  responseStore.setViewMode(activeId.value, next)
+}
+
+/** JsonRenderer 触发 Ctrl+F fallback 时，同步切 raw */
+function onFallbackToRaw() {
+  if (activeId.value == null) return
+  responseStore.setViewMode(activeId.value, 'raw')
+}
+
+/** XML/HTML pretty 模式下的格式化 body；raw 模式或非 XML 时返回原 body */
+const xmlDisplayBody = computed(() => {
+  if (effectiveFormat.value !== 'xml' && effectiveFormat.value !== 'html') return props.body
+  if (viewMode.value !== 'pretty') return props.body
+  return formatXml(props.body)
+})
+
+/** YAML pretty 模式下的格式化 body；raw 模式或非 YAML 时返回原 body */
+const yamlDisplayBody = computed(() => {
+  if (effectiveFormat.value !== 'yaml') return props.body
+  if (viewMode.value !== 'pretty') return props.body
+  return formatYaml(props.body)
+})
+
+/**
+ * 切换接口或响应内容变化时，若已存 viewMode 与新格式不兼容则清掉。
+ * 防止"在 JSON 接口 A 选了 pretty，切到 HTML 接口 B 时 pretty 对 HTML 无效"之类的错位。
+ */
+watch([activeId, effectiveFormat], ([id, fmt]) => {
+  if (id == null) return
+  const stored = responseStore.getViewMode(id)
+  if (stored !== null && !availableViewModes(fmt).includes(stored)) {
+    responseStore.setViewMode(id, defaultViewMode(fmt))
+  }
+})
 
 async function copyContent() {
   const text = props.body
@@ -135,14 +212,6 @@ async function copyContent() {
     message.success('已复制到剪贴板')
   }
 }
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
 </script>
 
 <style scoped>
@@ -154,59 +223,26 @@ function escapeHtml(s: string): string {
 }
 
 .truncated-warning {
-  background: #fff7e6;
-  border: 1px solid #ffd591;
+  /* 警告条：浅橙底 + 橙边 + 深橙文字（统一用 warning token） */
+  background: rgba(240, 160, 32, 0.10);
+  border: 1px solid var(--color-warning);
   border-radius: 4px;
   padding: 4px 10px;
   font-size: 12px;
-  color: #d46b08;
+  color: var(--color-warning);
   margin-bottom: 6px;
   flex-shrink: 0;
 }
 
 .json-toolbar {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 4px;
   flex-shrink: 0;
 }
 
-/* 原始文本 / highlight.js 区域 */
-.json-content {
+.toolbar-spacer {
   flex: 1;
-  overflow: auto;
-  margin: 0;
-  padding: 8px;
-  background: var(--n-color-embedded, #f9f9f9);
-  border-radius: 4px;
-  font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
-  font-size: 12.5px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-all;
-  color: var(--n-text-color-1, #333);
 }
-
-/* vue-json-pretty 折叠树容器 */
-.json-tree-wrapper {
-  flex: 1;
-  overflow: auto;
-  padding: 8px;
-  background: var(--n-color-embedded, #f9f9f9);
-  border-radius: 4px;
-  font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
-  font-size: 12.5px;
-  line-height: 1.6;
-}
-
-/* 覆盖 vue-json-pretty 默认主题色，与 Naive UI 融合 */
-:deep(.vjs-tree) {
-  font-size: 12.5px !important;
-  font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace !important;
-}
-:deep(.vjs-tree .vjs-key) { color: #0550ae; }
-:deep(.vjs-tree .vjs-value-string) { color: #0a3069; }
-:deep(.vjs-tree .vjs-value-number) { color: #0550ae; }
-:deep(.vjs-tree .vjs-value-boolean) { color: #8250df; }
-:deep(.vjs-tree .vjs-value-null) { color: #999; }
 </style>
