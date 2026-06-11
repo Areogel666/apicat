@@ -1101,7 +1101,7 @@ function parseCurl(curlText: string): { method: string; url: string; headers: Pa
   const urlMatch = text.match(/https?:\/\/[^\s'"]+/)
   const url = urlMatch ? urlMatch[0].replace(/['"]/g, '') : ''
   const methodMatch = text.match(/-X\s+([A-Z]+)/i)
-  const method = methodMatch ? methodMatch[1].toUpperCase() : (text.includes('-d ') || text.includes('--data') ? 'POST' : 'GET')
+  const method = methodMatch ? methodMatch[1].toUpperCase() : (text.includes('-d ') || text.includes('--data') || text.includes('--data-urlencode') ? 'POST' : 'GET')
   const headers: ParamItem[] = []
   const headerRe = /-H\s+['"]([^'"]+)['"]/g
   let hm: RegExpExecArray | null
@@ -1111,8 +1111,25 @@ function parseCurl(curlText: string): { method: string; url: string; headers: Pa
       headers.push({ key: hm[1].substring(0, colonIdx).trim(), value: hm[1].substring(colonIdx + 1).trim(), enabled: true })
     }
   }
-  const dataMatch = text.match(/(?:--data|-d)\s+['"]([^'"]*)['"]/s) || text.match(/(?:--data|-d)\s+\$['"]([^'"]*)['"]/s)
-  const body = dataMatch ? dataMatch[1] : ''
+  // 匹配 --data / -d / --data-urlencode（curl 三种数据参数）
+  const dataMatch =
+    text.match(/(?:--data(?:-urlencode)?|-d)\s+['"]([^'"]*)['"]/s) ||
+    text.match(/(?:--data(?:-urlencode)?|-d)\s+\$['"]([^'"]*)['"]/s)
+
+  let body = ''
+  if (dataMatch) {
+    const rawValue = dataMatch[1]
+    // --data-urlencode：值已经 URL 编码，解码后作为 body
+    if (text.includes('--data-urlencode')) {
+      try {
+        body = decodeURIComponent(rawValue)
+      } catch {
+        body = rawValue
+      }
+    } else {
+      body = rawValue
+    }
+  }
   let bodyType = 'none'
   if (body) {
     const ct = headers.find(h => h.key.toLowerCase() === 'content-type')?.value ?? ''
