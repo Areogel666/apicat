@@ -3,7 +3,7 @@
     <!-- 左右分栏主体 -->
     <div class="manager-body">
       <!-- 左：用例列表（NDataTable） -->
-      <div class="case-list">
+      <div class="case-list" :style="{ flex: `0 0 ${caseListWidth}px`, minWidth: '200px' }">
         <div v-if="cases.length === 0" class="empty">
           当前接口暂无用例。<br>
           <span class="hint">发起一次请求会自动生成用例。</span>
@@ -23,8 +23,17 @@
         />
       </div>
 
+      <ResizableSplitter
+        direction="horizontal"
+        :default-size="caseListWidth"
+        :min-size="200"
+        :max-size="600"
+        storage-key="layout.testcaseLeftWidth"
+        @resize="(w: number) => caseListWidth = w"
+      />
+
       <!-- 右：历史详情 -->
-      <div class="history-pane">
+      <div class="history-pane" style="flex: 1; min-width: 280px">
         <template v-if="!focusedCase">
           <div class="empty">从左侧选择一个用例查看历史</div>
         </template>
@@ -115,6 +124,7 @@ import {
 import { useTestCaseStore } from '../../stores/testCase'
 import type { TestCase } from '../../types'
 import HistoryItem from './HistoryItem.vue'
+import ResizableSplitter from '../common/ResizableSplitter.vue'
 
 const props = defineProps<{
   /** 当前接口 id（0 表示无激活接口） */
@@ -146,6 +156,11 @@ const historyList = computed(() => {
 })
 
 const loadingHistory = ref(false)
+
+// 分栏拖拽：用例列表宽度
+const caseListWidth = ref(
+  Number(localStorage.getItem('layout.testcaseLeftWidth') ?? 320)
+)
 
 // ── 行配置 ────────────────────────────────────────────────────
 
@@ -358,10 +373,8 @@ watch(() => props.requestId, () => {
   min-height: 0;
 }
 
-/* 左列：用例列表 35%（默认偏小，给右侧历史详情更多空间） */
+/* 左列：用例列表（宽度由分栏拖拽控制） */
 .case-list {
-  flex: 1 1 35%;
-  min-width: 280px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -390,10 +403,9 @@ watch(() => props.requestId, () => {
   height: 100%;
 }
 
-/* 右列：历史详情 65%（主要查看区） */
+/* 右列：历史详情（宽度自适应剩余空间） */
 .history-pane {
-  flex: 1 1 65%;
-  min-width: 320px;
+  flex: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;

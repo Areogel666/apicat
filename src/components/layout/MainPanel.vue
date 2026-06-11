@@ -11,7 +11,7 @@
     <!-- 有激活 Tab 时显示请求编辑区 + 响应区 -->
     <template v-else>
     <!-- 上半：请求编辑区 -->
-    <div class="request-area">
+    <div class="request-area" :style="{ height: requestAreaHeight + 'px' }">
       <!-- URL 栏 -->
       <div class="url-bar">
         <div class="url-input-combo">
@@ -439,8 +439,14 @@
       </n-tabs>
     </div>
 
-    <!-- 分隔线 -->
-    <div class="divider" />
+    <!-- 分栏拖拽分隔条 -->
+    <ResizableSplitter
+      direction="vertical"
+      :default-size="requestAreaHeight"
+      :min-size="200"
+      storage-key="layout.requestAreaHeight"
+      @resize="(h: number) => requestAreaHeight = h"
+    />
 
     <!-- 用例选择栏（Send 后出现，低干扰）-->
     <TestCaseBar
@@ -500,9 +506,15 @@ import TestCaseBar from '../testcase/TestCaseBar.vue'
 import TestCaseManager from '../testcase/TestCaseManager.vue'
 import StressConfigModal from '../stress/StressConfigModal.vue'
 import StressResultPanel from '../stress/StressResultPanel.vue'
+import ResizableSplitter from '../common/ResizableSplitter.vue'
 import type { ParamItem, ParsedUrl, StressConfig } from '../../types'
 
 type ParamMode = 'table' | 'kv' | 'json'
+
+// 请求区高度（拖拽调节，上下分栏）
+const requestAreaHeight = ref(
+  Number(localStorage.getItem('layout.requestAreaHeight') ?? 400)
+)
 
 // ── Query Params 模式 ──────────────────────────────────────────
 const queryMode = ref<ParamMode>('table')
@@ -1830,10 +1842,9 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
 .request-area {
   display: flex;
   flex-direction: column;
-  flex: 1;
   overflow: hidden;
   padding: 12px 16px 0;
-  min-height: 200px;
+  flex-shrink: 0;
 }
 
 .url-bar {
@@ -1886,13 +1897,6 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
   flex-direction: column;
   overflow: hidden;
   height: 0; /* flex 子项需要 height: 0 才能被压缩到容器高度 */
-}
-
-.divider {
-  height: 4px;
-  background: var(--border-base);
-  cursor: row-resize;
-  flex-shrink: 0;
 }
 
 .params-editor { padding: 8px 4px; overflow-y: auto; flex: 1; }

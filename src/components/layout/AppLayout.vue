@@ -3,16 +3,32 @@
   <div class="app-layout">
     <TopBar />
     <div class="app-body">
-      <Sidebar />
-      <MainPanel />
+      <Sidebar :style="{ width: sidebarWidth + 'px', flexShrink: 0 }" />
+      <ResizableSplitter
+        direction="horizontal"
+        :default-size="sidebarWidth"
+        :min-size="160"
+        :max-size="500"
+        storage-key="layout.sidebarWidth"
+        @resize="onSidebarResize"
+      />
+      <MainPanel style="flex: 1; min-width: 0" />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import TopBar from './TopBar.vue'
 import Sidebar from './Sidebar.vue'
 import MainPanel from './MainPanel.vue'
+import ResizableSplitter from '../common/ResizableSplitter.vue'
+
+const sidebarWidth = ref(Number(localStorage.getItem('layout.sidebarWidth') ?? 240))
+
+function onSidebarResize(size: number) {
+  sidebarWidth.value = size
+}
 </script>
 
 <style scoped>
