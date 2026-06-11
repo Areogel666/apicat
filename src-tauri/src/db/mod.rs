@@ -34,20 +34,30 @@ pub async fn init_db(app: &tauri::App) -> Result<SqlitePool, Box<dyn std::error:
     Ok(pool)
 }
 
+/// 判断一个 SQL 片段是否为纯注释（所有非空行都以 -- 或 /* 开头）
+/// 用于过滤掉被 split(';') 误拆出的注释片段，防止注释中的 ';' 字面量被当成分隔符
+fn is_pure_comment(stmt: &str) -> bool {
+    stmt.lines()
+        .map(|line| line.trim())
+        .filter(|line| !line.is_empty())
+        .all(|line| line.starts_with("--") || line.starts_with("/*") || line.starts_with('*'))
+}
+
+/// 增强版 SQL 切分：简单 split(';')，但过滤掉纯注释片段
+fn split_sql_statements(sql: &str) -> Vec<&str> {
+    sql.split(';')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .filter(|s| !is_pure_comment(s))
+        .collect()
+}
+
 /// 将 migration SQL 编译时内嵌进二进制，运行时逐条执行
-/// 按分号分割，跳过空行和纯注释行
+/// 使用增强版 split_sql_statements 过滤多行注释中的 ';' 字面量
 async fn run_migrations(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Error>> {
     let migration_sql = include_str!("../../migrations/0001_init.sql");
 
-    for stmt in migration_sql.split(';') {
-        let stmt = stmt.trim();
-        if stmt.is_empty() {
-            continue;
-        }
-        // 如果整段没有换行符且以注释开头，才是纯注释，否则里面包含了真实的 SQL，需要执行
-        if stmt.starts_with("--") && !stmt.contains('\n') {
-            continue;
-        }
+    for stmt in split_sql_statements(migration_sql) {
         sqlx::query(stmt).execute(pool).await?;
     }
 
