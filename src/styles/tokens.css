@@ -120,6 +120,99 @@
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.56);
 }
 
+/* ====== 1.0.3 新增：响应渲染器语义 token ====== */
+
+/* --- JSON 节点配色（vue-json-pretty） --- */
+:root,
+[data-theme="light"] {
+  --json-key:       #0550ae;
+  --json-string:    #0a3069;
+  --json-number:    #0550ae;
+  --json-boolean:   #8250df;
+  --json-null:      #999;
+}
+
+[data-theme="dark"] {
+  --json-key:       #79c0ff;
+  --json-string:    #a5d6ff;
+  --json-number:    #79c0ff;
+  --json-boolean:   #d2a8ff;
+  --json-null:      #6e7681;
+}
+
+/* --- Markdown 排版配色 --- */
+:root,
+[data-theme="light"] {
+  --md-border:         #d0d7de;
+  --md-link:           #0969da;
+  --md-code-bg:        rgba(175, 184, 193, 0.2);
+  --md-pre-bg:         #f6f8fa;
+  --md-blockquote:     #57606a;
+  --md-blockquote-bar: #d0d7de;
+  --md-th-bg:          #f6f8fa;
+}
+
+[data-theme="dark"] {
+  --md-border:         #30363d;
+  --md-link:           #79c0ff;
+  --md-code-bg:        rgba(110, 118, 129, 0.25);
+  --md-pre-bg:         #161b22;
+  --md-blockquote:     #8b949e;
+  --md-blockquote-bar: #30363d;
+  --md-th-bg:          #161b22;
+}
+
+/* ====== 1.0.3 新增：风格预设选择器 ====== */
+
+/* --- 布局密度 --- */
+:root,
+[data-density="default"] {
+  --row-height: 32px;
+  --input-height: 34px;
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 20px;
+}
+
+[data-density="compact"] {
+  --row-height: 28px;
+  --input-height: 28px;
+  --spacing-xs: 2px;
+  --spacing-sm: 6px;
+  --spacing-md: 8px;
+  --spacing-lg: 14px;
+}
+
+[data-density="spacious"] {
+  --row-height: 38px;
+  --input-height: 40px;
+  --spacing-xs: 6px;
+  --spacing-sm: 12px;
+  --spacing-md: 18px;
+  --spacing-lg: 28px;
+}
+
+/* --- 字体大小 --- */
+:root,
+[data-font-size="m"] {
+  --font-size-base: 13px;
+  --font-size-sm: 11px;
+  --font-size-lg: 15px;
+}
+
+[data-font-size="s"] {
+  --font-size-base: 12px;
+  --font-size-sm: 10px;
+  --font-size-lg: 14px;
+}
+
+[data-font-size="l"] {
+  --font-size-base: 14px;
+  --font-size-sm: 12px;
+  --font-size-lg: 16px;
+}
+
 /* 应用根背景跟随主题，避免 body 默认白底在切深色时一闪 */
 html, body, #app {
   background-color: var(--bg-base);
