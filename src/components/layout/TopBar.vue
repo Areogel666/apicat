@@ -49,6 +49,9 @@
   <!-- 公共 Headers 模板弹窗 -->
   <HeaderTemplateModal v-model:show="showHeaderTemplateModal" />
 
+  <!-- 主题工作室弹窗 -->
+  <ThemeStudioModal ref="themeStudioModalRef" />
+
   <!-- 重命名项目弹窗 -->
   <n-modal v-model:show="showRenameModal" preset="dialog" title="重命名项目">
     <n-input v-model:value="renameInput" placeholder="输入新的项目名称" @keyup.enter="confirmRenameProject" />
@@ -72,6 +75,7 @@ import CookieManager from '../cookie/CookieManager.vue'
 import ImportDialog from '../io/ImportDialog.vue'
 import ExportDialog from '../io/ExportDialog.vue'
 import HeaderTemplateModal from './HeaderTemplateModal.vue'
+import ThemeStudioModal from '../theme/ThemeStudioModal.vue'
 
 const projectStore = useProjectStore()
 const envStore = useEnvironmentStore()
@@ -84,6 +88,7 @@ const showCookieManager = ref(false)
 const showImportDialog = ref(false)
 const showExportDialog = ref(false)
 const showHeaderTemplateModal = ref(false)
+const themeStudioModalRef = ref<InstanceType<typeof ThemeStudioModal> | null>(null)
 
 const showRenameModal = ref(false)
 const renameInput = ref('')
@@ -107,6 +112,7 @@ const settingsMenuOptions = computed(() => [
   { label: '📋 公共 Headers 模板...', key: 'headerTemplate' },
   { type: 'divider', key: 'd2' },
   { label: '🎨 主题', key: 'theme', children: themeChildren.value },
+  { label: '🎨 主题工作室…', key: 'themeStudio' },
   { type: 'divider', key: 'd3' },
   { label: '🔄 检查更新...', key: 'checkUpdate' },
 ])
@@ -115,6 +121,7 @@ async function handleSettingsMenu(key: string) {
   if (key === 'import') showImportDialog.value = true
   else if (key === 'export') showExportDialog.value = true
   else if (key === 'headerTemplate') showHeaderTemplateModal.value = true
+  else if (key === 'themeStudio') themeStudioModalRef.value?.open()
   else if (key === 'checkUpdate') await checkForUpdate()
   else if (key.startsWith('theme:')) {
     const mode = key.slice('theme:'.length) as ThemeMode
