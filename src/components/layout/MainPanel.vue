@@ -1706,6 +1706,10 @@ async function handleSaveRequest() {
   else if (headerMode.value === 'json') requestHeaders.value = parseJsonToParams(headerJsonText.value)
   if (bodyType.value === 'form_data') syncFormData()
   if (bodyType.value === 'form_urlencoded') syncUrlencodedData()
+
+  // 1.0.3 Bug Fix：保存前快照当前用例 Tab ID，防止保存后自动跳回第一个
+  const preSaveActiveTestCaseId = testCaseStore.activeTestCaseId
+
   try {
     await requestStore.updateRequest(req.id, {
       method: method.value,
@@ -1725,6 +1729,12 @@ async function handleSaveRequest() {
     setTimeout(() => {
       const s = new Set(requestStore.savedRequestIds); s.delete(req.id); requestStore.savedRequestIds = s
     }, 1500)
+
+    // 恢复用例 Tab 状态（防止 updateRequest 或其他连锁反应清空 activeTestCaseId）
+    if (preSaveActiveTestCaseId !== null) {
+      testCaseStore.activeTestCaseId = preSaveActiveTestCaseId
+    }
+
     message.success('已保存')
   } catch (e) {
     message.error('保存失败: ' + String(e))
