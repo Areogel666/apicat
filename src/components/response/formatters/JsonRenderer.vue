@@ -151,9 +151,9 @@ onBeforeUnmount(() => {
   font-size: 12.5px !important;
   font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace !important;
 }
-:deep(.vjs-tree .vjs-key) { color: #0550ae; }
-:deep(.vjs-tree .vjs-value-string) { color: #0a3069; }
-:deep(.vjs-tree .vjs-value-number) { color: #0550ae; }
-:deep(.vjs-tree .vjs-value-boolean) { color: #8250df; }
-:deep(.vjs-tree .vjs-value-null) { color: #999; }
+:deep(.vjs-tree .vjs-key)           { color: var(--json-key); }
+:deep(.vjs-tree .vjs-value-string)  { color: var(--json-string); }
+:deep(.vjs-tree .vjs-value-number)  { color: var(--json-number); }
+:deep(.vjs-tree .vjs-value-boolean) { color: var(--json-boolean); }
+:deep(.vjs-tree .vjs-value-null)    { color: var(--json-null); }
 </style>

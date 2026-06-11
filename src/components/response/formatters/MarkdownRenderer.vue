@@ -78,8 +78,8 @@ const rendered = computed(() => {
   font-weight: 600;
   line-height: 1.25;
 }
-.markdown-body :deep(h1) { font-size: 1.8em; border-bottom: 1px solid #d0d7de; padding-bottom: 0.3em; }
-.markdown-body :deep(h2) { font-size: 1.5em; border-bottom: 1px solid #d0d7de; padding-bottom: 0.3em; }
+.markdown-body :deep(h1) { font-size: 1.8em; border-bottom: 1px solid var(--md-border); padding-bottom: 0.3em; }
+.markdown-body :deep(h2) { font-size: 1.5em; border-bottom: 1px solid var(--md-border); padding-bottom: 0.3em; }
 .markdown-body :deep(h3) { font-size: 1.25em; }
 .markdown-body :deep(h4) { font-size: 1.1em; }
 
@@ -88,7 +88,7 @@ const rendered = computed(() => {
 }
 
 .markdown-body :deep(a) {
-  color: #0969da;
+  color: var(--md-link);
   text-decoration: none;
 }
 .markdown-body :deep(a:hover) {
@@ -96,7 +96,7 @@ const rendered = computed(() => {
 }
 
 .markdown-body :deep(code) {
-  background: rgba(175, 184, 193, 0.2);
+  background: var(--md-code-bg);
   padding: 0.15em 0.4em;
   border-radius: 4px;
   font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
@@ -104,7 +104,7 @@ const rendered = computed(() => {
 }
 
 .markdown-body :deep(pre) {
-  background: #f6f8fa;
+  background: var(--md-pre-bg);
   padding: 12px;
   border-radius: 6px;
   overflow: auto;
@@ -120,8 +120,8 @@ const rendered = computed(() => {
 .markdown-body :deep(blockquote) {
   margin: 0.8em 0;
   padding: 0 1em;
-  color: #57606a;
-  border-left: 4px solid #d0d7de;
+  color: var(--md-blockquote);
+  border-left: 4px solid var(--md-blockquote-bar);
 }
 
 .markdown-body :deep(ul),
@@ -136,7 +136,7 @@ const rendered = computed(() => {
 
 .markdown-body :deep(hr) {
   border: none;
-  border-top: 1px solid #d0d7de;
+  border-top: 1px solid var(--md-border);
   margin: 1.5em 0;
 }
 
@@ -146,11 +146,11 @@ const rendered = computed(() => {
 }
 .markdown-body :deep(th),
 .markdown-body :deep(td) {
-  border: 1px solid #d0d7de;
+  border: 1px solid var(--md-border);
   padding: 6px 12px;
 }
 .markdown-body :deep(th) {
-  background: #f6f8fa;
+  background: var(--md-th-bg);
 }
 
 .markdown-body :deep(img) {

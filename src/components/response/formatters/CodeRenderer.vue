@@ -3,13 +3,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import hljs from 'highlight.js/lib/core'
 import xml from 'highlight.js/lib/languages/xml'          // covers html + xml
 import yaml from 'highlight.js/lib/languages/yaml'
 import markdown from 'highlight.js/lib/languages/markdown'
 import json from 'highlight.js/lib/languages/json'
-import 'highlight.js/styles/github.css'
+import { useThemeStore } from '../../../stores/theme'
+// Vite ?url 导入：将 CSS 文件解析为打包后的 URL，用于动态 <link> 切换
+import lightThemeUrl from 'highlight.js/styles/github.css?url'
+import darkThemeUrl from 'highlight.js/styles/github-dark.css?url'
 
 /**
  * 通用代码高亮渲染器（hljs 驱动）
@@ -29,6 +32,40 @@ hljs.registerLanguage('xml', xml)
 hljs.registerLanguage('yaml', yaml)
 hljs.registerLanguage('markdown', markdown)
 hljs.registerLanguage('json', json)
+
+// highlight.js 主题动态切换（方案 A）
+// 创建两个 <link> 元素，通过 disabled 属性切换，避免重复创建/销毁
+const themeStore = useThemeStore()
+
+const lightLink = document.createElement('link')
+lightLink.rel = 'stylesheet'
+lightLink.href = lightThemeUrl
+document.head.appendChild(lightLink)
+
+const darkLink = document.createElement('link')
+darkLink.rel = 'stylesheet'
+darkLink.href = darkThemeUrl
+darkLink.disabled = true
+document.head.appendChild(darkLink)
+
+function applyHljsTheme(mode: 'light' | 'dark') {
+  lightLink.disabled = mode !== 'light'
+  darkLink.disabled = mode !== 'dark'
+}
+
+onMounted(() => {
+  applyHljsTheme(themeStore.effectiveMode)
+})
+
+watch(() => themeStore.effectiveMode, (mode) => {
+  applyHljsTheme(mode)
+})
+
+// 组件销毁时清理动态注入的 <link>
+onBeforeUnmount(() => {
+  if (lightLink.parentNode) lightLink.remove()
+  if (darkLink.parentNode) darkLink.remove()
+})
 
 type Lang = 'xml' | 'yaml' | 'markdown' | 'json' | 'plaintext'
 

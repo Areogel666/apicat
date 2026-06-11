@@ -3,7 +3,7 @@
     <iframe
       class="html-preview-frame"
       sandbox=""
-      :srcdoc="body"
+      :srcdoc="themedSrcdoc"
       referrerpolicy="no-referrer"
       title="HTML 响应预览"
     />
@@ -11,22 +11,46 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
+
 /**
  * HTML 预览渲染器（sandbox iframe）
  *
  * 安全策略：
- *   - sandbox=""（空字符串）= 最严格沙箱：
- *     禁脚本执行 / 禁 form / 禁 navigation / 禁同源 / 禁 popup
- *   - referrerpolicy="no-referrer"：iframe 内的图片/CSS 请求不带 Referer，
- *     避免泄露 ApiCat 的使用痕迹给远端服务器
- *   - 通过 :srcdoc 传入 body：字符串注入，不做 URL 跳转，无任何执行路径可以"逃逸"出沙箱
- *
- * 限制（本轮不处理）：
- *   - iframe 高度固定（sandbox 下无法 postMessage 做 auto-resize）
- *   - 内容内的相对链接可能 404（没 base href），可接受
+ *   - sandbox=""（空字符串）= 最严格沙箱
+ *   - referrerpolicy="no-referrer"
+ *   - [1.0.3 新增] srcdoc 拼接时注入内联 <style>，跟随当前主题色
  */
 
-defineProps<{ body: string }>()
+const props = defineProps<{ body: string }>()
+
+const themedSrcdoc = computed(() => {
+  const cs = getComputedStyle(document.documentElement)
+  const bg = cs.getPropertyValue('--bg-base').trim() || '#fff'
+  const text = cs.getPropertyValue('--text-primary').trim() || 'rgba(0,0,0,0.88)'
+  const link = cs.getPropertyValue('--md-link').trim() || '#0969da'
+
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><style>
+  body {
+    background: ${bg};
+    color: ${text};
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    margin: 16px;
+    line-height: 1.5;
+  }
+  a { color: ${link}; }
+  pre, code {
+    background: rgba(128,128,128,0.1);
+    border-radius: 3px;
+    padding: 0.15em 0.4em;
+    font-family: monospace;
+  }
+</style></head>
+<body>${props.body}</body>
+</html>`
+})
 </script>
 
 <style scoped>
@@ -36,13 +60,13 @@ defineProps<{ body: string }>()
   overflow: hidden;
   border-radius: 4px;
   border: 1px solid var(--border-base);
-  background: #fff;
+  background: var(--bg-base);
 }
 
 .html-preview-frame {
   flex: 1;
   width: 100%;
   border: none;
-  background: #fff;
+  background: var(--bg-base);
 }
 </style>
