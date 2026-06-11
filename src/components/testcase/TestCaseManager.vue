@@ -207,6 +207,8 @@ function formatRelative(s: string): string {
 // ── 行为 ──────────────────────────────────────────────────────
 
 async function focusCase(id: number) {
+  // 防止重复点击触发不必要的重新渲染
+  if (focusedId.value === id) return
   focusedId.value = id
   // 懒加载历史（首次或切换时）
   if (!testCaseStore.historyMap[id]) {
@@ -374,6 +376,18 @@ watch(() => props.requestId, () => {
 .case-list :deep(.case-table) {
   flex: 1;
   min-height: 0;
+}
+
+/* 修复 Linux WebKitGTK flex-height 高度为 0 的问题：
+   强制 NDataTable 的 scroll-wrapper 占满父容器 */
+.case-list :deep(.n-data-table) {
+  height: 100%;
+}
+.case-list :deep(.n-data-table .n-data-table__main) {
+  height: 100%;
+}
+.case-list :deep(.n-data-table .n-data-table-base-table) {
+  height: 100%;
 }
 
 /* 右列：历史详情 65%（主要查看区） */
