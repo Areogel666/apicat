@@ -1247,6 +1247,55 @@ watch(queryParams, () => {
   nextTick(() => { syncingFromParams = false })
 }, { deep: true })
 
+// 1.0.3 Bug Fix：Body 格式切换时自动转换现有参数
+// URL Encoded ↔ JSON ↔ Form Data 三种格式互相转换
+watch(bodyType, (newType, oldType) => {
+  if (isInitializing) return
+
+  // URL Encoded → JSON：将 urlencodedParams 序列化为 JSON 对象字符串
+  if (oldType === 'form_urlencoded' && newType === 'raw_json') {
+    const obj: Record<string, string> = {}
+    urlencodedParams.value.filter(f => f.enabled && f.key).forEach(f => { obj[f.key] = f.value })
+    if (Object.keys(obj).length > 0) {
+      bodyContent.value = JSON.stringify(obj, null, 2)
+    }
+  }
+
+  // URL Encoded → Form Data：直接复用 urlencodedParams
+  if (oldType === 'form_urlencoded' && newType === 'form_data') {
+    formDataParams.value = urlencodedParams.value.map(f => ({ ...f }))
+  }
+
+  // Form Data → URL Encoded：直接复用 formDataParams
+  if (oldType === 'form_data' && newType === 'form_urlencoded') {
+    urlencodedParams.value = formDataParams.value.map(f => ({ ...f }))
+  }
+
+  // JSON → URL Encoded：尝试将 JSON body 解析为键值对
+  if (oldType === 'raw_json' && newType === 'form_urlencoded') {
+    try {
+      const obj = JSON.parse(bodyContent.value || '{}')
+      if (typeof obj === 'object' && obj !== null && !Array.isArray(obj)) {
+        urlencodedParams.value = Object.entries(obj).map(([k, v]) => ({
+          key: k, value: String(v), enabled: true,
+        }))
+      }
+    } catch { /* body 非合法 JSON，不做转换 */ }
+  }
+
+  // JSON → Form Data
+  if (oldType === 'raw_json' && newType === 'form_data') {
+    try {
+      const obj = JSON.parse(bodyContent.value || '{}')
+      if (typeof obj === 'object' && obj !== null && !Array.isArray(obj)) {
+        formDataParams.value = Object.entries(obj).map(([k, v]) => ({
+          key: k, value: String(v), enabled: true,
+        }))
+      }
+    } catch { /* body 非合法 JSON，不做转换 */ }
+  }
+})
+
 // 监听其他编辑区字段变化，标记接口 dirty
 watch(method, markRequestDirty)
 watch(bodyType, markRequestDirty)
