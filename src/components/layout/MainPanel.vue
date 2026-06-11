@@ -1219,6 +1219,11 @@ watch(url, () => {
     queryParams.value = queryParams.value.filter(p => !p.enabled)
   }
 
+  // 1.0.3 Bug Fix：URL 参数变更时同步更新 KV/JSON 文本模式的内容
+  // 否则用户在 KV/JSON 模式下修改 URL 后切换到表格模式再切回来，会看到旧数据
+  queryKvText.value = toKvText(queryParams.value)
+  queryJsonText.value = toJsonText(queryParams.value)
+
   nextTick(() => { syncingFromUrl = false })
 })
 
