@@ -183,6 +183,7 @@ export const useThemeStore = defineStore('theme', () => {
     // 1.0.2 原有
     mode,
     effectiveMode,
+    themeTick,
     naiveTheme,
     naiveOverrides,
     setMode,

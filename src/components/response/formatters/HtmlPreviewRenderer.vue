@@ -12,6 +12,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useThemeStore } from '../../../stores/theme'
 
 /**
  * HTML 预览渲染器（sandbox iframe）
@@ -23,8 +24,14 @@ import { computed } from 'vue'
  */
 
 const props = defineProps<{ body: string }>()
+const themeStore = useThemeStore()
 
 const themedSrcdoc = computed(() => {
+  // 显式依赖 themeTick：主题切换 / 自定义 token 修改时 themeTick 递增，
+  // 触发 computed 重算，确保 iframe 内 srcdoc 的色值跟随主题实时更新。
+  // getComputedStyle 本身不是 Vue 响应式 API，不能自动追踪。
+  void themeStore.themeTick
+
   const cs = getComputedStyle(document.documentElement)
   const bg = cs.getPropertyValue('--bg-base').trim() || '#fff'
   const text = cs.getPropertyValue('--text-primary').trim() || 'rgba(0,0,0,0.88)'
