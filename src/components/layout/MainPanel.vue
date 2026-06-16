@@ -768,7 +768,7 @@ const envTagText = computed(() => {
 const envTooltipText = computed(() => {
   const env = envStore.activeEnv
   if (!env) return ''
-  return env.base_url ? `Base URL: ${env.base_url}` : '未配置 Base URL'
+  return env.base_url ? `【Base URL】${env.base_url}` : '未配置 Base URL'
 })
 
 // ── 接口修改 dirty 标记 ────────────────────────────────────────────
