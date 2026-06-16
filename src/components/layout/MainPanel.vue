@@ -1270,25 +1270,36 @@ watch(queryParams, () => {
 }, { deep: true })
 
 // 1.0.3 Bug Fix：Body 5 种格式互相转换
-//   textarea 类（raw_json / raw_text）共享 bodyContent，彼此切换不清空
+//   textarea 类（raw_json / raw_text）共享 bodyContent
 //   table 类（form_urlencoded / form_data）各自有 ParamItem[] 数组
-//   非 table → table：尝试 JSON parse → 对象转 ParamItem[]；不行则 URLSearchParams → ParamItem[]
-//   table → 非 table：ParamItem[] → JSON 对象 → JSON string 或 k=v 文本
+//   URL Encoded 内部还有 KV 文本子模式，切换前需先同步子模式到 urlencodedParams
 watch(bodyType, (newType, oldType) => {
   if (isInitializing) return
 
-  // ==== 从 textarea 类出发 ====
+  // ===== Step 0：切出前先同步源模式数据 =====
+  // URL Encoded 的 KV 文本子模式：先解析回 urlencodedParams
+  if (oldType === 'form_urlencoded' && urlencodedMode.value === 'kv') {
+    syncUrlencodedFromKv(urlencodedKvText.value)
+  }
 
-  // JSON / Text → URL Encoded
+  // ===== Step 1：切换到 table 类 =====
+
+  // textarea 类 → URL Encoded
   if ((oldType === 'raw_json' || oldType === 'raw_text') && newType === 'form_urlencoded') {
     const text = bodyContent.value.trim()
     if (!text) return
     const params = parseTextToParams(text)
-    if (params.length > 0) urlencodedParams.value = params
+    if (params.length > 0) {
+      urlencodedParams.value = params
+      // 同步更新 KV 文本模式（如果用户在 URL Encoded 面板切到过 KV 模式）
+      if (urlencodedMode.value === 'kv') {
+        urlencodedKvText.value = params.filter(f => f.key).map(f => `${f.key}: ${f.value}`).join('\n')
+      }
+    }
     return
   }
 
-  // JSON / Text → Form Data
+  // textarea 类 → Form Data
   if ((oldType === 'raw_json' || oldType === 'raw_text') && newType === 'form_data') {
     const text = bodyContent.value.trim()
     if (!text) return
@@ -1297,40 +1308,64 @@ watch(bodyType, (newType, oldType) => {
     return
   }
 
-  // ==== 从 table 类出发 ====
-
-  // URL Encoded / Form Data → JSON
-  if ((oldType === 'form_urlencoded' || oldType === 'form_data') && newType === 'raw_json') {
-    const source = oldType === 'form_urlencoded' ? urlencodedParams.value : formDataParams.value
-    const obj: Record<string, string> = {}
-    source.filter(f => f.enabled && f.key).forEach(f => { obj[f.key] = f.value })
-    if (Object.keys(obj).length > 0) {
-      bodyContent.value = JSON.stringify(obj, null, 2)
-    }
-    return
-  }
-
-  // URL Encoded / Form Data → Text（key=value 格式）
-  if ((oldType === 'form_urlencoded' || oldType === 'form_data') && newType === 'raw_text') {
-    const source = oldType === 'form_urlencoded' ? urlencodedParams.value : formDataParams.value
-    const sp = new URLSearchParams()
-    source.filter(f => f.enabled && f.key).forEach(f => sp.append(f.key, f.value))
-    const qs = sp.toString()
-    if (qs) bodyContent.value = qs
-    return
-  }
-
-  // ==== table ↔ table ====
-
-  // URL Encoded → Form Data
+  // table → table ：URL Encoded ↔ Form Data
   if (oldType === 'form_urlencoded' && newType === 'form_data') {
     formDataParams.value = urlencodedParams.value.map(f => ({ ...f }))
     return
   }
-
-  // Form Data → URL Encoded
   if (oldType === 'form_data' && newType === 'form_urlencoded') {
     urlencodedParams.value = formDataParams.value.map(f => ({ ...f }))
+    if (urlencodedMode.value === 'kv') {
+      urlencodedKvText.value = urlencodedParams.value.filter(f => f.key).map(f => `${f.key}: ${f.value}`).join('\n')
+    }
+    return
+  }
+
+  // ===== Step 2：切换到 textarea 类 =====
+
+  // table 类 → textarea 类
+  if ((oldType === 'form_urlencoded' || oldType === 'form_data') && (newType === 'raw_json' || newType === 'raw_text')) {
+    const source = oldType === 'form_urlencoded' ? urlencodedParams.value : formDataParams.value
+    const enabled = source.filter(f => f.enabled && f.key)
+    if (enabled.length === 0) return
+    if (newType === 'raw_json') {
+      const obj: Record<string, string> = {}
+      enabled.forEach(f => { obj[f.key] = f.value })
+      bodyContent.value = JSON.stringify(obj, null, 2)
+    } else {
+      const sp = new URLSearchParams()
+      enabled.forEach(f => sp.append(f.key, f.value))
+      bodyContent.value = sp.toString()
+    }
+    return
+  }
+
+  // JSON ↔ Text：切换时自动转换格式
+  if (oldType === 'raw_json' && newType === 'raw_text') {
+    const text = bodyContent.value.trim()
+    if (!text) return
+    try {
+      const obj = JSON.parse(text)
+      if (typeof obj === 'object' && obj !== null && !Array.isArray(obj)) {
+        const sp = new URLSearchParams()
+        Object.entries(obj).forEach(([k, v]) => sp.append(k, String(v)))
+        bodyContent.value = sp.toString()
+      }
+      // 数组或 null 不做转换，保留原 JSON
+    } catch { /* 非法 JSON，保留原文 */ }
+    return
+  }
+  if (oldType === 'raw_text' && newType === 'raw_json') {
+    const text = bodyContent.value.trim()
+    if (!text) return
+    // 尝试 key=value 格式 → JSON 对象
+    try {
+      const sp = new URLSearchParams(text)
+      const obj: Record<string, string> = {}
+      let hasEntries = false
+      sp.forEach((val, key) => { obj[key] = val; hasEntries = true })
+      if (hasEntries) bodyContent.value = JSON.stringify(obj, null, 2)
+    } catch { /* 解析失败，保留原文 */ }
     return
   }
 })
