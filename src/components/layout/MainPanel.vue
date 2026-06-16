@@ -20,9 +20,14 @@
               {{ method }} <span style="font-size: 10px; margin-left: 2px">▾</span>
             </div>
           </n-dropdown>
-          <n-tag v-if="envStore.activeEnv" size="small" type="success" :bordered="false" style="margin: 0 4px; cursor: default">
-            {{ envTagText }}
-          </n-tag>
+          <n-tooltip v-if="envStore.activeEnv" trigger="hover">
+            <template #trigger>
+              <n-tag size="small" type="success" :bordered="false" style="margin: 0 4px; cursor: default">
+                {{ envTagText }}
+              </n-tag>
+            </template>
+            {{ envTooltipText }}
+          </n-tooltip>
           <!-- URL 输入框 + {{var}} 高亮层（仅有变量时才渲染高亮覆盖层） -->
           <div class="url-input-wrap">
             <!-- 高亮覆盖层：仅当 URL 含 {{var}} 时渲染，否则直接显示文字避免重影 -->
@@ -484,7 +489,7 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import {
   NSelect, NInput, NButton, NTabs, NTabPane, NEmpty,
   NTag, NDivider, NCheckbox, NRadioGroup, NRadioButton, NRadio,
-  NDropdown,
+  NDropdown, NTooltip,
   useMessage, useDialog,
 } from 'naive-ui'
 import { parseUrl, buildUrl, resolveEffectiveUrl, hasUnresolvedPlaceholder } from '../../utils/urlParser'
@@ -753,12 +758,17 @@ const methodColor = computed(() => {
   return v || '#8c8c8c'  // 极早期 token 未注入时的兜底
 })
 
-// ── 环境标签文本（显示 baseURL(环境名) 格式）─────────────────────
+// ── 环境标签文本（名称，hover 显示 base URL）─────────────────────
 const envTagText = computed(() => {
   const env = envStore.activeEnv
   if (!env) return ''
-  if (env.base_url) return `${env.base_url}(${env.name})`
   return env.name
+})
+
+const envTooltipText = computed(() => {
+  const env = envStore.activeEnv
+  if (!env) return ''
+  return env.base_url ? `Base URL: ${env.base_url}` : '未配置 Base URL'
 })
 
 // ── 接口修改 dirty 标记 ────────────────────────────────────────────
