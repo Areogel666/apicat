@@ -79,33 +79,29 @@ function handleKeydown(e: KeyboardEvent) {
 
   e.preventDefault()
 
-  // 第一次 Ctrl+F：全展开 JSON 树
-  if (expandLevel.value < 999) {
-    // 大响应体：全展开代价过高，直接 fallback 到 raw
-    if (props.body.length > LARGE_RESPONSE_THRESHOLD) {
-      emit('fallback-to-raw')
-      message.info('响应体较大，已切换为原始模式，再次按 Ctrl+F 可搜索')
-      return
-    }
-    expandLevel.value = 999
-    nextTick(() => {
-      message.info('已展开所有节点，再次按 Ctrl+F 可搜索')
-    })
+  // 大响应体：全展开代价过高，直接 fallback 到 raw
+  if (props.body.length > LARGE_RESPONSE_THRESHOLD) {
+    emit('fallback-to-raw')
+    message.info('响应体较大，已切换为原始模式，再次按 Ctrl+F 可搜索')
     return
   }
 
-  // 第二次 Ctrl+F：已全展开，主动调 window.find() 弹出搜索 UI
-  // Linux WebKitGTK 的浏览器原生搜索框可能被 WebView 拦截，
-  // window.find() 作为 fallback 触发 WebKit 内置搜索
-  if (typeof (window as any).find === 'function') {
-    const selection = window.getSelection()
-    const selectedText = selection?.toString() || ''
-    ;(window as any).find(selectedText || '')
-  } else {
-    // 不支持 window.find 的 WebView：fallback 到 raw 模式即可用原生搜索
-    emit('fallback-to-raw')
-    message.info('已切换为原始模式，现在可按 Ctrl+F 搜索')
-  }
+  // 强制重新展开所有节点（处理用户手动收起后再 Ctrl+F 的场景）
+  expandLevel.value = 3
+  nextTick(() => {
+    expandLevel.value = 999
+    nextTick(() => {
+      // 展开完成后，主动调 window.find() 弹出搜索 UI
+      if (typeof (window as any).find === 'function') {
+        const selection = window.getSelection()
+        const selectedText = selection?.toString() || ''
+        ;(window as any).find(selectedText || '')
+      } else {
+        emit('fallback-to-raw')
+        message.info('已切换为原始模式，现在可按 Ctrl+F 搜索')
+      }
+    })
+  })
 }
 
 onMounted(() => {
