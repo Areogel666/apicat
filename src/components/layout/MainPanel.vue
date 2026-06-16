@@ -1259,54 +1259,94 @@ watch(queryParams, () => {
   nextTick(() => { syncingFromParams = false })
 }, { deep: true })
 
-// 1.0.3 Bug Fix：Body 格式切换时自动转换现有参数
-// URL Encoded ↔ JSON ↔ Form Data 三种格式互相转换
+// 1.0.3 Bug Fix：Body 5 种格式互相转换
+//   textarea 类（raw_json / raw_text）共享 bodyContent，彼此切换不清空
+//   table 类（form_urlencoded / form_data）各自有 ParamItem[] 数组
+//   非 table → table：尝试 JSON parse → 对象转 ParamItem[]；不行则 URLSearchParams → ParamItem[]
+//   table → 非 table：ParamItem[] → JSON 对象 → JSON string 或 k=v 文本
 watch(bodyType, (newType, oldType) => {
   if (isInitializing) return
 
-  // URL Encoded → JSON：将 urlencodedParams 序列化为 JSON 对象字符串
-  if (oldType === 'form_urlencoded' && newType === 'raw_json') {
+  // ==== 从 textarea 类出发 ====
+
+  // JSON / Text → URL Encoded
+  if ((oldType === 'raw_json' || oldType === 'raw_text') && newType === 'form_urlencoded') {
+    const text = bodyContent.value.trim()
+    if (!text) return
+    const params = parseTextToParams(text)
+    if (params.length > 0) urlencodedParams.value = params
+    return
+  }
+
+  // JSON / Text → Form Data
+  if ((oldType === 'raw_json' || oldType === 'raw_text') && newType === 'form_data') {
+    const text = bodyContent.value.trim()
+    if (!text) return
+    const params = parseTextToParams(text)
+    if (params.length > 0) formDataParams.value = params
+    return
+  }
+
+  // ==== 从 table 类出发 ====
+
+  // URL Encoded / Form Data → JSON
+  if ((oldType === 'form_urlencoded' || oldType === 'form_data') && newType === 'raw_json') {
+    const source = oldType === 'form_urlencoded' ? urlencodedParams.value : formDataParams.value
     const obj: Record<string, string> = {}
-    urlencodedParams.value.filter(f => f.enabled && f.key).forEach(f => { obj[f.key] = f.value })
+    source.filter(f => f.enabled && f.key).forEach(f => { obj[f.key] = f.value })
     if (Object.keys(obj).length > 0) {
       bodyContent.value = JSON.stringify(obj, null, 2)
     }
+    return
   }
 
-  // URL Encoded → Form Data：直接复用 urlencodedParams
+  // URL Encoded / Form Data → Text（key=value 格式）
+  if ((oldType === 'form_urlencoded' || oldType === 'form_data') && newType === 'raw_text') {
+    const source = oldType === 'form_urlencoded' ? urlencodedParams.value : formDataParams.value
+    const sp = new URLSearchParams()
+    source.filter(f => f.enabled && f.key).forEach(f => sp.append(f.key, f.value))
+    const qs = sp.toString()
+    if (qs) bodyContent.value = qs
+    return
+  }
+
+  // ==== table ↔ table ====
+
+  // URL Encoded → Form Data
   if (oldType === 'form_urlencoded' && newType === 'form_data') {
     formDataParams.value = urlencodedParams.value.map(f => ({ ...f }))
+    return
   }
 
-  // Form Data → URL Encoded：直接复用 formDataParams
+  // Form Data → URL Encoded
   if (oldType === 'form_data' && newType === 'form_urlencoded') {
     urlencodedParams.value = formDataParams.value.map(f => ({ ...f }))
-  }
-
-  // JSON → URL Encoded：尝试将 JSON body 解析为键值对
-  if (oldType === 'raw_json' && newType === 'form_urlencoded') {
-    try {
-      const obj = JSON.parse(bodyContent.value || '{}')
-      if (typeof obj === 'object' && obj !== null && !Array.isArray(obj)) {
-        urlencodedParams.value = Object.entries(obj).map(([k, v]) => ({
-          key: k, value: String(v), enabled: true,
-        }))
-      }
-    } catch { /* body 非合法 JSON，不做转换 */ }
-  }
-
-  // JSON → Form Data
-  if (oldType === 'raw_json' && newType === 'form_data') {
-    try {
-      const obj = JSON.parse(bodyContent.value || '{}')
-      if (typeof obj === 'object' && obj !== null && !Array.isArray(obj)) {
-        formDataParams.value = Object.entries(obj).map(([k, v]) => ({
-          key: k, value: String(v), enabled: true,
-        }))
-      }
-    } catch { /* body 非合法 JSON，不做转换 */ }
+    return
   }
 })
+
+/** 将文本（JSON 或 key=value）解析为 ParamItem[]，转换失败返回空数组 */
+function parseTextToParams(text: string): ParamItem[] {
+  // 优先尝试 JSON parse
+  try {
+    const obj = JSON.parse(text)
+    if (typeof obj === 'object' && obj !== null && !Array.isArray(obj)) {
+      return Object.entries(obj).map(([k, v]) => ({
+        key: k, value: String(v), enabled: true,
+      }))
+    }
+  } catch { /* 非 JSON，继续尝试 */ }
+
+  // 尝试 URLSearchParams（k1=v1&k2=v2）
+  try {
+    const sp = new URLSearchParams(text)
+    const params: ParamItem[] = []
+    sp.forEach((val, key) => { params.push({ key, value: val, enabled: true }) })
+    if (params.length > 0) return params
+  } catch { /* 解析失败 */ }
+
+  return []
+}
 
 // 监听其他编辑区字段变化，标记接口 dirty
 watch(method, markRequestDirty)
