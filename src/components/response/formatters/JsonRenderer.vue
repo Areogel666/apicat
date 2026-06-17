@@ -73,34 +73,30 @@ const parsedJson = computed(() => {
 function handleKeydown(e: KeyboardEvent) {
   const isFindKey = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f' && !e.shiftKey
   if (!isFindKey) return
-  if (!props.isHovering) return              // 鼠标不在响应区
-  if (props.viewMode === 'raw') return       // 已是原始模式，原生搜索即可
+  if (!props.isHovering) return              // 其他面板：放行给原生搜索
+  if (props.viewMode === 'raw') return       // 已 raw，<pre> 上原生搜索可用
   if (parsedJson.value === null) return      // JSON 解析失败，走 <pre>，不劫持
 
   e.preventDefault()
 
-  // 大响应体：全展开代价过高，直接 fallback 到 raw
+  // 大响应体（>500KB）：全展开代价过高，直接切 raw
   if (props.body.length > LARGE_RESPONSE_THRESHOLD) {
     emit('fallback-to-raw')
-    message.info('响应体较大，已切换为原始模式，再次按 Ctrl+F 可搜索')
+    message.info('响应体较大，已切换为原始模式，再次 Ctrl+F 可搜索')
     return
   }
 
-  // 强制重新展开所有节点（处理用户手动收起后再 Ctrl+F 的场景）
-  expandLevel.value = 3
+  // 已展开或已提示过 → 切 raw，让浏览器在 <pre> 上原生搜索
+  if (expandLevel.value >= 999) {
+    emit('fallback-to-raw')
+    message.info('已切换为原始模式，现在可用 Ctrl+F 搜索内容')
+    return
+  }
+
+  // 首次 Ctrl+F：全展开所有节点
+  expandLevel.value = 999
   nextTick(() => {
-    expandLevel.value = 999
-    nextTick(() => {
-      // 展开完成后，主动调 window.find() 弹出搜索 UI
-      if (typeof (window as any).find === 'function') {
-        const selection = window.getSelection()
-        const selectedText = selection?.toString() || ''
-        ;(window as any).find(selectedText || '')
-      } else {
-        emit('fallback-to-raw')
-        message.info('已切换为原始模式，现在可按 Ctrl+F 搜索')
-      }
-    })
+    message.info('已展开所有节点，再次 Ctrl+F 切换为原始模式并搜索')
   })
 }
 
