@@ -66,66 +66,65 @@ const previewStyle = computed(() => {
   border: 1px solid var(--border-base);
 }
 .preview-label {
-  font-size: 10px;
+  font-size: var(--font-size-sm);
   color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.8px;
-  margin-bottom: 8px;
+  margin-bottom: var(--spacing-sm);
 }
 .mini-app {
   display: flex;
-  gap: 8px;
+  gap: var(--spacing-sm);
   background: var(--bg-base);
   border-radius: var(--radius-sm);
-  padding: 10px;
+  padding: var(--spacing-sm);
   border: 1px solid var(--border-base);
 }
 .mini-sidebar {
   width: 40px;
-  height: 60px;
-  border-radius: 3px;
-  padding: 4px;
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-xs);
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--spacing-xs);
 }
 .mini-nav-item {
-  height: 10px;
-  border-radius: 2px;
+  height: calc(var(--row-height) / 2 - 1px);
+  border-radius: var(--radius-sm);
   width: 100%;
 }
 .mini-main {
   flex: 1;
-  border-radius: 3px;
-  padding: 6px 10px;
-  font-size: 10px;
-  min-height: 60px;
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  min-height: calc(var(--row-height) * 2 - 4px);
 }
 .mini-method {
   display: inline-block;
   font-weight: 600;
-  padding: 0 4px;
+  padding: 0 var(--spacing-xs);
   border: 1px solid;
-  border-radius: 2px;
-  font-size: 9px;
-  margin-right: 4px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  margin-right: var(--spacing-xs);
 }
 .mini-url {
-  font-size: 9px;
+  font-size: var(--font-size-sm);
 }
 .mini-input {
   width: 100%;
-  height: 14px;
-  border-radius: 2px;
+  height: calc(var(--input-height) / 2);
+  border-radius: var(--radius-sm);
   border: 1px solid;
-  margin-top: 4px;
+  margin-top: var(--spacing-xs);
 }
 .mini-btn {
   display: inline-block;
-  padding: 1px 8px;
-  border-radius: 2px;
-  font-size: 9px;
+  padding: 1px var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
   font-weight: 500;
-  margin-top: 4px;
+  margin-top: var(--spacing-xs);
 }
 </style>

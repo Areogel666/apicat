@@ -240,7 +240,7 @@ function handleCtxClose(action: 'current' | 'others' | 'left' | 'right') {
 
 <style scoped>
 .tab-bar {
-  height: 36px;
+  height: calc(var(--row-height) + 4px);
   flex-shrink: 0;
   border-bottom: 1px solid var(--border-base);
   background: var(--bg-surface);
@@ -258,15 +258,15 @@ function handleCtxClose(action: 'current' | 'others' | 'left' | 'right') {
 .tab-item {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 12px;
+  gap: var(--spacing-xs);
+  padding: 0 var(--spacing-md);
   height: 100%;
   min-width: 80px;
   max-width: 180px;
   flex-shrink: 0;
   cursor: pointer;
   border-right: 1px solid var(--border-base);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-tertiary);
   user-select: none;
   position: relative;
@@ -296,13 +296,13 @@ function handleCtxClose(action: 'current' | 'others' | 'left' | 'right') {
 
 .tab-close {
   all: unset;
-  width: 16px;
-  height: 16px;
-  border-radius: 3px;
+  width: calc(var(--row-height) - 16px);
+  height: calc(var(--row-height) - 16px);
+  border-radius: var(--radius-sm);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: var(--font-size-sm);
   color: var(--text-disabled);
   cursor: pointer;
   flex-shrink: 0;
@@ -325,14 +325,14 @@ function handleCtxClose(action: 'current' | 'others' | 'left' | 'right') {
   z-index: 9999;
   background: var(--bg-elevated);
   border: 1px solid var(--border-base);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
-  padding: 4px 0;
+  padding: var(--spacing-xs) 0;
   min-width: 140px;
-  font-size: 13px;
+  font-size: var(--font-size-base);
 }
 .tab-ctx-item {
-  padding: 7px 14px;
+  padding: var(--spacing-sm) var(--spacing-md);
   cursor: pointer;
   color: var(--text-primary);
   user-select: none;

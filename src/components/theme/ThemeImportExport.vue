@@ -88,7 +88,7 @@ function handleImport(e: Event) {
       }
 
       themeStore.applyTheme()
-      message.success(`已导入主题「${data.name || '未命名'}」，请预览后点击"应用主题"`)
+      message.success(`已导入主题「${data.name || '未命名'}」，关闭弹窗即保存`)
     } catch (err) {
       message.error(`导入失败：${(err as Error).message}`)
     }

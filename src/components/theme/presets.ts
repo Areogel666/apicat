@@ -23,7 +23,7 @@ export const PRESET_THEMES: ThemePreset[] = [
   {
     id: 'ocean-blue',
     name: '深蓝',
-    description: '专业冷静的深蓝暗色主题',
+    description: '专业冷静的深蓝主题',
     mode: 'dark',
     swatches: ['#4a9eff', '#18181c', '#63cd96'],
     tokens: {
@@ -35,9 +35,6 @@ export const PRESET_THEMES: ThemePreset[] = [
       '--color-warning': '#f0c060',
       '--color-error': '#e88080',
       '--color-info': '#70c0e8',
-      '--bg-base': '#18181c',
-      '--bg-surface': '#1f1f23',
-      '--bg-elevated': '#2a2a30',
     },
     density: 'default',
     radiusScale: 1.0,
@@ -46,7 +43,7 @@ export const PRESET_THEMES: ThemePreset[] = [
   {
     id: 'bamboo',
     name: '竹林',
-    description: 'ApiCat 默认暗色主题',
+    description: 'ApiCat 默认绿色主题',
     mode: 'dark',
     swatches: ['#63cd96', '#18181c', '#63cd96'],
     tokens: {
@@ -86,7 +83,7 @@ export const PRESET_THEMES: ThemePreset[] = [
   {
     id: 'purple-haze',
     name: '紫苑',
-    description: '优雅浪漫的紫色暗色主题',
+    description: '优雅浪漫的紫色主题',
     mode: 'dark',
     swatches: ['#b39ff0', '#1e1e24', '#ff6b9d'],
     tokens: {
@@ -98,9 +95,6 @@ export const PRESET_THEMES: ThemePreset[] = [
       '--color-warning': '#f0c060',
       '--color-error': '#ff6b9d',
       '--color-info': '#70c0e8',
-      '--bg-base': '#1e1e24',
-      '--bg-surface': '#25252c',
-      '--bg-elevated': '#2f2f38',
     },
     density: 'default',
     radiusScale: 1.0,

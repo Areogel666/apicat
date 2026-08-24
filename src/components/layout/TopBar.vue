@@ -23,6 +23,12 @@
         style="width: 150px"
         @update:value="handleEnvChange"
       />
+      <n-button
+        size="small"
+        quaternary
+        :title="themeStore.effectiveMode === 'dark' ? '切换到浅色模式' : '切换到深色模式'"
+        @click="toggleThemeMode"
+      >{{ themeStore.effectiveMode === 'dark' ? '🌙' : '☀️' }}</n-button>
       <n-button size="small" quaternary title="Cookie 管理" @click="showCookieManager = true">🍪</n-button>
       <n-dropdown
         :options="settingsMenuOptions"
@@ -116,6 +122,12 @@ const settingsMenuOptions = computed(() => [
   { type: 'divider', key: 'd3' },
   { label: '🔄 检查更新...', key: 'checkUpdate' },
 ])
+
+// 顶部栏二态切换：浅色 ↔ 深色（不经过跟随系统）
+async function toggleThemeMode() {
+  const target: ThemeMode = themeStore.effectiveMode === 'dark' ? 'light' : 'dark'
+  await themeStore.setMode(target)
+}
 
 async function handleSettingsMenu(key: string) {
   if (key === 'import') showImportDialog.value = true
@@ -288,12 +300,12 @@ async function handleEnvChange(val: number) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 48px;
-  padding: 0 16px;
+  height: calc(var(--row-height) + 16px);
+  padding: 0 var(--spacing-md);
   border-bottom: 1px solid var(--border-base);
   background: var(--bg-elevated);
   flex-shrink: 0;
-  gap: 12px;
+  gap: var(--spacing-md);
   -webkit-app-region: drag;
 }
 
@@ -302,12 +314,12 @@ async function handleEnvChange(val: number) {
   -webkit-app-region: no-drag;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--spacing-sm);
 }
 
 .top-bar__logo {
   font-weight: 700;
-  font-size: 15px;
+  font-size: var(--font-size-lg);
   letter-spacing: -0.3px;
   white-space: nowrap;
   user-select: none;

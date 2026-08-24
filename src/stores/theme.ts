@@ -133,6 +133,40 @@ export const useThemeStore = defineStore('theme', () => {
     applyTheme()
   }
 
+  // ====== 主题工作室回退机制 ======
+
+  interface ThemeSnapshot {
+    mode: ThemeMode
+    customTokens: Record<string, string>
+    density: 'compact' | 'default' | 'spacious'
+    radiusScale: 0.5 | 1.0 | 1.5
+    fontSize: 's' | 'm' | 'l'
+  }
+  let themeSnapshot: ThemeSnapshot | null = null
+
+  /** 打开工作室时缓存当前状态，供「回退主题」恢复 */
+  function snapshotTheme() {
+    themeSnapshot = {
+      mode: mode.value,
+      customTokens: { ...customTokens.value },
+      density: density.value,
+      radiusScale: radiusScale.value,
+      fontSize: fontSize.value,
+    }
+  }
+
+  /** 恢复到打开前快照（只改内存 + DOM，写盘交给关闭时的 commit） */
+  function revertTheme() {
+    if (!themeSnapshot) return
+    mode.value = themeSnapshot.mode
+    customTokens.value = { ...themeSnapshot.customTokens }
+    density.value = themeSnapshot.density
+    radiusScale.value = themeSnapshot.radiusScale
+    fontSize.value = themeSnapshot.fontSize
+    themeSnapshot = null
+    applyTheme()
+  }
+
   /** 重置单个 token 为默认值 */
   function resetToken(key: string) {
     const newTokens = { ...customTokens.value }
@@ -196,6 +230,8 @@ export const useThemeStore = defineStore('theme', () => {
     resolvedTokens,
     applyTheme,
     applyCustomTheme,
+    snapshotTheme,
+    revertTheme,
     resetToken,
     resetAll,
   }

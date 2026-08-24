@@ -125,23 +125,23 @@ function onRefill(snapshot: string) {
   flex-direction: column;
   flex: 1;
   overflow: hidden;
-  padding: 0 16px 12px;
+  padding: 0 var(--spacing-md) var(--spacing-sm);
   min-height: 180px;
 }
 
 .response-status-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 0 4px;
-  font-size: 12px;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) 0 var(--spacing-xs);
+  font-size: var(--font-size-base);
   flex-shrink: 0;
 }
 
 .status-text { color: var(--text-tertiary); }
-.status-meta { color: var(--text-tertiary); font-size: 11px; }
-.status-error { color: var(--color-error); font-size: 12px; }
-.status-placeholder { font-weight: 600; font-size: 13px; color: var(--text-secondary); }
+.status-meta { color: var(--text-tertiary); font-size: var(--font-size-sm); }
+.status-error { color: var(--color-error); font-size: var(--font-size-base); }
+.status-placeholder { font-weight: 600; font-size: var(--font-size-base); color: var(--text-secondary); }
 
 .response-tabs {
   flex: 1;
@@ -177,13 +177,13 @@ function onRefill(snapshot: string) {
   min-height: 0;
 }
 
-.headers-list { overflow-y: auto; padding: 4px 0; }
+.headers-list { overflow-y: auto; padding: var(--spacing-xs) 0; }
 
 .header-row {
   display: flex;
-  gap: 8px;
-  padding: 3px 0;
-  font-size: 12px;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) 0;
+  font-size: var(--font-size-base);
   border-bottom: 1px solid var(--border-base);
 }
 

@@ -5,6 +5,7 @@
     title="主题工作室"
     style="width: 800px; max-height: 90vh;"
     :mask-closable="false"
+    @update:show="onShowChange"
   >
     <div class="theme-studio-body">
       <!-- 预设主题 -->
@@ -40,7 +41,7 @@
         <ThemeImportExport />
         <n-space>
           <n-button quaternary @click="handleResetAll">全部重置</n-button>
-          <n-button type="primary" @click="handleApply">应用主题</n-button>
+          <n-button type="primary" @click="handleRevert">回退主题</n-button>
         </n-space>
       </div>
     </div>
@@ -66,6 +67,8 @@ const showModal = ref(false)
 
 /** 暴露给父组件调用 */
 function open() {
+  // 打开时缓存当前主题，供「回退主题」恢复
+  themeStore.snapshotTheme()
   showModal.value = true
 }
 function close() {
@@ -74,10 +77,21 @@ function close() {
 
 defineExpose({ open, close })
 
-async function handleApply() {
-  await themeStore.applyCustomTheme()
-  message.success('主题已应用')
+/**
+ * 关闭弹窗时保存当前主题（含 mask/ESC/回退等所有关闭路径）。
+ * 回退主题已先把 store 恢复到快照，此处写盘的就是快照本身。
+ */
+async function onShowChange(show: boolean) {
+  if (!show) {
+    await themeStore.applyCustomTheme()
+  }
+}
+
+/** 回退到打开前快照并关闭弹窗（关闭时 onShowChange 写回快照） */
+function handleRevert() {
+  themeStore.revertTheme()
   showModal.value = false
+  message.success('已回退到打开前的主题')
 }
 
 async function handleResetAll() {

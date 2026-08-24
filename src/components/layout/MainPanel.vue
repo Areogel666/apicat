@@ -1928,15 +1928,15 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding: 12px 16px 0;
+  padding: var(--spacing-md) var(--spacing-lg) 0;
   flex-shrink: 0;
 }
 
 .url-bar {
   display: flex;
-  gap: 8px;
+  gap: var(--spacing-sm);
   align-items: center;
-  margin-bottom: 4px;
+  margin-bottom: var(--spacing-xs);
 }
 
 .url-input-combo {
@@ -1944,10 +1944,10 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
   align-items: center;
   flex: 1;
   border: 1px solid var(--border-base);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background-color: var(--bg-elevated);
   transition: border-color 0.3s;
-  padding-left: 8px;
+  padding-left: var(--spacing-sm);
 }
 .url-input-combo:focus-within {
   border-color: var(--color-primary);
@@ -1955,10 +1955,10 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
 }
 .method-trigger {
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--font-size-base);
   cursor: pointer;
-  padding: 4px;
-  border-radius: 3px;
+  padding: var(--spacing-xs);
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   gap: 2px;
@@ -1984,27 +1984,27 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
   height: 0; /* flex 子项需要 height: 0 才能被压缩到容器高度 */
 }
 
-.params-editor { padding: 8px 4px; overflow-y: auto; flex: 1; }
-.params-section-label { font-size: 11px; font-weight: 600; color: var(--text-tertiary); padding: 4px 0 6px; text-transform: uppercase; letter-spacing: 0.5px; }
-.param-row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
-.tab-content-placeholder { padding: 20px 0; }
+.params-editor { padding: var(--spacing-sm) var(--spacing-xs); overflow-y: auto; flex: 1; }
+.params-section-label { font-size: var(--font-size-sm); font-weight: 600; color: var(--text-tertiary); padding: var(--spacing-xs) 0 var(--spacing-sm); text-transform: uppercase; letter-spacing: 0.5px; }
+.param-row { display: flex; gap: var(--spacing-sm); align-items: center; margin-bottom: var(--spacing-sm); }
+.tab-content-placeholder { padding: var(--spacing-lg) 0; }
 
 .params-mode-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 0 6px;
+  padding: var(--spacing-xs) 0 var(--spacing-sm);
 }
 .mode-tabs {
   display: flex;
   gap: 0;
   border: 1px solid var(--border-base);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
 }
 .mode-tab {
-  padding: 2px 8px;
-  font-size: 11px;
+  padding: 2px var(--spacing-sm);
+  font-size: var(--font-size-sm);
   cursor: pointer;
   color: var(--text-tertiary);
   transition: background 0.1s, color 0.1s;
@@ -2066,12 +2066,12 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  padding: 4px 6px;
-  margin-bottom: 6px;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
   background: var(--bg-surface);
-  border-radius: 4px;
-  font-size: 11px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
   color: var(--text-tertiary);
 }
 .auto-headers-label {
@@ -2081,10 +2081,10 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
 .auto-header-badge {
   background: var(--border-base);
   color: var(--text-secondary);
-  border-radius: 3px;
-  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  padding: 1px var(--spacing-sm);
   font-family: monospace;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
 }
 
 /* 无 Tab 时的空白引导页 */

@@ -38,7 +38,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive } from 'vue'
+import { reactive, computed } from 'vue'
 import { useThemeStore } from '../../stores/theme'
 import { DEFAULT_LIGHT_TOKENS, DEFAULT_DARK_TOKENS } from './tokenDefaults'
 import TokenColorRow from './TokenColorRow.vue'
@@ -130,8 +130,8 @@ const groups: GroupDef[] = [
   },
 ]
 
-// 通过 resolvedTokens 读当前生效值
-const resolvedTokens = themeStore.resolvedTokens
+// 通过 resolvedTokens 读当前生效值（computed 保持响应式，修改后自动刷新）
+const resolvedTokens = computed(() => themeStore.resolvedTokens)
 
 function onTokenChange(key: string, value: string) {
   themeStore.customTokens = { ...themeStore.customTokens, [key]: value }

@@ -1188,15 +1188,15 @@ async function doImportCurl() {
   flex-shrink: 0;
   overflow: hidden;
 }
-.sidebar__search { padding: 10px 10px 6px; flex-shrink: 0; display: flex; align-items: center; gap: 4px; }
-.sidebar__tree { flex: 1; overflow-y: auto; padding: 4px 0; }
-.sidebar__footer { padding: 8px 10px; border-top: 1px solid var(--border-base); flex-shrink: 0; }
+.sidebar__search { padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-xs); flex-shrink: 0; display: flex; align-items: center; gap: var(--spacing-xs); }
+.sidebar__tree { flex: 1; overflow-y: auto; padding: var(--spacing-xs) 0; }
+.sidebar__footer { padding: var(--spacing-sm) var(--spacing-sm); border-top: 1px solid var(--border-base); flex-shrink: 0; }
 
 /* ── label 区域 ───────────────────────────────────────────── */
 .node-label {
   display: inline-flex;
   align-items: center;
-  font-size: 13px;
+  font-size: var(--font-size-base);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1208,20 +1208,20 @@ async function doImportCurl() {
   z-index: 9999;
   background: var(--bg-elevated);
   border: 1px solid var(--border-base);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
-  padding: 4px 0;
+  padding: var(--spacing-xs) 0;
   min-width: 148px;
-  font-size: 13px;
+  font-size: var(--font-size-base);
 }
 .ctx-item {
-  padding: 7px 14px;
+  padding: var(--spacing-sm) var(--spacing-md);
   cursor: pointer;
   color: var(--text-primary);
   user-select: none;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--spacing-sm);
   transition: background 0.1s;
 }
 .ctx-item:hover { background: var(--bg-hover); }
@@ -1236,7 +1236,7 @@ async function doImportCurl() {
 .node-suffix {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--spacing-xs);
 }
 
 /* ── 操作按钮组：默认隐藏，nodeProps mouseenter/mouseleave 通过 DOM style 控制 */
@@ -1253,16 +1253,16 @@ async function doImportCurl() {
 .node-action-btn {
   all: unset;
   box-sizing: border-box;
-  width: 22px;
-  height: 20px;
-  border-radius: 4px;
+  width: calc(var(--row-height) - 10px);
+  height: calc(var(--row-height) - 12px);
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-tertiary);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: var(--font-size-sm);
   letter-spacing: 0.5px;
   line-height: 1;
   user-select: none;
@@ -1280,7 +1280,7 @@ async function doImportCurl() {
 
 /* + 按钮较大字号 */
 .node-action-btn--add {
-  font-size: 16px;
+  font-size: var(--font-size-lg);
   letter-spacing: 0;
 }
 
