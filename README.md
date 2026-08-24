@@ -5,7 +5,7 @@
     一款基于 Tauri、Rust 和 Vue 3 构建的轻量、高性能 API 调试与测试工具。
   </p>
   <p>
-    <img src="https://img.shields.io/badge/version-1.0.2-orange" alt="version"/>
+    <img src="https://img.shields.io/badge/version-1.0.3-orange" alt="version"/>
     <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="platform"/>
     <img src="https://img.shields.io/badge/license-MIT-green" alt="license"/>
   </p>
@@ -35,6 +35,7 @@ ApiCat is a modern desktop application for API debugging and testing, powered by
 - **Multi-Tab Workflow**: Open multiple requests in parallel tabs, switch freely, and restore session state across restarts.
 - **Productivity Boosters**: Inline method selector with color coding, URL ↔ QueryParams two-way binding, cURL import/export, drag-and-drop sorting, syntax-highlighted response viewer.
 - **Unsaved Change Indicator**: Orange dot on request nodes signals unsaved modifications; green dot confirms a successful save (auto-fades after 1.5s).
+- **Theme Studio**: Customize colors, layout density, corner radius, and font size with live preview — preset themes, contrast checking, and theme JSON import/export.
 
 ### 🚀 Quick Start (For Users)
 
@@ -71,7 +72,7 @@ Build output: `src-tauri/target/release/bundle/msi/`
 
 ### 📋 Changelog
 
-- Latest stable: [docs/release/1.0.2.md](docs/release/1.0.2.md)
+- Latest stable: [docs/release/1.0.3.md](docs/release/1.0.3.md)
 - Beta history: [docs/release/1.0.0-beta.md](docs/release/1.0.0-beta.md)
 
 ### 📄 License
@@ -97,6 +98,7 @@ ApiCat 是一款基于 Tauri 2.0 + Rust + Vue 3 的轻量、高性能、无跨�
 - **多标签页工作流**：并行打开多个请求标签页，自由切换，重启后恢复工作现场。
 - **效率工具**：Method 内联彩色选择器、URL ↔ Params 双向绑定、cURL 导入导出、拖拽排序、JSON 高亮与折叠。
 - **暂存状态指示**：左侧树节点旁的橙色圆点表示有未保存修改，绿色圆点表示刚保存成功（1.5s 后自动消失）。
+- **主题工作室**：自由定制配色、布局密度、圆角与字号，实时预览；内置预设主题、对比度检查与主题 JSON 导入导出。
 
 ### 🚀 快速使用
 
@@ -144,7 +146,7 @@ npm run tauri build
 
 ### 📋 更新记录
 
-- 最新稳定版说明： [docs/release/1.0.2.md](docs/release/1.0.2.md)
+- 最新稳定版说明： [docs/release/1.0.3.md](docs/release/1.0.3.md)
 - Beta 阶段历史记录： [docs/release/1.0.0-beta.md](docs/release/1.0.0-beta.md)
 
 ### 📄 开源协议
