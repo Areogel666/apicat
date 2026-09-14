@@ -20,6 +20,10 @@ const DURATION_WINDOW: usize = 10_000;
 
 // ── 统计数据（每 200ms 快照推送到前端）────────────────────
 
+// 耗时直方图时间桶上界（毫秒）：[0,1) [1,2) [2,5) [5,10) [10,20) [20,50) [50,100) [100,200) [200,500) [500+)
+const LATENCY_BUCKETS: [f64; 9] = [1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0];
+const LATENCY_BUCKET_COUNT: usize = 10;
+
 #[derive(Debug, Default, Clone, Serialize)]
 pub struct StressStats {
     pub total: u64,
@@ -33,6 +37,9 @@ pub struct StressStats {
     pub tps: f64,
     pub elapsed_sec: f64,
     pub done: bool,           // 压测是否已结束
+    // 1.0.4 新增：耗时直方图（10 桶累计计数）+ 状态码分布（含 0 = 网络错误）
+    pub latency_hist: Vec<u64>,
+    pub status_counts: Vec<(u16, u64)>,
 }
 
 /// 内部可变统计（由 worker tasks 写入）
@@ -46,13 +53,27 @@ struct RawStats {
     durations_window: Vec<u64>,
     /// 全量 avg 用增量维护（sum / total），不依赖 window
     duration_sum: u64,
+    /// 1.0.4 新增：耗时直方图（10 桶累计）与状态码分布（0 = 网络错误）
+    latency_hist: [u64; LATENCY_BUCKET_COUNT],
+    status_counts: std::collections::HashMap<u16, u64>,
 }
 
 impl RawStats {
-    fn record(&mut self, ok: bool, duration_ms: u64) {
+    fn record(&mut self, ok: bool, duration_ms: u64, status: Option<u16>) {
         self.total += 1;
         if ok { self.success += 1; } else { self.failed += 1; }
         self.duration_sum = self.duration_sum.saturating_add(duration_ms);
+
+        // 直方图分桶：定位 [0,1)..[500+)
+        let d = duration_ms as f64;
+        let mut bucket = LATENCY_BUCKET_COUNT - 1;
+        for (i, upper) in LATENCY_BUCKETS.iter().enumerate() {
+            if d < *upper { bucket = i; break; }
+        }
+        self.latency_hist[bucket] += 1;
+
+        // 状态码分布：网络错误 status=None → 记 0（前端显示为「网络错误」）
+        *self.status_counts.entry(status.unwrap_or(0)).or_insert(0) += 1;
 
         // 滑动窗口：超过上限时循环覆盖最旧条目
         if self.durations_window.len() < DURATION_WINDOW {
@@ -92,6 +113,11 @@ impl RawStats {
             0.0
         };
 
+        // 状态码分布：按次数降序排序
+        let mut status_vec: Vec<(u16, u64)> = self.status_counts.iter()
+            .map(|(k, v)| (*k, *v)).collect();
+        status_vec.sort_by(|a, b| b.1.cmp(&a.1));
+
         StressStats {
             total: self.total,
             success: self.success,
@@ -104,6 +130,8 @@ impl RawStats {
             tps,
             elapsed_sec,
             done,
+            latency_hist: self.latency_hist.to_vec(),
+            status_counts: status_vec,
         }
     }
 }
@@ -249,9 +277,16 @@ pub async fn start_stress(
 
                 let h = tokio::spawn(async move {
                     let t = Instant::now();
-                    let ok = send(&client_clone, &params_clone).await.is_ok();
-                    let dur = t.elapsed().as_millis() as u64;
-                    raw_clone.lock().unwrap().record(ok, dur);
+                    match send(&client_clone, &params_clone).await {
+                        Ok(resp) => {
+                            let dur = t.elapsed().as_millis() as u64;
+                            raw_clone.lock().unwrap().record(true, dur, Some(resp.status_code));
+                        }
+                        Err(_) => {
+                            let dur = t.elapsed().as_millis() as u64;
+                            raw_clone.lock().unwrap().record(false, dur, None);
+                        }
+                    }
                     drop(permit);
                 });
                 handles.push(h);
@@ -290,9 +325,16 @@ pub async fn start_stress(
 
                 join_set.spawn(async move {
                     let t = Instant::now();
-                    let ok = send(&client_clone, &params_clone).await.is_ok();
-                    let dur = t.elapsed().as_millis() as u64;
-                    raw_clone.lock().unwrap().record(ok, dur);
+                    match send(&client_clone, &params_clone).await {
+                        Ok(resp) => {
+                            let dur = t.elapsed().as_millis() as u64;
+                            raw_clone.lock().unwrap().record(true, dur, Some(resp.status_code));
+                        }
+                        Err(_) => {
+                            let dur = t.elapsed().as_millis() as u64;
+                            raw_clone.lock().unwrap().record(false, dur, None);
+                        }
+                    }
                     drop(permit);
                 });
             }

@@ -31,6 +31,9 @@ export interface StressStats {
   tps: number
   elapsed_sec: number
   done: boolean
+  // 1.0.4 新增：耗时直方图（10 桶累计计数）+ 状态码分布 [status, count][]（0=网络错误）
+  latency_hist?: number[]
+  status_counts?: Array<[number, number]>
 }
 
 export interface StressConfig {

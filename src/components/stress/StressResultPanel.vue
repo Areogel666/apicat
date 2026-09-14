@@ -57,6 +57,42 @@
       </div>
     </div>
 
+    <!-- 1.0.4：耗时分布直方图 + 状态码分布 -->
+    <template v-if="stressStore.stats?.done">
+      <div class="stress-section-title">耗时分布（ms）</div>
+      <div class="hist-bar">
+        <n-tooltip v-for="(bucket, i) in latencyBuckets" :key="i">
+          <template #trigger>
+            <div class="hist-col">
+              <div class="hist-col__bar" :style="{
+                height: histHeight(bucket) + 'px',
+                background: readToken('--color-primary', '#18a058'),
+              }"></div>
+              <span class="hist-col__label">{{ bucket.label }}</span>
+            </div>
+          </template>
+          {{ bucket.label }}ms: {{ bucket.count }} 次
+        </n-tooltip>
+      </div>
+
+      <div class="stress-section-title">状态码分布</div>
+      <div v-if="!stressStore.stats?.status_counts?.length" class="hist-empty">暂无统计</div>
+      <div v-else class="status-dist">
+        <div v-for="[code, cnt] in stressStore.stats.status_counts" :key="code" class="status-row">
+          <span class="status-code" :style="{ color: statusColor(code) }">
+            {{ code === 0 ? '网络错误' : code }}
+          </span>
+          <div class="status-track">
+            <div class="status-fill" :style="{
+              width: pct(cnt) + '%',
+              background: statusColor(code),
+            }"></div>
+          </div>
+          <span class="status-count">{{ cnt }}</span>
+        </div>
+      </div>
+    </template>
+
     <!-- 进行中提示 / 完成提示 -->
     <div class="status-bar" v-if="stressStore.isRunning">
       <n-spin size="small" />
@@ -76,8 +112,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onUnmounted, nextTick } from 'vue'
-import { NModal, NButton, NSpin } from 'naive-ui'
+import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
+import { NModal, NButton, NSpin, NTooltip } from 'naive-ui'
 import { useStressStore } from '../../stores/stress'
 import { useThemeStore } from '../../stores/theme'
 
@@ -85,6 +121,39 @@ const show = defineModel<boolean>('show', { required: true })
 const stressStore = useStressStore()
 const themeStore = useThemeStore()
 const canvasRef = ref<HTMLCanvasElement | null>(null)
+
+// 1.0.4：耗时直方图桶标签（与 Rust LATENCY_BUCKETS 一致：10 桶）
+const LATENCY_LABELS = ['<1', '1-2', '2-5', '5-10', '10-20', '20-50', '50-100', '100-200', '200-500', '>500']
+const histMaxBucket = 40
+
+const latencyBuckets = computed(() => {
+  const hist = stressStore.stats?.latency_hist ?? []
+  const total = hist.reduce((s, n) => s + n, 0) || 1
+  return LATENCY_LABELS.map((label, i) => ({
+    label,
+    count: hist[i] ?? 0,
+    pct: (hist[i] ?? 0) / total * 100,
+  }))
+})
+
+function histHeight(bucket: { pct: number }): number {
+  return Math.max(2, Math.round(bucket.pct / 100 * histMaxBucket))
+}
+
+/** 状态码 → 颜色 token */
+function statusColor(code: number): string {
+  if (code === 0) return readToken('--status-network', '#909399')
+  if (code >= 200 && code < 300) return readToken('--status-2xx', '#18a058')
+  if (code >= 300 && code < 400) return readToken('--status-3xx', '#2080f0')
+  if (code >= 400 && code < 500) return readToken('--status-4xx', '#f0a020')
+  return readToken('--status-5xx', '#d03050')
+}
+
+function pct(cnt: number): number {
+  const total = (stressStore.stats?.status_counts ?? []).reduce((s, [_, c]) => s + c, 0)
+  if (!total) return 0
+  return Math.round(cnt / total * 100)
+}
 
 /** 从 :root CSS 变量读取色值，用于 canvas 绘制时跟随主题 */
 function readToken(name: string, fallback: string): string {
@@ -271,4 +340,52 @@ onUnmounted(() => {
 }
 .status-bar.done { color: var(--color-success); }
 .status-bar.error { color: var(--color-error); }
-</style>
+
+/* 1.0.4：耗时直方图 + 状态码分布 */
+.stress-section-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-tertiary);
+  margin: var(--spacing-md) 0 var(--spacing-xs);
+}
+.hist-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 60px;
+}
+.hist-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  gap: 2px;
+}
+.hist-col__bar {
+  width: 100%;
+  transition: height 0.2s;
+}
+.hist-col__label {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+.hist-empty { color: var(--text-tertiary); font-size: var(--font-size-sm); padding: var(--spacing-sm) 0; }
+.status-dist { display: flex; flex-direction: column; gap: var(--spacing-xs); }
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+.status-code { width: 64px; font-size: var(--font-size-sm); flex-shrink: 0; }
+.status-track {
+  flex: 1;
+  height: 14px;
+  background: var(--bg-hover);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.status-fill { height: 100%; transition: width 0.2s; }
+.status-count { width: 48px; text-align: right; font-size: var(--font-size-sm); color: var(--text-secondary); }
