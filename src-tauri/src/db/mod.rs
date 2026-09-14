@@ -70,9 +70,12 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Err
     // 1.0.4：api_requests.description 幂等加列
     // ALTER TABLE ADD COLUMN 非幂等，不能写进 0002 SQL 文件；
     // 用 PRAGMA table_info 检测列是否存在，不存在才 ALTER。
-    let cols: Vec<String> = sqlx::query_scalar("PRAGMA table_info(api_requests)")
-        .fetch_all(pool)
-        .await?;
+    // PRAGMA 第 2 列（name）才是列名，query_scalar 默认取第 1 列（cid, INTEGER）——
+    // 显式 `SELECT name FROM pragma_table_info(...)` 避免 String/INTEGER 类型错配。
+    let cols: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM pragma_table_info('api_requests')")
+            .fetch_all(pool)
+            .await?;
     if !cols.iter().any(|c| c == "description") {
         sqlx::query("ALTER TABLE api_requests ADD COLUMN description TEXT DEFAULT ''")
             .execute(pool)
