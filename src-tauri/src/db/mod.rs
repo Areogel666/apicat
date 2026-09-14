@@ -61,6 +61,24 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Err
         sqlx::query(stmt).execute(pool).await?;
     }
 
+    // 1.0.4：数据字典 / 压测历史等新表（0002，纯幂等 CREATE）
+    let migration_sql_2 = include_str!("../../migrations/0002_data_dictionary.sql");
+    for stmt in split_sql_statements(migration_sql_2) {
+        sqlx::query(stmt).execute(pool).await?;
+    }
+
+    // 1.0.4：api_requests.description 幂等加列
+    // ALTER TABLE ADD COLUMN 非幂等，不能写进 0002 SQL 文件；
+    // 用 PRAGMA table_info 检测列是否存在，不存在才 ALTER。
+    let cols: Vec<String> = sqlx::query_scalar("PRAGMA table_info(api_requests)")
+        .fetch_all(pool)
+        .await?;
+    if !cols.iter().any(|c| c == "description") {
+        sqlx::query("ALTER TABLE api_requests ADD COLUMN description TEXT DEFAULT ''")
+            .execute(pool)
+            .await?;
+    }
+
     // M3-C 触发器：trg_tch_keep_10
     // 复合 BEGIN/END 块内部含 ';'，不能写在 0001_init.sql 里（会被 split(';') 拆坏）。
     // 单独以一条 query 执行；CREATE TRIGGER IF NOT EXISTS 幂等。

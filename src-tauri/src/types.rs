@@ -200,3 +200,36 @@ pub struct TestCaseHistory {
     pub error_message: Option<String>,     // 网络层错误（HTTP 错误进 status_code）
     pub created_at: String,
 }
+
+// ── 数据字典（1.0.4 新增）────────────────────────────────────
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct DataDictionary {
+    pub id: i64,
+    pub code: String,
+    pub name: String,
+    pub description: String,
+    pub builtin: i64,
+    pub project_id: Option<i64>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct DictionaryItem {
+    pub id: i64,
+    pub dictionary_id: i64,
+    pub label: String,
+    pub value: String,
+    pub description: String,
+    pub sort_order: i64,
+}
+
+// ── 压测历史（1.0.4 新增，M3 Task 3 使用）──────────────────────
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct StressRun {
+    pub id: i64,
+    pub request_id: i64,
+    pub config_json: String,
+    pub stats_json: String,
+    pub created_at: String,
+}
