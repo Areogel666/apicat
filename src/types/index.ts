@@ -141,6 +141,36 @@ export interface HistoryRecord {
   created_at: string
 }
 
+// ── 数据字典（1.0.4 新增）─────────────────────────────────────
+export interface DataDictionary {
+  id: number
+  code: string
+  name: string
+  description: string
+  builtin: number       // 0 | 1
+  project_id: number | null
+  created_at: string
+  updated_at: string
+}
+
+export interface DictionaryItem {
+  id: number
+  dictionary_id: number
+  label: string
+  value: string
+  description: string
+  sort_order: number
+}
+
+// ── 压测历史（1.0.4 新增）─────────────────────────────────────
+export interface StressRun {
+  id: number
+  request_id: number
+  config_json: string
+  stats_json: string
+  created_at: string
+}
+
 // ── 环境相关类型 ──────────────────────────────────────
 
 export interface Environment {
