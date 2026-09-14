@@ -34,9 +34,12 @@ pub struct StressStats {
     pub failed: u64,
     pub success_rate: f64,    // 0.0 ~ 100.0
     pub avg_ms: f64,
+    pub min_ms: u64,
     pub p50_ms: u64,
+    pub p90_ms: u64,
     pub p95_ms: u64,
     pub p99_ms: u64,
+    pub max_ms: u64,
     pub tps: f64,
     pub elapsed_sec: f64,
     pub done: bool,           // 压测是否已结束
@@ -104,6 +107,9 @@ impl RawStats {
             self.duration_sum as f64 / self.total as f64
         };
 
+        let min_ms = sorted.first().copied().unwrap_or(0);
+        let max_ms = sorted.last().copied().unwrap_or(0);
+
         let success_rate = if self.total == 0 {
             0.0
         } else {
@@ -127,9 +133,12 @@ impl RawStats {
             failed: self.failed,
             success_rate,
             avg_ms,
+            min_ms,
             p50_ms: percentile(50.0),
+            p90_ms: percentile(90.0),
             p95_ms: percentile(95.0),
             p99_ms: percentile(99.0),
+            max_ms,
             tps,
             elapsed_sec,
             done,

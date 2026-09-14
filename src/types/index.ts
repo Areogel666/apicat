@@ -25,9 +25,12 @@ export interface StressStats {
   failed: number
   success_rate: number   // 0.0 ~ 100.0
   avg_ms: number
+  min_ms: number
   p50_ms: number
+  p90_ms: number
   p95_ms: number
   p99_ms: number
+  max_ms: number
   tps: number
   elapsed_sec: number
   done: boolean

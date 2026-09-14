@@ -34,8 +34,16 @@
         <div class="stat-label">平均耗时</div>
       </div>
       <div class="stat-card">
+        <div class="stat-value">{{ stressStore.stats.min_ms }}ms</div>
+        <div class="stat-label">最小耗时</div>
+      </div>
+      <div class="stat-card">
         <div class="stat-value">{{ stressStore.stats.p50_ms }}ms</div>
         <div class="stat-label">P50</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">{{ stressStore.stats.p90_ms }}ms</div>
+        <div class="stat-label">P90</div>
       </div>
       <div class="stat-card">
         <div class="stat-value">{{ stressStore.stats.p95_ms }}ms</div>
@@ -44,6 +52,10 @@
       <div class="stat-card">
         <div class="stat-value">{{ stressStore.stats.p99_ms }}ms</div>
         <div class="stat-label">P99</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">{{ stressStore.stats.max_ms }}ms</div>
+        <div class="stat-label">最大耗时</div>
       </div>
     </div>
 
@@ -101,24 +113,38 @@
     </div>
 
     <!-- 1.0.4：压测历史记录 -->
-    <div class="stress-section-title">历史记录</div>
+    <div class="stress-section-title">历史记录（勾选两条后点「对比」）</div>
     <div v-if="!stressStore.history.length" class="hist-empty">暂无历史</div>
     <div v-else class="history-list">
       <div
         v-for="run in stressStore.history"
         :key="run.id"
         class="history-item"
-        :class="{ active: selectedRunId === run.id }"
-        @click="selectedRunId = run.id"
+        :class="{ active: compareSelection.includes(run.id) }"
+        @click="toggleCompare(run.id)"
       >
         <div class="history-item__main">
           <span class="history-item__time">{{ formatTime(run.created_at) }}</span>
           <span class="history-item__meta">{{ summarizeStats(run) }}</span>
         </div>
         <div class="history-item__actions">
-          <n-button size="tiny" quaternary @click.stop="selectedRunId = run.id; onExportReport()">📄 报告</n-button>
+          <n-button size="tiny" quaternary @click.stop="onExportReport(run)">📄 报告</n-button>
           <n-button size="tiny" quaternary title="删除" @click.stop="stressStore.removeRun(run.id)">✕</n-button>
         </div>
+      </div>
+      <div class="history-compare-bar">
+        <n-button size="tiny" secondary :disabled="compareSelection.length < 2" @click="drawCompare">📊 对比选中（{{ compareSelection.length }}/2）</n-button>
+        <n-button v-if="compareSelection.length" size="tiny" quaternary @click="compareSelection = []">清除</n-button>
+      </div>
+    </div>
+
+    <!-- 1.0.4：双条对比折线 -->
+    <div v-if="compareCanvasVisible" class="compare-area">
+      <canvas ref="compareCanvasRef" width="620" height="160" class="stress-canvas" />
+      <div class="chart-legend">
+        <span v-for="(seed, i) in ['#18a058', '#2080f0']" :key="i" class="legend-item" :style="{ color: seed }">
+          ▬ {{ compareLegend[i] || '—' }}
+        </span>
       </div>
     </div>
 
@@ -176,8 +202,23 @@ function pct(cnt: number): number {
   return Math.round(cnt / total * 100)
 }
 
-// 1.0.4：历史记录状态
-const selectedRunId = ref<number | null>(null)
+// 1.0.4：历史记录状态 —— 对比集（最多 2 条）
+const compareSelection = ref<number[]>([])
+const compareCanvasRef = ref<HTMLCanvasElement | null>(null)
+const compareCanvasVisible = ref(false)
+const compareLegend = ref<string[]>([])
+
+function toggleCompare(id: number) {
+  const i = compareSelection.value.indexOf(id)
+  if (i >= 0) {
+    compareSelection.value.splice(i, 1)
+  } else if (compareSelection.value.length < 2) {
+    compareSelection.value.push(id)
+  } else {
+    // 已有 2 条：替换第一条
+    compareSelection.value = [compareSelection.value[1], id]
+  }
+}
 
 function buildReport(run: { config_json: string; stats_json: string; created_at: string }): string {
   let cfg: { concurrent?: number; mode?: string; value?: number } = {}
@@ -192,7 +233,7 @@ function buildReport(run: { config_json: string; stats_json: string; created_at:
     `- 时间：${run.created_at}`,
     `- 并发=${cfg.concurrent} 模式=${cfg.mode} 值=${cfg.value}`,
     `- 总请求 ${st.total} 成功 ${st.success} 失败 ${st.failed} 成功率 ${st.success_rate.toFixed(1)}%`,
-    `- 耗时 avg ${st.avg_ms.toFixed(1)}ms / P50 ${st.p50_ms} / P95 ${st.p95_ms} / P99 ${st.p99_ms}`,
+    `- 耗时 min ${st.min_ms ?? 0}ms / avg ${(st.avg_ms ?? 0).toFixed(1)}ms / P50 ${st.p50_ms ?? 0} / P90 ${st.p90_ms ?? 0} / P95 ${st.p95_ms ?? 0} / P99 ${st.p99_ms ?? 0} / max ${st.max_ms ?? 0}ms`,
     `- TPS ${st.tps.toFixed(1)}`,
     `## 耗时分布`,
     hist,
@@ -201,9 +242,7 @@ function buildReport(run: { config_json: string; stats_json: string; created_at:
   ].join('\n')
 }
 
-function onExportReport() {
-  const run = stressStore.history.find(r => r.id === selectedRunId.value)
-  if (!run) return
+function onExportReport(run: { config_json: string; stats_json: string; created_at: string }) {
   const text = buildReport(run)
   dialog.success({
     title: '压测报告（Markdown）',
@@ -213,9 +252,82 @@ function onExportReport() {
     }, text),
     action: () => {
       void navigator.clipboard.writeText(text).catch(() => {})
+      void saveReportToFile(text)
       return '已复制'
     },
   })
+}
+
+/** 1.0.4：报告存本地（Tauri dialog + fs，与 ExportDialog 同模式） */
+async function saveReportToFile(text: string) {
+  try {
+    const { save } = await import('@tauri-apps/plugin-dialog')
+    const { writeTextFile } = await import('@tauri-apps/plugin-fs')
+    const path = await save({
+      title: '保存压测报告',
+      defaultPath: `stress-report-${Date.now()}.md`,
+      filters: [{ name: 'Markdown', extensions: ['md'] }],
+    })
+    if (path) await writeTextFile(path, text)
+  } catch (e) {
+    console.warn('[stress] 保存报告失败:', e)
+  }
+}
+
+/** 1.0.4：叠绘两条历史折线（TPS/耗时 归一化双系列） */
+function drawCompare() {
+  compareLegend.value = []
+  compareCanvasVisible.value = true
+  const canvas = compareCanvasRef.value
+  if (!canvas) return
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+
+  const runs = compareSelection.value
+    .map(id => stressStore.history.find(r => r.id === id))
+    .filter((r): r is NonNullable<typeof r> => Boolean(r))
+  if (runs.length < 2) return
+
+  // 归一化两条耗时（avg 逐轮对比），画两条横线高度对比
+  const vals = runs.map((r) => {
+    try { return (JSON.parse(r.stats_json) as StressStats).avg_ms || 0 } catch { return 0 }
+  })
+  compareLegend.value = runs.map((_, i) => `轮${i + 1} 场均 ${vals[i].toFixed(1)}ms`)
+  const max = Math.max(...vals, 1)
+
+  const W = canvas.width
+  const H = canvas.height
+  const PAD = { top: 10, right: 16, bottom: 20, left: 48 }
+  ctx.clearRect(0, 0, W, H)
+  const bg = readToken('--bg-surface', '#fafafa')
+  ctx.fillStyle = bg
+  ctx.fillRect(0, 0, W, H)
+
+  const colors = [readToken('--color-success', '#18a058'), readToken('--color-info', '#2080f0')]
+  if (runs.length >= 1) {
+    const v0 = vals[0]
+    const barH0 = (v0 / max) * (H - PAD.top - PAD.bottom)
+    const x0 = PAD.left + 12
+    const bw0 = (W - PAD.left - PAD.right) / runs.length - 24
+    ctx.fillStyle = colors[0]
+    ctx.fillRect(x0, H - PAD.bottom - barH0, bw0, barH0)
+    ctx.fillStyle = readToken('--text-secondary', '#666')
+    ctx.font = '11px sans-serif'
+    ctx.fillText(v0.toFixed(0) + 'ms', x0, H - PAD.bottom - barH0 - 4)
+    ctx.fillText('轮1', x0 + bw0 / 2 - 8, H - 4)
+  }
+  if (runs.length >= 2) {
+    const v1 = vals[1]
+    const barH1 = (v1 / max) * (H - PAD.top - PAD.bottom)
+    const x1 = PAD.left + (W - PAD.left - PAD.right) / runs.length + 12
+    const bw1 = (W - PAD.left - PAD.right) / runs.length - 24
+    ctx.fillStyle = colors[1]
+    ctx.fillRect(x1, H - PAD.bottom - barH1, bw1, barH1)
+    ctx.fillStyle = readToken('--text-secondary', '#666')
+    ctx.font = '11px sans-serif'
+    ctx.fillText(v1.toFixed(0) + 'ms', x1, H - PAD.bottom - barH1 - 4)
+    ctx.fillText('轮2', x1 + bw1 / 2 - 8, H - 4)
+  }
 }
 
 function formatTime(iso: string): string {
@@ -494,4 +606,16 @@ onUnmounted(() => {
 .history-item__time { font-size: var(--font-size-sm); color: var(--text-secondary); }
 .history-item__meta { font-size: var(--font-size-sm); color: var(--text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .history-item__actions { display: flex; align-items: center; flex-shrink: 0; }
+.history-compare-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding-top: var(--spacing-xs);
+}
+.compare-area {
+  margin-top: var(--spacing-md);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
 </style>
