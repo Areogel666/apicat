@@ -14,6 +14,9 @@ import { ref } from 'vue'
 /**
  * 通用分栏拖拽分隔条
  *
+ * 1.0.4：分隔线「跟手」—— 拖动方向与分隔线移动方向一致。
+ * 上拖/左拖 => 分隔线上移/左移（受压栏尺寸按同方向增减）。
+ *
  * props:
  *   direction: 'horizontal'（左右拖，调宽度）| 'vertical'（上下拖，调高度）
  *   minSize:  受压栏的最小尺寸（px），默认 120
@@ -60,12 +63,8 @@ function onMouseDown(e: MouseEvent) {
     if (!isDragging.value) return
     const currentPos = props.direction === 'horizontal' ? ev.clientX : ev.clientY
     const delta = currentPos - startPos
-    let newSize: number
-    if (props.direction === 'horizontal') {
-      newSize = startSize + delta
-    } else {
-      newSize = startSize - delta
-    }
+    // 1.0.4：分隔线跟手 —— 上拖/左拖分隔线随手上移/左移（去掉 vertical 取反）
+    let newSize = startSize + delta
     newSize = Math.max(props.minSize, Math.min(props.maxSize, newSize))
     emit('resizing', newSize)
   }
@@ -79,12 +78,8 @@ function onMouseDown(e: MouseEvent) {
 
     const currentPos = props.direction === 'horizontal' ? ev.clientX : ev.clientY
     const delta = currentPos - startPos
-    let finalSize: number
-    if (props.direction === 'horizontal') {
-      finalSize = startSize + delta
-    } else {
-      finalSize = startSize - delta
-    }
+    // 1.0.4：与 onMove 一致，跟手方向
+    let finalSize = startSize + delta
     finalSize = Math.max(props.minSize, Math.min(props.maxSize, finalSize))
 
     emit('resize', finalSize)
