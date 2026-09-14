@@ -35,6 +35,7 @@ pub struct ApiRequest {
     pub body: String,
     pub auth_type: String,
     pub auth_config: String,
+    pub description: String,  // 1.0.4 新增：接口描述（0002 migration 加列）
     pub sort_order: i64,
     pub created_at: String,
     pub updated_at: String,
