@@ -22,7 +22,7 @@ export const useDictionaryStore = defineStore('dictionary', () => {
     }
   }
 
-  /** 按 code 或 name 模糊查找字典（用于显示描述时）. */
+  /** 新建数据字典（全局共享，project 维度留待后续） */
   async function createDictionary(code: string, name: string, description = '') {
     const d = await invoke<DataDictionary>('create_dictionary', {
       code,
