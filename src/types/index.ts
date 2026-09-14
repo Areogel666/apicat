@@ -96,6 +96,13 @@ export interface ParsedUrl {
 export interface ParamItem {
   key: string
   value: string
+  // 1.0.4 æ–°å¢ï¼šå­—æ®µç±»å‹ï¼ˆstring/number/boolean/array/object/...ï¼Œè‡ªç”±æ–‡æœ¬ï¼‰ã€‚
+  // å¯é€‰å­—æ®µå‘åå…¼å®¹æ—§æ•°æ®ï¼ˆDB ä¸­çš„æ—§ JSON æ— æ­¤å­—æ®µï¼‰ï¼Œæ¸²æŸ“/å†™åº“æ—¶ç»Ÿä¸€å…œåº•ä¸º ''
+  type?: string
+  // 1.0.4 æ–°å¢ï¼šå­—æ®µæè¿°ï¼ˆå¯æ¥è‡ªæ•°æ®å­—å…¸ï¼Œè§ descriptionDictRefï¼‰
+  description?: string
+  // 1.0.4 æ–°å¢ï¼šå¼•ç”¨çš„å­—å…¸é¡¹ idï¼ˆdictionary_items.idï¼‰ï¼Œæ— åˆ™ null
+  descriptionDictRef?: number | null
   enabled: boolean
 }
 
@@ -197,14 +204,14 @@ export interface TestCase {
   updated_at: string
 }
 
-// ÓÃÀıÖ´ĞĞÀúÊ·£¨M3-C ĞÂÔö£©£¬Óë Rust types::TestCaseHistory ¾µÏñ
-// Ã¿ÓÃÀı±£Áô×îĞÂ 10 Ìõ£¨ÓÉ SQLite ´¥·¢Æ÷ trg_tch_keep_10 ×Ô¶¯¹ö¶¯ÌÔÌ­£©
+// ï¿½ï¿½ï¿½ï¿½Ö´ï¿½ï¿½ï¿½ï¿½Ê·ï¿½ï¿½M3-C ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Rust types::TestCaseHistory ï¿½ï¿½ï¿½ï¿½
+// Ã¿ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ 10 ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ SQLite ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ trg_tch_keep_10 ï¿½Ô¶ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ì­ï¿½ï¿½
 export interface TestCaseHistory {
   id: number
   test_case_id: number
-  status_code: number | null    // null = ÍøÂç²ãÊ§°Ü£¨DNS/³¬Ê±£©
-  duration_ms: number | null    // null = ÍøÂç²ãÊ§°Ü
-  response_preview: string | null  // ÏìÓ¦ÕªÒª£¨Ç°¶Ë ¡Ü1KB ²Ã¼ôºó£©
-  error_message: string | null     // ÍøÂç²ã´íÎó£¨HTTP ´íÎó½ø status_code£©
+  status_code: number | null    // null = ï¿½ï¿½ï¿½ï¿½ï¿½Ê§ï¿½Ü£ï¿½DNS/ï¿½ï¿½Ê±ï¿½ï¿½
+  duration_ms: number | null    // null = ï¿½ï¿½ï¿½ï¿½ï¿½Ê§ï¿½ï¿½
+  response_preview: string | null  // ï¿½ï¿½Ó¦ÕªÒªï¿½ï¿½Ç°ï¿½ï¿½ ï¿½ï¿½1KB ï¿½Ã¼ï¿½ï¿½ï¿½
+  error_message: string | null     // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½HTTP ï¿½ï¿½ï¿½ï¿½ï¿½ status_codeï¿½ï¿½
   created_at: string
 }
