@@ -1,24 +1,40 @@
 <template>
-  <!-- 解析失败 或 用户切到 raw 模式 → 显示原始文本 -->
-  <pre v-if="viewMode === 'raw' || parsedJson === null" class="json-content"><code>{{ body }}</code></pre>
-  <!-- 美化模式：vue-json-pretty 折叠树 -->
-  <div v-else class="json-tree-wrapper">
-    <VueJsonPretty
-      :data="parsedJson"
-      :deep="expandLevel"
-      :show-length="true"
-      :show-line="true"
-      :collapsed-on-click-brackets="true"
-      :show-icon="true"
+  <!-- 根容器：承载自实现搜索高亮作用域 -->
+  <div ref="rootEl" class="json-renderer-root">
+    <!-- 1.0.4：Linux 无原生 find 时的兜底搜索条 -->
+    <SearchBar
+      v-if="!nativeFindAvailable"
+      v-model:open="searchOpen"
+      v-model:keyword="searchKeyword"
+      :count-text="searchCountText"
+      @go-prev="search.prev()"
+      @go-next="search.next()"
+      @close="closeSearch"
+      class="text-search-slot"
     />
+    <!-- 解析失败 或 用户切到 raw 模式 → 显示原始文本 -->
+    <pre v-if="viewMode === 'raw' || parsedJson === null" class="json-content"><code>{{ body }}</code></pre>
+    <!-- 美化模式：vue-json-pretty 折叠树 -->
+    <div v-else class="json-tree-wrapper">
+      <VueJsonPretty
+        :data="parsedJson"
+        :deep="expandLevel"
+        :show-length="true"
+        :show-line="true"
+        :collapsed-on-click-brackets="true"
+        :show-icon="true"
+      />
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useMessage } from 'naive-ui'
 import VueJsonPretty from 'vue-json-pretty'
 import 'vue-json-pretty/lib/styles.css'
+import SearchBar from '../SearchBar.vue'
+import { useTextSearch } from '../../../composables/useTextSearch'
 import type { ViewMode } from '../useResponseFormat'
 
 /**
@@ -30,9 +46,12 @@ import type { ViewMode } from '../useResponseFormat'
  *   - JSON 解析失败时强制走 raw
  *   - 处理 Ctrl+F 搜索（对应 plan: docs/1.0.2/plans/2026-05-12-response-search.md）
  *
- * Ctrl+F 逻辑由本组件负责（原在 JsonViewer 顶层，现下沉到此）：
- *   - 第一次按 Ctrl+F：全展开所有节点 / 或切 raw（fallback）
- *   - 第二次按 Ctrl+F：不劫持，由浏览器原生搜索接管
+ * Ctrl+F 策略（1.0.4 按平台分流）：
+ *   - 浏览器原生 find 可用（Windows/macOS）：保持原两段式
+ *     · 首次：全展开 JSON 树；再次：切 raw 交给浏览器原生搜索
+ *   - 原生 find 不可用（Linux webkit2gtk 无 Find-in-Page UI）：
+ *     直接弹出自实现搜索条（SearchBar + useTextSearch 高亮），
+ *     不再依赖浏览器原生搜索（那在 Linux 上什么都不做）
  */
 
 const props = defineProps<{
@@ -52,6 +71,19 @@ const message = useMessage()
 // vue-json-pretty 的 :deep prop —— 控制初始渲染的展开层级
 // 运行时改成 999 触发全展开（该组件没 expose expandAll 方法）
 const expandLevel = ref(3)
+
+// 1.0.4：原生 find 探测 —— Linux webkit2gtk 不实现 window.find
+const nativeFindAvailable = typeof (window as any).find === 'function'
+
+// 1.0.4：自实现搜索（Linux 兜底）
+const rootEl = ref<HTMLElement | null>(null)
+const searchOpen = ref(false)
+const searchKeyword = ref('')
+const search = useTextSearch(rootEl)
+// 桥接给模板（composable 返回的 ref 嵌套不解包，需显式取 .value）
+const searchCountText = computed(() =>
+  search.matchCount.value ? `${search.currentMatch.value}/${search.matchCount.value}` : ''
+)
 
 // 大响应体阈值（500KB，按原 body 字符长度近似判断）
 // 超过此值 Ctrl+F 时直接 fallback 到 raw 模式，避免全展开导致 Vue 重渲染卡顿
@@ -74,11 +106,21 @@ function handleKeydown(e: KeyboardEvent) {
   const isFindKey = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f' && !e.shiftKey
   if (!isFindKey) return
   if (!props.isHovering) return              // 其他面板：放行给原生搜索
-  if (props.viewMode === 'raw') return       // 已 raw，<pre> 上原生搜索可用
+  if (props.viewMode === 'raw') return       // 已 raw，原生搜索可用（或 SearchBar 高亮由 raw 分支处理）
   if (parsedJson.value === null) return      // JSON 解析失败，走 <pre>，不劫持
 
   e.preventDefault()
 
+  // 1.0.4：Linux（无原生 find）→ 直接打开自实现搜索条并全展开，保证可搜字段名
+  if (!nativeFindAvailable) {
+    if (expandLevel.value < 999) {
+      expandLevel.value = 999
+    }
+    openSearch()
+    return
+  }
+
+  // 平台有原生 find：保持原两段式（原逻辑）
   // 大响应体（>500KB）：全展开代价过高，直接切 raw
   if (props.body.length > LARGE_RESPONSE_THRESHOLD) {
     emit('fallback-to-raw')
@@ -100,12 +142,34 @@ function handleKeydown(e: KeyboardEvent) {
   })
 }
 
+// ── 1.0.4：自实现搜索（Linux 兜底）──────────────────────────
+function openSearch() {
+  searchOpen.value = true
+  // 打开后立即对当前关键词执行一次搜索（可能已有历史词）
+  nextTick(() => {
+    if (searchKeyword.value) search.search(searchKeyword.value)
+  })
+}
+
+function closeSearch() {
+  searchOpen.value = false
+  search.clear()
+  searchKeyword.value = ''
+}
+
+// 关键词变化时实时搜索
+watch(searchKeyword, (kw) => {
+  if (!searchOpen.value) return
+  search.search(kw)
+})
+
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown, true)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown, true)
+  search.clear()
 })
 </script>
 
@@ -148,4 +212,33 @@ onBeforeUnmount(() => {
 :deep(.vjs-tree .vjs-value-number)  { color: var(--json-number); }
 :deep(.vjs-tree .vjs-value-boolean) { color: var(--json-boolean); }
 :deep(.vjs-tree .vjs-value-null)    { color: var(--json-null); }
+
+/* 1.0.4：自实现搜索条定位 + 高亮标记 */
+.json-renderer-root {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.text-search-slot {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  z-index: 20;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+}
+:deep(.text-search-hit) {
+  background: var(--color-warning-soft, rgba(240, 160, 32, 0.3));
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+:deep(.text-search-hit.current) {
+  background: var(--color-warning, #f0a020);
+  color: #fff;
+}
 </style>
