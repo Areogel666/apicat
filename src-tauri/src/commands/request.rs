@@ -1,15 +1,20 @@
 use crate::{db::AppDb, error::{map_unique_name_error, CmdResult}, types::ApiRequest};
 use tauri::State;
 
+/// ApiRequest 反序列化列清单；必须与 types.rs::ApiRequest 字段严格一致
+const REQUEST_COLS: &str = "id, collection_id, name, method, url, params, headers, \
+    body_type, body, auth_type, auth_config, description, sort_order, created_at, updated_at";
+
 /// 获取 collection 下所有接口
 #[tauri::command]
 pub async fn list_requests(
     db: State<'_, AppDb>,
     collection_id: i64,
 ) -> CmdResult<Vec<ApiRequest>> {
-    let rows = sqlx::query_as::<_, ApiRequest>(
-        "SELECT id, collection_id, name, method, url, params, headers, body_type, body, auth_type, auth_config, sort_order, created_at, updated_at FROM api_requests WHERE collection_id=? ORDER BY sort_order, id"
-    )
+    let sql = format!(
+        "SELECT {REQUEST_COLS} FROM api_requests WHERE collection_id=? ORDER BY sort_order, id"
+    );
+    let rows = sqlx::query_as::<_, ApiRequest>(&sql)
     .bind(collection_id)
     .fetch_all(&db.0)
     .await?;
@@ -26,7 +31,7 @@ pub async fn create_request(
     url: String,
 ) -> CmdResult<ApiRequest> {
     let row = sqlx::query_as::<_, ApiRequest>(
-        "INSERT INTO api_requests (collection_id, name, method, url) VALUES (?,?,?,?) RETURNING id, collection_id, name, method, url, params, headers, body_type, body, auth_type, auth_config, sort_order, created_at, updated_at"
+        "INSERT INTO api_requests (collection_id, name, method, url) VALUES (?,?,?,?) RETURNING id, collection_id, name, method, url, params, headers, body_type, body, auth_type, auth_config, description, sort_order, created_at, updated_at"
     )
     .bind(collection_id)
     .bind(&name)
@@ -54,7 +59,7 @@ pub async fn update_request(
     auth_config: String,
 ) -> CmdResult<ApiRequest> {
     let row = sqlx::query_as::<_, ApiRequest>(
-        "UPDATE api_requests SET name=?,method=?,url=?,params=?,headers=?,body_type=?,body=?,auth_type=?,auth_config=?,updated_at=datetime('now') WHERE id=? RETURNING id, collection_id, name, method, url, params, headers, body_type, body, auth_type, auth_config, sort_order, created_at, updated_at"
+        "UPDATE api_requests SET name=?,method=?,url=?,params=?,headers=?,body_type=?,body=?,auth_type=?,auth_config=?,updated_at=datetime('now') WHERE id=? RETURNING id, collection_id, name, method, url, params, headers, body_type, body, auth_type, auth_config, description, sort_order, created_at, updated_at"
     )
     .bind(&name).bind(&method).bind(&url)
     .bind(&params).bind(&headers)
@@ -81,7 +86,7 @@ pub async fn delete_request(db: State<'_, AppDb>, id: i64) -> CmdResult<()> {
 #[tauri::command]
 pub async fn duplicate_request(db: State<'_, AppDb>, id: i64) -> CmdResult<ApiRequest> {
     let src = sqlx::query_as::<_, ApiRequest>(
-        "SELECT id, collection_id, name, method, url, params, headers, body_type, body, auth_type, auth_config, sort_order, created_at, updated_at FROM api_requests WHERE id=?"
+        "SELECT id, collection_id, name, method, url, params, headers, body_type, body, auth_type, auth_config, description, sort_order, created_at, updated_at FROM api_requests WHERE id=?"
     )
     .bind(id)
     .fetch_one(&db.0)
@@ -89,7 +94,7 @@ pub async fn duplicate_request(db: State<'_, AppDb>, id: i64) -> CmdResult<ApiRe
 
     let new_name = format!("{} 副本", src.name);
     let row = sqlx::query_as::<_, ApiRequest>(
-        "INSERT INTO api_requests (collection_id, name, method, url, params, headers, body_type, body, auth_type, auth_config, sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?) RETURNING id, collection_id, name, method, url, params, headers, body_type, body, auth_type, auth_config, sort_order, created_at, updated_at"
+        "INSERT INTO api_requests (collection_id, name, method, url, params, headers, body_type, body, auth_type, auth_config, sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?) RETURNING id, collection_id, name, method, url, params, headers, body_type, body, auth_type, auth_config, description, sort_order, created_at, updated_at"
     )
     .bind(src.collection_id)
     .bind(&new_name)
@@ -136,7 +141,7 @@ pub async fn move_request(
         "UPDATE api_requests SET collection_id=?, sort_order=?, updated_at=datetime('now') \
          WHERE id=? \
          RETURNING id, collection_id, name, method, url, params, headers, \
-                   body_type, body, auth_type, auth_config, sort_order, created_at, updated_at"
+                   body_type, body, auth_type, auth_config, description, sort_order, created_at, updated_at"
     )
     .bind(new_collection_id)
     .bind(sort_order)
