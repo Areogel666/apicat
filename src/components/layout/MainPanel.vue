@@ -185,8 +185,10 @@
               </div>
               <div v-for="(q, idx) in sortedQueryParams" :key="idx" class="param-row-wrap">
                 <ParamRow :item="q" :type-options="typeOptions" key-placeholder="Key" value-placeholder="Value"
+                  :dict-display="dictDisplayOf(q)"
                   @remove="queryParams.splice(queryParams.indexOf(q), 1)"
-                  @pick-dict="openDictPicker" />
+                  @pick-dict="openDictPicker"
+                  @clear-dict-ref="clearDictRefOf(q)" />
               </div>
               <n-button size="small" dashed style="margin-top:4px; width:100%" @click="addQueryParam">
                 + 添加 Query Param
@@ -260,8 +262,10 @@
               </div>
               <div v-for="(h, idx) in sortedHeaders" :key="idx" class="param-row-wrap">
                 <ParamRow :item="h" :type-options="typeOptions" key-placeholder="Header 名" value-placeholder="值"
+                  :dict-display="dictDisplayOf(h)"
                   @remove="requestHeaders.splice(requestHeaders.indexOf(h), 1)"
-                  @pick-dict="openDictPicker" />
+                  @pick-dict="openDictPicker"
+                  @clear-dict-ref="clearDictRefOf(h)" />
               </div>
               <n-button size="small" dashed style="margin-top:4px; width:100%" @click="addHeader">
                 + 添加 Header
@@ -334,8 +338,10 @@
                 </div>
                 <div v-for="(f, idx) in sortedUrlencoded" :key="idx" class="param-row-wrap">
                   <ParamRow :item="f" :type-options="typeOptions" key-placeholder="字段名" value-placeholder="值"
+                    :dict-display="dictDisplayOf(f)"
                     @remove="urlencodedParams.splice(urlencodedParams.indexOf(f), 1)"
-                    @pick-dict="openDictPicker" />
+                    @pick-dict="openDictPicker"
+                    @clear-dict-ref="clearDictRefOf(f)" />
                 </div>
                 <n-button size="small" dashed style="margin-top:4px; width:100%" @click="addUrlencodedField">
                   + 添加字段
@@ -369,8 +375,10 @@
               </div>
               <div v-for="(f, idx) in sortedFormData" :key="idx" class="param-row-wrap">
                 <ParamRow :item="f" :type-options="typeOptions" key-placeholder="字段名" value-placeholder="值"
+                  :dict-display="dictDisplayOf(f)"
                   @remove="formDataParams.splice(formDataParams.indexOf(f), 1)"
-                  @pick-dict="openDictPicker" />
+                  @pick-dict="openDictPicker"
+                  @clear-dict-ref="clearDictRefOf(f)" />
               </div>
               <n-button size="small" dashed style="margin-top:4px; width:100%" @click="addFormDataField">
                 + 添加字段
@@ -766,6 +774,19 @@ function onDictPickerSelect(keys: Array<string | number>) {
     dictPickerParam.value.descriptionDictRef = item.id
   }
   showDictPicker.value = false
+}
+
+// 1.0.4：某参数行「字典显示文本」—— 优先字典项最新内容，取不到（字典被删）回退快照文本
+function dictDisplayOf(p: ParamItem): string {
+  if (!p.descriptionDictRef) return ''
+  const item = dictionaryStore.getItemById(p.descriptionDictRef)
+  if (item) return `${item.value} = ${item.label}`
+  return p.description || ''
+}
+
+// 1.0.4：断开某行的字典引用（回退为纯文本，可手改）
+function clearDictRefOf(p: ParamItem) {
+  p.descriptionDictRef = null
 }
 
 // form-data KV 字段（bodyType === 'form_data' 时使用）
