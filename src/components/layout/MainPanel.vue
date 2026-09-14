@@ -661,6 +661,8 @@ const dialog = useDialog()
 
 // tabStore.activeRequestId 是 Tab 的唯一激活来源
 // request/response store 的 activeRequestId 都跟随它，确保响应面板按接口分桶展示
+// 注意：不在此处动 testCaseId —— 由 .activeRequest watcher（loadRequest）统一
+// 用 responseStore.setCurrent(req.id, null) 切回 raw 桶并清 activeTestCaseId。
 watch(() => tabStore.activeRequestId, (id) => {
   requestStore.activeRequestId = id
   responseStore.activeRequestId = id
@@ -1044,11 +1046,15 @@ watch(() => requestStore.activeRequest, async (req, oldReq) => {
     // 加载 Auth 字段（Auth 即时入库，总是从 req 读取，不走 draftCache）
     loadAuthFields(req.auth_type || 'none', req.auth_config || '{}')
 
+    // 1.0.4：切换接口 → 响应视图切到该接口的 "raw"（原始参数）桶
+    responseStore.setCurrent(req.id, null)
+
     // 加载该接口历史 + 测试用例
-    await historyStore.loadHistory(req.id)
+    await historyStore.loadHistory(req.id, null)
     await testCaseStore.loadTestCases(req.id)
   } else {
     // 3. 无激活接口：全部清空
+    responseStore.setCurrent(null, null)
     url.value = ''
     method.value = 'GET'
     bodyType.value = 'none'
@@ -1637,6 +1643,7 @@ async function handleSend() {
 
   const resp = await responseStore.sendRequest(
     activeReq.id,
+    testCaseStore.activeTestCaseId,
     {
       method: method.value,
       url: effectiveUrl.value,   // 自动拼接环境 base_url，避免相对路径报错
@@ -1659,7 +1666,7 @@ async function handleSend() {
 
   // 发送成功后，把新 history 记录插入本地缓存（避免重新拉取）
   if (resp && resp.history_id) {
-    historyStore.prependRecord(activeReq.id, {
+    historyStore.prependRecord(activeReq.id, testCaseStore.activeTestCaseId, {
       id: resp.history_id,
       request_id: activeReq.id,
       status_code: resp.status_code,
@@ -1696,7 +1703,13 @@ async function handleSend() {
         bodyType: bodyType.value,
         body: bodyContent.value,
       })
+      // 1.0.4：响应此前写入了 raw 桶（尚未有用例），迁移到新用例桶后切视图
+      responseStore.setCurrent(activeReq.id, tc.id)
+      responseStore.moveResponse(null, tc.id)
       testCaseStore.activeTestCaseId = tc.id
+    } else {
+      // 1.0.4：存在用例时，确保响应视图切到当前激活用例桶（若用户刚切了用例）
+      responseStore.setCurrent(activeReq.id, testCaseStore.activeTestCaseId)
     }
     // 响应返回后检测参数是否与激活用例一致
     checkParamsDirty()
@@ -1762,6 +1775,11 @@ async function handleActivateTestCase(id: number) {
   if (!tc) return
   isInitializing = true
   testCaseStore.activeTestCaseId = id
+  // 1.0.4：切用例 → 响应视图切到该用例桶；History 按用例重载
+  if (requestStore.activeRequestId != null) {
+    responseStore.setCurrent(requestStore.activeRequestId, id)
+    historyStore.loadHistory(requestStore.activeRequestId, id).catch(() => {})
+  }
   if (tc.method) method.value = tc.method
 
   if (tc.headers) { try { requestHeaders.value = JSON.parse(tc.headers) } catch {} }
@@ -1852,6 +1870,9 @@ async function handleSaveAsNew() {
     bodyType: bodyType.value,
     body: bodyContent.value,
   })
+  // 1.0.4：保存为新用例后，把当前 raw 桶响应迁到新用例桶并切视图
+  responseStore.setCurrent(activeReq.id, tc.id)
+  responseStore.moveResponse(null, tc.id)
   testCaseStore.activeTestCaseId = tc.id
   paramsDirty.value = false
 }

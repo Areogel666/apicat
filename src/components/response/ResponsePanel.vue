@@ -30,7 +30,7 @@
       <!-- Body Tab -->
       <n-tab-pane name="body" tab="Body">
         <div class="tab-content">
-          <n-empty v-if="!resp && !responseStore.loading" description="发送请求后，响应内容将在这里显示" style="margin-top:40px" />
+          <n-empty v-if="!resp && !responseStore.loading" :description="emptyDescription" style="margin-top:40px" />
           <n-spin v-else-if="responseStore.loading" style="margin-top:40px; display:flex; justify-content:center" />
           <JsonViewer
             v-else-if="resp"
@@ -73,6 +73,7 @@ import { NTabs, NTabPane, NEmpty, NSpin, NTag } from 'naive-ui'
 import { useResponseStore } from '../../stores/response'
 import { useHistoryStore } from '../../stores/history'
 import { useRequestStore } from '../../stores/request'
+import { useTestCaseStore } from '../../stores/testCase'
 import JsonViewer from './JsonViewer.vue'
 import HistoryTab from './HistoryTab.vue'
 
@@ -83,8 +84,17 @@ const emit = defineEmits<{
 const responseStore = useResponseStore()
 const historyStore = useHistoryStore()
 const requestStore = useRequestStore()
+const testCaseStore = useTestCaseStore()
 
 const resp = computed(() => responseStore.response)
+
+// 空态文案：激活了用例但该用例未发送过请求时提示更具体
+const emptyDescription = computed(() => {
+  if (testCaseStore.activeTestCaseId != null && !resp.value) {
+    return '该用例尚未发送过请求，发送后响应将在这里显示'
+  }
+  return '发送请求后，响应内容将在这里显示'
+})
 
 // 从响应头中提取 Content-Type
 const responseContentType = computed(() => {
@@ -93,10 +103,11 @@ const responseContentType = computed(() => {
   return ct ? ct[1] : ''
 })
 
-// 当前激活接口的历史记录
+// 当前激活接口 + 用例的历史记录（1.0.4：按用例分桶，切换用例时 History 跟随刷新）
 const historyRecords = computed(() => {
   const id = requestStore.activeRequestId
-  return id ? historyStore.getHistory(id) : []
+  if (id == null) return []
+  return historyStore.getHistory(id, testCaseStore.activeTestCaseId)
 })
 
 const historyCount = computed(() => historyRecords.value.length)
