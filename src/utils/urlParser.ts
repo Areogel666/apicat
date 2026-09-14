@@ -24,7 +24,10 @@ function isLegacyPathParam(segment: string): boolean {
  * 相比旧规则补充：
  *  1. 模板占位符 `{xxx}` 花括号形态
  *  2. Mongo ObjectId（24 位十六进制）
- *  3. 含数字混合段（abc123 / usr_9f2a / ORDER-2025-001）
+ *
+ * 1.0.4 移除「含数字的字母数字混合段」规则：
+ *   `/intl/search1` 的 `search1` 不再被误判为 Path Param（Q6 决策 b）。
+ *   需要时用户显式写 `{search1}` 即可（模板识别已支持）。
  *
  * 排除：`v\d+`（API 版本号，如 v1/v2/V3），避免误识别。
  */
@@ -36,10 +39,10 @@ const TEMPLATE_PARAM_PATTERNS = [
 const V_VERSION_PATTERN = /^v\d+$/i
 
 const LITERAL_PARAM_PATTERNS = [
-  /^\d+$/,                                                                 // 纯数字
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,       // UUID
-  /^[0-9a-f]{24}$/i,                                                       // Mongo ObjectId
-  /^[A-Za-z][\w.\-]*[0-9][\w.\-]*$/,                                       // 含至少一个数字的混合段
+  /^\d+$/,                                                  // 纯数字
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,  // UUID
+  /^[0-9a-f]{24}$/i,                                        // Mongo ObjectId
+  // 1.0.4 已移除：含至少一个数字的混合段（^[A-Za-z][\w.\-]*[0-9][\w.\-]*$）
 ]
 
 /**
