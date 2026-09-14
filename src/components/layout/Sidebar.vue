@@ -98,19 +98,6 @@
       </template>
     </n-modal>
 
-    <!-- 接口名重名冲突对话框 -->
-    <n-modal v-model:show="showDuplicateNameDialog" preset="dialog" title="接口名已存在">
-      <div style="font-size:14px; line-height:1.7; color:var(--text-primary)">
-        当前文件夹中已存在同名接口：<br>
-        <strong>「{{ pendingRequestName }}」</strong>
-      </div>
-      <template #action>
-        <n-button @click="showDuplicateNameDialog = false">取消</n-button>
-        <n-button @click="createWithAutoName" :loading="creating">重命名后创建</n-button>
-        <n-button type="primary" @click="createForce" :loading="creating">仍然创建</n-button>
-      </template>
-    </n-modal>
-
     <!-- 删除确认对话框 -->
     <n-modal v-model:show="showDeleteConfirmDialog" preset="dialog" title="确认删除" :show-icon="false">
       <div style="font-size:14px; line-height:1.7; color:var(--text-primary)">
@@ -150,16 +137,18 @@ import { useProjectStore } from '../../stores/project'
 import { useCollectionStore } from '../../stores/collection'
 import { useRequestStore } from '../../stores/request'
 import { useTabStore } from '../../stores/tab'
+import { useTestCaseStore } from '../../stores/testCase'
 import { useEnvironmentStore } from '../../stores/environment'
 import { parseUrl, resolveEffectiveUrl, hasUnresolvedPlaceholder } from '../../utils/urlParser'
 import { buildCurl } from '../../utils/curlBuilder'
-import type { Collection, ParamItem } from '../../types'
+import type { ApiRequest, Collection, ParamItem } from '../../types'
 
 const uiStore = useUiStore()
 const projectStore = useProjectStore()
 const collectionStore = useCollectionStore()
 const requestStore = useRequestStore()
 const tabStore = useTabStore()
+const testCaseStore = useTestCaseStore()
 const envStore = useEnvironmentStore()
 const message = useMessage()
 
@@ -1009,16 +998,6 @@ async function createCollection() {
 }
 
 // ── 创建接口 ──────────────────────────────────────────────
-// 重名冲突对话框状态
-const showDuplicateNameDialog = ref(false)
-const pendingRequestName = ref('')
-// 待创建接口的暂存参数（用于冲突处理后继续创建）
-const pendingCreateParams = ref<{
-  collectionId: number
-  name: string
-  method: string
-  url: string
-} | null>(null)
 
 async function doCreateRequest() {
   const pid = currentProjectId.value
@@ -1038,40 +1017,48 @@ async function doCreateRequest() {
   const hasDuplicate = existingReqs.some(r => r.name === name)
 
   if (hasDuplicate) {
-    // 暂存参数，弹出冲突对话框
-    pendingRequestName.value = name
-    pendingCreateParams.value = { collectionId: targetCid, name, method: newRequestMethod.value, url }
-    showDuplicateNameDialog.value = true
+    // 1.0.4：不建第二个接口 —— 在已有接口下新增用例（实例 = 用例）
+    const existing = existingReqs.find(r => r.name === name)
+    if (existing) {
+      await createCaseUnderExisting(existing, newRequestMethod.value, url)
+    }
     return
   }
 
   await executeCreateRequest(targetCid, name, newRequestMethod.value, url)
 }
 
-/** 「重命名后创建」— 自动追加序号找最小可用名 */
-async function createWithAutoName() {
-  if (!pendingCreateParams.value) return
-  const { collectionId, name, method, url } = pendingCreateParams.value
-  const existingReqs = requestStore.requestMap[collectionId] ?? []
-  const existingNames = new Set(existingReqs.map(r => r.name))
-
-  // 找最小可用序号：「name (2)」「name (3)」...
-  let finalName = name
-  let i = 2
-  while (existingNames.has(finalName)) {
-    finalName = `${name} (${i++})`
+/**
+ * 1.0.4：同名时在已有接口下新增用例（实例 = 用例，不新建接口）
+ * create_test_case 后端对空 name 自动命名「用例 N」，故传空串
+ */
+async function createCaseUnderExisting(existing: ApiRequest, method: string, url: string) {
+  creating.value = true
+  try {
+    const tc = await testCaseStore.createTestCase({
+      requestId: existing.id,
+      collectionId: existing.collection_id,
+      name: '',
+      method,
+      url,
+      headers: '[]',
+      params_: '[]',
+      bodyType: null,
+      body: null,
+    })
+    showNewRequestDialog.value = false
+    newRequestUrl.value = ''
+    newRequestName.value = ''
+    newRequestMethod.value = 'GET'
+    targetCollectionId.value = null
+    message.success(`已将参数新增为「${existing.name}」的用例「${tc.name}」`)
+    // 打开已有接口，方便查看新用例
+    tabStore.openTab(existing)
+  } catch (e) {
+    message.error(String(e))
+  } finally {
+    creating.value = false
   }
-
-  showDuplicateNameDialog.value = false
-  await executeCreateRequest(collectionId, finalName, method, url)
-}
-
-/** 「仍然创建」— 强制用原名创建（DB 层允许同名） */
-async function createForce() {
-  if (!pendingCreateParams.value) return
-  const { collectionId, name, method, url } = pendingCreateParams.value
-  showDuplicateNameDialog.value = false
-  await executeCreateRequest(collectionId, name, method, url)
 }
 
 /** 实际执行创建接口并重置表单 */
@@ -1085,7 +1072,6 @@ async function executeCreateRequest(collectionId: number, name: string, method: 
     newRequestUrl.value = ''
     newRequestName.value = ''
     newRequestMethod.value = 'GET'
-    pendingCreateParams.value = null
     targetCollectionId.value = null
     message.success('接口创建成功')
   } catch (e) {
@@ -1155,18 +1141,38 @@ async function doImportCurl() {
       return
     }
     const parsedName = parseUrl(parsed.url, parsed.method).displayName || 'Imported Request'
-    const req = await requestStore.createRequest(targetCollectionId.value, parsedName, parsed.method, parsed.url)
-    
-    // Update headers and body
-    await requestStore.updateRequest(req.id, {
-      headers: JSON.stringify(parsed.headers),
-      body_type: parsed.bodyType,
-      body: parsed.body
-    })
-    // cURL 导入成功后自动在 TabBar 打开
-    tabStore.openTab(req)
-    
-    message.success('cURL 导入成功')
+    const existingReqs = requestStore.requestMap[targetCollectionId.value] ?? []
+    const existing = existingReqs.find(r => r.name === parsedName)
+
+    if (existing) {
+      // 1.0.4：同名 → 不建新接口，在该接口下新增用例并快照 headers/body
+      const tc = await testCaseStore.createTestCase({
+        requestId: existing.id,
+        collectionId: existing.collection_id,
+        name: '',
+        method: parsed.method,
+        url: parsed.url,
+        headers: JSON.stringify(parsed.headers),
+        params_: '[]',
+        bodyType: parsed.bodyType,
+        body: parsed.body,
+      })
+      tabStore.openTab(existing)
+      message.success(`cURL 已导入为「${existing.name}」的用例「${tc.name}」`)
+    } else {
+      const req = await requestStore.createRequest(targetCollectionId.value, parsedName, parsed.method, parsed.url)
+
+      // Update headers and body
+      await requestStore.updateRequest(req.id, {
+        headers: JSON.stringify(parsed.headers),
+        body_type: parsed.bodyType,
+        body: parsed.body
+      })
+      // cURL 导入成功后自动在 TabBar 打开
+      tabStore.openTab(req)
+
+      message.success('cURL 导入成功')
+    }
     showCurlImportDialog.value = false
     curlImportText.value = ''
     targetCollectionId.value = null
