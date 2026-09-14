@@ -82,6 +82,20 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Err
             .await?;
     }
 
+    // 1.0.4：request_history.test_case_id 幂等加列（History 按用例分桶）
+    let hist_cols: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM pragma_table_info('request_history')")
+            .fetch_all(pool)
+            .await?;
+    if !hist_cols.iter().any(|c| c == "test_case_id") {
+        sqlx::query(
+            "ALTER TABLE request_history ADD COLUMN test_case_id INTEGER
+             REFERENCES test_cases(id) ON DELETE SET NULL",
+        )
+        .execute(pool)
+        .await?;
+    }
+
     // M3-C 触发器：trg_tch_keep_10
     // 复合 BEGIN/END 块内部含 ';'，不能写在 0001_init.sql 里（会被 split(';') 拆坏）。
     // 单独以一条 query 执行；CREATE TRIGGER IF NOT EXISTS 幂等。

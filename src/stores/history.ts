@@ -4,8 +4,8 @@ import { invoke } from '@tauri-apps/api/core'
 import type { HistoryRecord } from '../types'
 
 export const useHistoryStore = defineStore('history', () => {
-  // key = `${requestId}:${testCaseId|null}`（1.0.4 起按用例分桶；DB 无 testCaseId 列，
-  // 内存层先把同一 request 的数据按用例分别缓存，切用例时重载。）
+  // key = `${requestId}:${testCaseId|null}`（1.0.4 起按用例分桶；DB request_history 有
+  // test_case_id 列，list_history 按用例过滤，切用例 History 才真正隔离）
   const historyMap = ref<Record<string, HistoryRecord[]>>({})
 
   function historyKey(requestId: number, testCaseId: number | null): string {
@@ -13,8 +13,7 @@ export const useHistoryStore = defineStore('history', () => {
   }
 
   async function loadHistory(requestId: number, testCaseId: number | null = null) {
-    // Tauri 2.x #[command] 宏把 Rust snake_case 参数名转为 camelCase IPC key
-    const rows = await invoke<HistoryRecord[]>('list_history', { requestId })
+    const rows = await invoke<HistoryRecord[]>('list_history', { requestId, testCaseId })
     const key = historyKey(requestId, testCaseId)
     historyMap.value[key] = rows
   }

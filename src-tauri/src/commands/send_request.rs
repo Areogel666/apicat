@@ -17,6 +17,7 @@ pub async fn send_request(
     db: State<'_, AppDb>,
     http: State<'_, HttpClient>,
     request_id: i64,
+    test_case_id: Option<i64>,
     params: SendRequestParams,
     env_id: Option<i64>,
     project_id: Option<i64>,
@@ -115,17 +116,18 @@ pub async fn send_request(
     let resp_headers_json = serde_json::to_string(&resp.headers)
         .unwrap_or_else(|_| "[]".to_string());
 
-    // 4. 写入 request_history
+    // 4. 写入 request_history（test_case_id 允许 null = 原始参数调试）
     let history_id: i64 = sqlx::query_scalar(
         r#"
         INSERT INTO request_history
-            (request_id, status_code, response_time_ms, request_snapshot,
+            (request_id, test_case_id, status_code, response_time_ms, request_snapshot,
              response_body, is_truncated, response_headers)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING id
         "#,
     )
     .bind(request_id)
+    .bind(test_case_id)
     .bind(resp.status_code as i64)
     .bind(resp.elapsed_ms as i64)
     .bind(&snapshot)
@@ -140,23 +142,26 @@ pub async fn send_request(
 }
 
 /// 获取接口最近 20 条历史记录
+/// test_case_id 传 null/缺省 → 全部历史；传具体值 → 仅该用例的历史
 #[tauri::command]
 pub async fn list_history(
     db: State<'_, AppDb>,
     request_id: i64,
+    test_case_id: Option<i64>,
 ) -> CmdResult<Vec<HistoryRecord>> {
     let rows = sqlx::query_as::<_, HistoryRecord>(
         r#"
-        SELECT id, request_id, status_code, response_time_ms,
+        SELECT id, request_id, test_case_id, status_code, response_time_ms,
                request_snapshot, response_body, is_truncated,
                response_headers, created_at
         FROM request_history
-        WHERE request_id = ?
+        WHERE request_id = ? AND (?2 IS NULL OR test_case_id = ?2)
         ORDER BY created_at DESC
         LIMIT 20
         "#,
     )
     .bind(request_id)
+    .bind(test_case_id)
     .fetch_all(&db.0)
     .await?;
     Ok(rows)

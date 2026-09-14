@@ -59,6 +59,7 @@ pub struct HttpResponse {
 pub struct HistoryRecord {
     pub id: i64,
     pub request_id: i64,
+    pub test_case_id: Option<i64>, // 1.0.4：所属用例（null = 原始参数调试）
     pub status_code: Option<i64>,
     pub response_time_ms: Option<i64>,
     pub request_snapshot: String, // JSON

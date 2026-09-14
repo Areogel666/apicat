@@ -109,6 +109,7 @@ export const useResponseStore = defineStore('response', () => {
       // Tauri 2.x #[command] 宏把 Rust snake_case 参数名转为 camelCase IPC key
       b.response = await invoke<HttpResponse>('send_request', {
         requestId,
+        testCaseId,
         params,
         envId,
         projectId,

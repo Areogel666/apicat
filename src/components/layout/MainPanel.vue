@@ -1669,6 +1669,7 @@ async function handleSend() {
     historyStore.prependRecord(activeReq.id, testCaseStore.activeTestCaseId, {
       id: resp.history_id,
       request_id: activeReq.id,
+      test_case_id: testCaseStore.activeTestCaseId,
       status_code: resp.status_code,
       response_time_ms: resp.elapsed_ms,
       request_snapshot: JSON.stringify({

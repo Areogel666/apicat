@@ -135,6 +135,7 @@ export interface HttpResponse {
 export interface HistoryRecord {
   id: number
   request_id: number
+  test_case_id: number | null   // 1.0.4：所属用例（null = 原始参数调试）
   status_code: number | null
   response_time_ms: number | null
   request_snapshot: string   // JSON
