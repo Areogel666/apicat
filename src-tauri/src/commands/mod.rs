@@ -1,5 +1,6 @@
 pub mod collection;
 pub mod cookie;
+pub mod data_dictionary;
 pub mod environment;
 pub mod project;
 pub mod request;

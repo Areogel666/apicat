@@ -9,6 +9,10 @@ use commands::{
     cookie::{
         create_cookie, delete_cookie, get_cookies_for_domain, list_cookies, update_cookie,
     },
+    data_dictionary::{
+        create_dictionary, create_dictionary_item, delete_dictionary, delete_dictionary_item,
+        list_dictionaries, list_dictionary_items, update_dictionary, update_dictionary_item,
+    },
     environment::{
         activate_environment, create_env_variable, create_environment, deactivate_environment,
         delete_env_variable, delete_environment, list_env_variables, list_environments,
@@ -76,6 +80,8 @@ pub fn run() {
             list_cookies, create_cookie, update_cookie, delete_cookie, get_cookies_for_domain,
             list_test_cases, create_test_case, update_test_case, delete_test_case,
             list_test_case_history, add_test_case_history, delete_test_cases,
+            list_dictionaries, create_dictionary, update_dictionary, delete_dictionary,
+            list_dictionary_items, create_dictionary_item, update_dictionary_item, delete_dictionary_item,
             start_stress,
             export_apicat, export_postman, import_apicat, import_postman, import_openapi,
         ])
