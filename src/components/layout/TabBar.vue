@@ -14,8 +14,18 @@
           v-if="requestStore.dirtyRequestIds.has(tab.requestId)"
           class="tab-dirty-dot"
         />
-        <!-- 标题 -->
-        <span class="tab-title" :title="tab.title">{{ tab.title }}</span>
+        <!-- 标题（1.0.4：方法拆为 NTag 标签） -->
+        <span class="tab-title" :title="tab.title">
+          <template v-if="methodOf(tab.title)">
+            <n-tag
+              size="tiny"
+              :bordered="false"
+              :style="{ color: `var(--method-${methodOf(tab.title)!.toLowerCase()})`, marginRight: '4px' }"
+            >{{ methodOf(tab.title) }}</n-tag>
+            <span>{{ nameOf(tab.title) }}</span>
+          </template>
+          <template v-else>{{ tab.title }}</template>
+        </span>
         <!-- 关闭按钮（hover 显示） -->
         <button
           class="tab-close"
@@ -80,13 +90,24 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
-import { NModal, NButton, useMessage } from 'naive-ui'
+import { NModal, NButton, NTag, useMessage } from 'naive-ui'
 import { useTabStore } from '../../stores/tab'
 import { useRequestStore } from '../../stores/request'
 
 const tabStore = useTabStore()
 const requestStore = useRequestStore()
 const message = useMessage()
+
+// 1.0.4：Tab 标题 "GET 登录" → 方法标签 + 名称
+const METHODS = /^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+(.+)$/
+function methodOf(title: string): string | null {
+  const m = title.match(METHODS)
+  return m ? m[1] : null
+}
+function nameOf(title: string): string {
+  const m = title.match(METHODS)
+  return m ? m[2] : title
+}
 
 // ── 横向滚动（鼠标滚轮 + Mac 触控板） ────────────────────
 const tabListRef = ref<HTMLElement | null>(null)

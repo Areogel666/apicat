@@ -129,7 +129,7 @@
 
 <script setup lang="ts">
 import { h, ref, computed, watch, onMounted, onUnmounted, defineComponent } from 'vue'
-import { NInput, NEmpty, NButton, NTree, NSpin, NModal, NSpace, NSelect, NDropdown, useMessage } from 'naive-ui'
+import { NInput, NEmpty, NButton, NTree, NSpin, NModal, NSpace, NSelect, NTag, NDropdown, useMessage } from 'naive-ui'
 import type { TreeOption, TreeDropInfo } from 'naive-ui'
 import { invoke } from '@tauri-apps/api/core'
 import { useUiStore } from '../../stores/ui'
@@ -486,6 +486,21 @@ function openNewRequestDialog(collectionId: number | null = null) {
 
 function renderLabel(info: { option: TreeOption }) {
   const label = String(info.option.label ?? '')
+  // 1.0.4：request 节点 label 形如 "GET 登录" —— 拆出方法渲染为彩色 NTag
+  const m = label.match(/^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+(.+)$/)
+  if (m && String(info.option.key ?? '').startsWith('req-')) {
+    return h('span', { class: 'node-label' }, [
+      h(NTag, {
+        size: 'small',
+        bordered: false,
+        style: {
+          marginRight: '6px',
+          color: `var(--method-${m[1].toLowerCase()})`,
+        },
+      }, { default: () => m[1] }),
+      h('span', null, m[2]),
+    ])
+  }
   // 圆点已移至 renderSuffix（按钮左侧），此处只渲染 label
   return h('span', { class: 'node-label' }, label)
 }
