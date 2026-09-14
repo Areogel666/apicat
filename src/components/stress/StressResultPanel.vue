@@ -105,22 +105,117 @@
       ❌ {{ stressStore.error }}
     </div>
 
+    <!-- 1.0.4：压测历史记录 -->
+    <div class="stress-section-title">历史记录</div>
+    <div v-if="!stressStore.history.length" class="hist-empty">暂无历史</div>
+    <div v-else class="history-list">
+      <div
+        v-for="run in stressStore.history"
+        :key="run.id"
+        class="history-item"
+        :class="{ active: selectedRunId === run.id }"
+        @click="selectedRunId = run.id"
+      >
+        <div class="history-item__main">
+          <span class="history-item__time">{{ formatTime(run.created_at) }}</span>
+          <span class="history-item__meta">{{ summarizeStats(run) }}</span>
+        </div>
+        <div class="history-item__actions">
+          <n-button size="tiny" quaternary @click.stop="selectedRunId = run.id; onExportReport()">📄 报告</n-button>
+          <n-button size="tiny" quaternary title="删除" @click.stop="stressStore.removeRun(run.id)">✕</n-button>
+        </div>
+      </div>
+    </div>
+
     <template #footer>
       <n-button @click="handleClose" :disabled="stressStore.isRunning">关闭</n-button>
+    </template>
+  </n-modal>
+
+  <!-- 1.0.4：报告文本弹窗 -->
+  <n-modal v-model:show="showReport" preset="card" title="压测报告（Markdown）" style="width: 560px">
+    <n-input
+      v-model:value="reportText"
+      type="textarea"
+      :rows="14"
+      readonly
+      style="font-family: monospace; font-size: 12px"
+    />
+    <template #footer>
+      <n-button @click="showReport = false">关闭</n-button>
+      <n-button type="primary" @click="copyReport">复制报告</n-button>
     </template>
   </n-modal>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
-import { NModal, NButton, NSpin, NTooltip } from 'naive-ui'
+import { NModal, NButton, NSpin, NInput, NTooltip } from 'naive-ui'
 import { useStressStore } from '../../stores/stress'
 import { useThemeStore } from '../../stores/theme'
+import { useRequestStore } from '../../stores/request'
+import type { StressStats } from '../../types'
 
 const show = defineModel<boolean>('show', { required: true })
 const stressStore = useStressStore()
 const themeStore = useThemeStore()
+const requestStore = useRequestStore()
 const canvasRef = ref<HTMLCanvasElement | null>(null)
+
+// 1.0.4：历史记录 + 报告导出状态
+const selectedRunId = ref<number | null>(null)
+const reportText = ref('')
+const showReport = ref(false)
+
+function buildReport(run: { config_json: string; stats_json: string; created_at: string }): string {
+  let cfg: { concurrent?: number; mode?: string; value?: number } = {}
+  let st: StressStats | null = null
+  try { cfg = JSON.parse(run.config_json) } catch {}
+  try { st = JSON.parse(run.stats_json) } catch {}
+  if (!st) return '（无统计数据）'
+  const histLabels = ['<1', '1-2', '2-5', '5-10', '10-20', '20-50', '50-100', '100-200', '200-500', '>500']
+  const hist = (st.latency_hist ?? []).map((n, i) => `${histLabels[i]}ms:${n}`).join(' / ')
+  const status = (st.status_counts ?? []).map(([c, n]) => `${c === 0 ? '网络错误' : c}:${n}`).join(' / ')
+  return [
+    `# ApiCat 压测报告`,
+    `- 时间：${run.created_at}`,
+    `- 并发=${cfg.concurrent} 模式=${cfg.mode} 值=${cfg.value}`,
+    `- 总请求 ${st.total} 成功 ${st.success} 失败 ${st.failed} 成功率 ${st.success_rate.toFixed(1)}%`,
+    `- 耗时 avg ${st.avg_ms.toFixed(1)}ms / P50 ${st.p50_ms} / P95 ${st.p95_ms} / P99 ${st.p99_ms}`,
+    `- TPS ${st.tps.toFixed(1)}`,
+    `## 耗时分布`,
+    hist,
+    `## 状态码分布`,
+    status || '（无）',
+  ].join('\n')
+}
+
+function onExportReport() {
+  const run = stressStore.history.find(r => r.id === selectedRunId.value)
+  if (!run) return
+  reportText.value = buildReport(run)
+  showReport.value = true
+}
+
+function copyReport() {
+  if (!reportText.value) return
+  navigator.clipboard.writeText(reportText.value).catch(() => {})
+}
+
+function formatTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString()
+  } catch {
+    return iso
+  }
+}
+
+function summarizeStats(run: { config_json: string; stats_json: string }): string {
+  let st: StressStats | null = null
+  try { st = JSON.parse(run.stats_json) } catch {}
+  if (!st) return ''
+  return `总${st.total} 成功率${st.success_rate.toFixed(1)}% TPS${st.tps.toFixed(1)} P95${st.p95_ms}ms`
+}
 
 // 1.0.4：耗时直方图桶标签（与 Rust LATENCY_BUCKETS 一致：10 桶）
 const LATENCY_LABELS = ['<1', '1-2', '2-5', '5-10', '10-20', '20-50', '50-100', '100-200', '200-500', '>500']
@@ -259,7 +354,13 @@ watch(
 
 // 弹窗打开时初始化 canvas
 watch(show, (v) => {
-  if (v) nextTick(drawChart)
+  if (v) {
+    // 1.0.4：打开面板时加载该接口压测历史
+    if (requestStore.activeRequestId != null) {
+      stressStore.loadHistory(requestStore.activeRequestId)
+    }
+    nextTick(drawChart)
+  }
 })
 
 // 主题切换 → 重绘 canvas（CSS 变量已变，需要重新读取）
@@ -389,3 +490,28 @@ onUnmounted(() => {
 }
 .status-fill { height: 100%; transition: width 0.2s; }
 .status-count { width: 48px; text-align: right; font-size: var(--font-size-sm); color: var(--text-secondary); }
+
+/* 1.0.4：压测历史 */
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  max-height: 180px;
+  overflow-y: auto;
+}
+.history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.history-item:hover { background: var(--bg-hover); }
+.history-item.active { border-color: var(--color-primary); background: var(--bg-selected); }
+.history-item__main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.history-item__time { font-size: var(--font-size-sm); color: var(--text-secondary); }
+.history-item__meta { font-size: var(--font-size-sm); color: var(--text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-item__actions { display: flex; align-items: center; flex-shrink: 0; }

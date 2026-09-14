@@ -2067,6 +2067,7 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
   }
 
   await stressStore.startStress(
+    requestStore.activeRequest?.id ?? 0,
     {
       method: stressMethod,
       url: stressUrl,

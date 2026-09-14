@@ -25,7 +25,7 @@ use commands::{
         create_test_case, delete_test_case, list_test_cases, update_test_case,
         list_test_case_history, add_test_case_history, delete_test_cases,
     },
-    stress::start_stress,
+    stress::{start_stress, list_stress_runs, delete_stress_run},
     io::{export_apicat, export_postman, import_apicat, import_postman, import_openapi},
 };
 use db::{init_db, AppDb};
@@ -83,6 +83,7 @@ pub fn run() {
             list_dictionaries, create_dictionary, update_dictionary, delete_dictionary,
             list_dictionary_items, create_dictionary_item, update_dictionary_item, delete_dictionary_item,
             start_stress,
+            list_stress_runs, delete_stress_run,
             export_apicat, export_postman, import_apicat, import_postman, import_openapi,
         ])
         .run(tauri::generate_context!())

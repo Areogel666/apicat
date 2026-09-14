@@ -5,7 +5,7 @@
 //!   - reqwest 连接池大小不超过 max_concurrent（§10.2）
 //!   - Windows 跳过 fd 检测；macOS/Linux 检测 getrlimit
 
-use crate::{error::CmdResult, http::client::{send, SendRequestParams}};
+use crate::{error::CmdResult, http::client::{send, SendRequestParams}, types::StressRun};
 use serde::Serialize;
 use std::{
     sync::{Arc, Mutex},
@@ -13,6 +13,9 @@ use std::{
 };
 use tauri::{AppHandle, Emitter};
 use tokio::sync::broadcast;
+use crate::db::AppDb;
+use sqlx::Sqlite;
+use tauri::State;
 
 /// 百分位滑动窗口大小：只保留最近 N 条耗时用于 P50/P95/P99 计算。
 /// 内存上限 ≈ 10000 × 8B = 80KB，对长时压测 OOM 友好。
@@ -177,6 +180,8 @@ fn check_fd_limit(_max_concurrent: u32) -> Result<(), String> {
 #[tauri::command]
 pub async fn start_stress(
     app: AppHandle,
+    db: State<'_, AppDb>,
+    request_id: i64,
     params: SendRequestParams,
     concurrent: u32,
     mode: String,
@@ -355,5 +360,48 @@ pub async fn start_stress(
     // 超时 1s 保底，防止 timer 异常时主任务卡死
     let _ = tokio::time::timeout(Duration::from_secs(1), timer_done_rx).await;
 
+    // 1.0.4：压测结果落库（最终快照 + 配置）
+    let final_snapshot = raw_stats.lock().unwrap().snapshot(start_time.elapsed().as_secs_f64(), true);
+    let stats_json = serde_json::to_string(&final_snapshot).unwrap_or_else(|_| "{}".to_string());
+    let config_json = serde_json::json!({
+        "concurrent": concurrent,
+        "mode": mode,
+        "value": value,
+    }).to_string();
+    let _ = sqlx::query(
+        "INSERT INTO stress_runs (request_id, config_json, stats_json) VALUES (?1, ?2, ?3)",
+    )
+    .bind(request_id)
+    .bind(&config_json)
+    .bind(&stats_json)
+    .execute(&db.0)
+    .await;
+
+    Ok(())
+}
+
+/// 获取某接口的压测历史（按时间倒序，最近 50 条）
+#[tauri::command]
+pub async fn list_stress_runs(
+    db: State<'_, AppDb>,
+    request_id: i64,
+) -> CmdResult<Vec<StressRun>> {
+    let rows = sqlx::query_as::<Sqlite, StressRun>(
+        "SELECT id, request_id, config_json, stats_json, created_at
+         FROM stress_runs WHERE request_id = ?1 ORDER BY created_at DESC LIMIT 50",
+    )
+    .bind(request_id)
+    .fetch_all(&db.0)
+    .await?;
+    Ok(rows)
+}
+
+/// 删除一条压测历史
+#[tauri::command]
+pub async fn delete_stress_run(db: State<'_, AppDb>, id: i64) -> CmdResult<()> {
+    sqlx::query("DELETE FROM stress_runs WHERE id = ?1")
+        .bind(id)
+        .execute(&db.0)
+        .await?;
     Ok(())
 }
