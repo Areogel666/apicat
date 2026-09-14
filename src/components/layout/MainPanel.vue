@@ -172,11 +172,21 @@
             <!-- 表格模式 -->
             <template v-if="queryMode === 'table'">
               <n-empty v-if="!queryParams.length" description="暂无参数" size="small" />
-              <div v-for="(q, idx) in queryParams" :key="idx" class="param-row">
-                <n-checkbox v-model:checked="q.enabled" />
-                <n-input v-model:value="q.key" size="small" style="width:140px; flex-shrink:0" placeholder="Key" />
-                <n-input v-model:value="q.value" size="small" style="flex:1" placeholder="Value" />
-                <n-button size="tiny" quaternary @click="queryParams.splice(idx, 1)">✕</n-button>
+              <!-- 1.0.4：表头行 -->
+              <div v-else class="param-row param-row--header">
+                <span class="param-col-check" />
+                <span class="param-col-key" @click="toggleSort('query')">
+                  字段名 {{ sortIndicators.query }}
+                </span>
+                <span class="param-col-type">类型</span>
+                <span class="param-col-desc">描述</span>
+                <span class="param-col-value" style="flex:1">值</span>
+                <span class="param-col-del" />
+              </div>
+              <div v-for="(q, idx) in sortedQueryParams" :key="idx" class="param-row-wrap">
+                <ParamRow :item="q" :type-options="typeOptions" key-placeholder="Key" value-placeholder="Value"
+                  @remove="queryParams.splice(queryParams.indexOf(q), 1)"
+                  @pick-dict="openDictPicker" />
               </div>
               <n-button size="small" dashed style="margin-top:4px; width:100%" @click="addQueryParam">
                 + 添加 Query Param
@@ -237,11 +247,21 @@
 
             <template v-if="headerMode === 'table'">
               <n-empty v-if="!requestHeaders.length" description="暂无 Headers" size="small" />
-              <div v-for="(h, idx) in requestHeaders" :key="idx" class="param-row">
-                <n-checkbox v-model:checked="h.enabled" />
-                <n-input v-model:value="h.key" size="small" style="width:160px; flex-shrink:0" placeholder="Header 名" />
-                <n-input v-model:value="h.value" size="small" style="flex:1" placeholder="值" />
-                <n-button size="tiny" quaternary @click="requestHeaders.splice(idx, 1)">✕</n-button>
+              <!-- 1.0.4：表头行 -->
+              <div v-else class="param-row param-row--header">
+                <span class="param-col-check" />
+                <span class="param-col-key" @click="toggleSort('header')">
+                  Header 名 {{ sortIndicators.header }}
+                </span>
+                <span class="param-col-type">类型</span>
+                <span class="param-col-desc">描述</span>
+                <span class="param-col-value" style="flex:1">值</span>
+                <span class="param-col-del" />
+              </div>
+              <div v-for="(h, idx) in sortedHeaders" :key="idx" class="param-row-wrap">
+                <ParamRow :item="h" :type-options="typeOptions" key-placeholder="Header 名" value-placeholder="值"
+                  @remove="requestHeaders.splice(requestHeaders.indexOf(h), 1)"
+                  @pick-dict="openDictPicker" />
               </div>
               <n-button size="small" dashed style="margin-top:4px; width:100%" @click="addHeader">
                 + 添加 Header
@@ -301,11 +321,21 @@
               <!-- 表格模式 -->
               <template v-if="urlencodedMode === 'table'">
                 <n-empty v-if="!urlencodedParams.length" description="暂无字段" size="small" />
-                <div v-for="(f, idx) in urlencodedParams" :key="idx" class="param-row">
-                  <n-checkbox v-model:checked="f.enabled" />
-                  <n-input v-model:value="f.key" size="small" style="width:140px; flex-shrink:0" placeholder="字段名" />
-                  <n-input v-model:value="f.value" size="small" style="flex:1" placeholder="值" />
-                  <n-button size="tiny" quaternary @click="urlencodedParams.splice(idx, 1)">✕</n-button>
+                <!-- 1.0.4：表头行 -->
+                <div v-else class="param-row param-row--header">
+                  <span class="param-col-check" />
+                  <span class="param-col-key" @click="toggleSort('urlencoded')">
+                    字段名 {{ sortIndicators.urlencoded }}
+                  </span>
+                  <span class="param-col-type">类型</span>
+                  <span class="param-col-desc">描述</span>
+                  <span class="param-col-value" style="flex:1">值</span>
+                  <span class="param-col-del" />
+                </div>
+                <div v-for="(f, idx) in sortedUrlencoded" :key="idx" class="param-row-wrap">
+                  <ParamRow :item="f" :type-options="typeOptions" key-placeholder="字段名" value-placeholder="值"
+                    @remove="urlencodedParams.splice(urlencodedParams.indexOf(f), 1)"
+                    @pick-dict="openDictPicker" />
                 </div>
                 <n-button size="small" dashed style="margin-top:4px; width:100%" @click="addUrlencodedField">
                   + 添加字段
@@ -326,11 +356,21 @@
             <!-- form-data KV 表格 -->
             <template v-if="bodyType === 'form_data'">
               <n-empty v-if="!formDataParams.length" description="暂无字段" size="small" />
-              <div v-for="(f, idx) in formDataParams" :key="idx" class="param-row">
-                <n-checkbox v-model:checked="f.enabled" />
-                <n-input v-model:value="f.key" size="small" style="width:140px; flex-shrink:0" placeholder="字段名" />
-                <n-input v-model:value="f.value" size="small" style="flex:1" placeholder="值" />
-                <n-button size="tiny" quaternary @click="formDataParams.splice(idx, 1)">✕</n-button>
+              <!-- 1.0.4：表头行 -->
+              <div v-else class="param-row param-row--header">
+                <span class="param-col-check" />
+                <span class="param-col-key" @click="toggleSort('formdata')">
+                  字段名 {{ sortIndicators.formdata }}
+                </span>
+                <span class="param-col-type">类型</span>
+                <span class="param-col-desc">描述</span>
+                <span class="param-col-value" style="flex:1">值</span>
+                <span class="param-col-del" />
+              </div>
+              <div v-for="(f, idx) in sortedFormData" :key="idx" class="param-row-wrap">
+                <ParamRow :item="f" :type-options="typeOptions" key-placeholder="字段名" value-placeholder="值"
+                  @remove="formDataParams.splice(formDataParams.indexOf(f), 1)"
+                  @pick-dict="openDictPicker" />
               </div>
               <n-button size="small" dashed style="margin-top:4px; width:100%" @click="addFormDataField">
                 + 添加字段
@@ -444,6 +484,21 @@
       </n-tabs>
     </div>
 
+    <!-- 1.0.4：字典选择弹窗（描述列 📖） -->
+    <n-modal v-model:show="showDictPicker" :preset="'card'" title="选择字典项" style="width: 420px">
+      <div style="max-height: 360px; overflow: auto; padding: var(--spacing-sm) 0">
+        <n-empty v-if="!dictionaryStore.dictionaries.length" description="暂无字典，请先在字典侧栏创建" size="small" />
+        <n-tree
+          v-else
+          :data="dictPickerTreeData"
+          block-line
+          default-expand-all
+          expand-on-click
+          @update:selected-keys="onDictPickerSelect"
+        />
+      </div>
+    </n-modal>
+
     <!-- 分栏拖拽分隔条 -->
     <ResizableSplitter
       direction="vertical"
@@ -488,7 +543,7 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import {
   NSelect, NInput, NButton, NTabs, NTabPane, NEmpty,
-  NTag, NDivider, NCheckbox, NRadioGroup, NRadioButton, NRadio,
+  NTag, NDivider, NRadioGroup, NRadioButton, NRadio,
   NDropdown, NTooltip,
   useMessage, useDialog,
 } from 'naive-ui'
@@ -503,6 +558,7 @@ import { useProjectStore } from '../../stores/project'
 import { useTestCaseStore } from '../../stores/testCase'
 import { useStressStore } from '../../stores/stress'
 import { useHeaderTemplateStore } from '../../stores/headerTemplate'
+import { useDictionaryStore } from '../../stores/dictionary'
 import { useTabStore } from '../../stores/tab'
 import { useThemeStore } from '../../stores/theme'
 import TabBar from './TabBar.vue'
@@ -512,6 +568,7 @@ import TestCaseManager from '../testcase/TestCaseManager.vue'
 import StressConfigModal from '../stress/StressConfigModal.vue'
 import StressResultPanel from '../stress/StressResultPanel.vue'
 import ResizableSplitter from '../common/ResizableSplitter.vue'
+import ParamRow from '../io/ParamRow.vue'
 import type { ParamItem, ParsedUrl, StressConfig } from '../../types'
 
 type ParamMode = 'table' | 'kv' | 'json'
@@ -620,6 +677,94 @@ const queryParams = ref<ParamItem[]>([])
 const requestHeaders = ref<ParamItem[]>([])
 const bodyType = ref('none')
 const bodyContent = ref('')
+
+// ── 1.0.4：参数表格 类型/描述/排序/字典引用 ───────────────────────
+const dictionaryStore = useDictionaryStore()
+
+const typeOptions = [
+  { label: 'string', value: 'string' },
+  { label: 'number', value: 'number' },
+  { label: 'boolean', value: 'boolean' },
+  { label: 'array', value: 'array' },
+  { label: 'object', value: 'object' },
+  { label: 'null', value: 'null' },
+]
+
+// 排序状态：target = 哪张表在排序；dir = 升降序
+const sortTarget = ref<'query' | 'header' | 'urlencoded' | 'formdata' | null>(null)
+const sortDir = ref<'asc' | 'desc'>('asc')
+
+function toggleSort(target: 'query' | 'header' | 'urlencoded' | 'formdata') {
+  if (sortTarget.value === target) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    sortTarget.value = target
+    sortDir.value = 'asc'
+  }
+}
+
+const sortIndicators = computed(() => ({
+  query: sortTarget.value === 'query' ? (sortDir.value === 'asc' ? '▲' : '▼') : '',
+  header: sortTarget.value === 'header' ? (sortDir.value === 'asc' ? '▲' : '▼') : '',
+  urlencoded: sortTarget.value === 'urlencoded' ? (sortDir.value === 'asc' ? '▲' : '▼') : '',
+  formdata: sortTarget.value === 'formdata' ? (sortDir.value === 'asc' ? '▲' : '▼') : '',
+}))
+
+function sortedList(list: ParamItem[], target: 'query' | 'header' | 'urlencoded' | 'formdata'): ParamItem[] {
+  if (sortTarget.value !== target) return list
+  const sorted = [...list]
+  sorted.sort((a, b) => {
+    const r = a.key.localeCompare(b.key)
+    return sortDir.value === 'asc' ? r : -r
+  })
+  return sorted
+}
+const sortedQueryParams = computed(() => sortedList(queryParams.value, 'query'))
+const sortedHeaders = computed(() => sortedList(requestHeaders.value, 'header'))
+const sortedUrlencoded = computed(() => sortedList(urlencodedParams.value, 'urlencoded'))
+const sortedFormData = computed(() => sortedList(formDataParams.value, 'formdata'))
+
+// 字典引用弹窗状态
+const dictPickerParam = ref<ParamItem | null>(null)
+const showDictPicker = ref(false)
+const dictPickerItemId = ref<number | null>(null)
+const dictionaryStoreLoaded = ref(false)
+
+function openDictPicker(q: ParamItem) {
+  dictPickerParam.value = q
+  dictPickerItemId.value = q.descriptionDictRef ?? null
+  showDictPicker.value = true
+  if (!dictionaryStoreLoaded.value) {
+    dictionaryStore.loadDictionaries(projectStore.currentProjectId)
+    dictionaryStoreLoaded.value = true
+  }
+}
+
+const dictPickerTreeData = computed(() =>
+  dictionaryStore.dictionaries.map(d => ({
+    key: `dict-${d.id}`,
+    label: `${d.code}（${d.name}）`,
+    children: dictionaryStore.itemsMap[d.id]?.map(item => ({
+      key: `item-${item.id}`,
+      label: `${item.value} = ${item.label}`,
+      isLeaf: true,
+    })) ?? [],
+  })),
+)
+
+function onDictPickerSelect(keys: Array<string | number>) {
+  const k = keys[0]
+  if (!k) return
+  const str = String(k)
+  if (!str.startsWith('item-')) return
+  const itemId = Number(str.slice(5))
+  const item = dictionaryStore.getItemById(itemId)
+  if (item && dictPickerParam.value) {
+    dictPickerParam.value.description = `${item.value} = ${item.label}`
+    dictPickerParam.value.descriptionDictRef = item.id
+  }
+  showDictPicker.value = false
+}
 
 // form-data KV 字段（bodyType === 'form_data' 时使用）
 const formDataParams = ref<ParamItem[]>([])
@@ -1987,6 +2132,23 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
 .params-editor { padding: var(--spacing-sm) var(--spacing-xs); overflow-y: auto; flex: 1; }
 .params-section-label { font-size: var(--font-size-sm); font-weight: 600; color: var(--text-tertiary); padding: var(--spacing-xs) 0 var(--spacing-sm); text-transform: uppercase; letter-spacing: 0.5px; }
 .param-row { display: flex; gap: var(--spacing-sm); align-items: center; margin-bottom: var(--spacing-sm); }
+
+/* 1.0.4：参数表格增强 —— 表头行 / 列宽 / 排序 */
+.param-row--header {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-tertiary);
+  padding: 2px 0;
+  user-select: none;
+}
+.param-row--header .param-col-key { cursor: pointer; }
+.param-row--header .param-col-key:hover { color: var(--color-primary); }
+.param-col-check { width: 16px; flex-shrink: 0; }
+.param-col-key { width: 140px; flex-shrink: 0; }
+.param-col-type { width: 100px; flex-shrink: 0; }
+.param-col-desc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.param-col-value { flex: 1; min-width: 0; }
+.param-col-del { width: 22px; flex-shrink: 0; }
 .tab-content-placeholder { padding: var(--spacing-lg) 0; }
 
 .params-mode-bar {
