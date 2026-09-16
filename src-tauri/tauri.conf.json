@@ -27,6 +27,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -37,7 +38,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRGNzUwQzhFRjZEODRDNUMKUldSY1ROajJqZ3gxVDNtcEJmNEd1Uy9QZGMvbE5YNXU0VmNoMmp3RlIvQ0pMbFdaVG53SCszRkcK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEzMzZBREJDRUVENTE2MjAKUldRZ0Z0WHV2SzAyRThqTENCWUdzSVFYdm1pMWNwZmhZTW55aEZFcWswalNNN2M4OXhCM1BiOEIK",
       "endpoints": [
         "https://github.com/Areogel666/apicat/releases/latest/download/latest.json"
       ]

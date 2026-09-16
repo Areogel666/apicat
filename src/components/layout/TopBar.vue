@@ -189,10 +189,11 @@ async function checkForUpdate() {
   } catch (e) {
     message.destroyAll()
     const msg = String(e)
-    // plugin-updater 在 Release 尚未发布（latest.json 不存在）时抛出此错误
-    // 对用户来说等同于"没有可用更新"，避免显示底层技术报错
+    // 注意：check() 返回 null 才是「已是最新」（见上方 if (!update) 分支）。
+    // 走到 catch 说明更新服务器不可达，常见原因是 Release 仍为草稿
+    // —— /releases/latest 不返回草稿，latest.json 取不到。
     if (msg.includes('Could not fetch a valid release JSON')) {
-      message.info('当前已是最新版本 🎉')
+      message.warning('无法连接更新服务器，请稍后重试')
     } else {
       message.error(`检查更新失败：${msg}`)
     }
