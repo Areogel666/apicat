@@ -14,23 +14,46 @@
       clearable
       tag
     />
-    <!-- 1.0.4：描述列（可手输 / 选字典；引用字典时显示最新值） -->
+    <!-- 描述列：未绑定字典 → 直接可编辑的手写描述输入；已绑定字典 → 命中展示 + ✎ 编辑手写 -->
     <div class="param-row__desc">
-      <!-- 已引用字典：显示字典最新值 + 断开引用 -->
-      <n-tag v-if="isDictRef" size="small" :bordered="false" class="param-row__dict-tag" closable
-        @close="clearDictRef">
-        📖 {{ dictDisplay }}
-      </n-tag>
+      <template v-if="dictBound">
+        <FieldDictDesc :field="item.key" :value="item.value" :manual="item.description ?? ''" />
+        <n-popover
+          :show="descPop"
+          :width="240"
+          trigger="click"
+          placement="bottom-end"
+          @update:show="descPop = $event"
+        >
+          <template #trigger>
+            <n-button size="tiny" quaternary title="编辑手写描述" :class="{ 'fdd-edit-on': item.description }">✎</n-button>
+          </template>
+          <n-input
+            v-model:value="item.description"
+            type="textarea"
+            :rows="2"
+            placeholder="手写描述（可选，展示在字典信息后）"
+          />
+        </n-popover>
+      </template>
       <n-input v-else v-model:value="item.description" size="small" placeholder="字段描述" />
-      <n-button size="tiny" quaternary title="选择字典项" @click="$emit('pick-dict', item)">📖</n-button>
+      <n-button
+        size="tiny"
+        quaternary
+        title="绑定 / 换绑 / 解绑字典"
+        @click="$emit('pick-dict', item)"
+      >📖</n-button>
+      <n-button size="tiny" quaternary @click="$emit('remove', item)">✕</n-button>
     </div>
-    <n-button size="tiny" quaternary @click="$emit('remove', item)">✕</n-button>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { NInput, NButton, NSelect, NCheckbox, NTag } from 'naive-ui'
+import { ref, computed } from 'vue'
+import { NInput, NButton, NSelect, NCheckbox, NPopover } from 'naive-ui'
+import FieldDictDesc from './FieldDictDesc.vue'
+import { useDictionaryStore } from '../../stores/dictionary'
+import { useRequestStore } from '../../stores/request'
 import type { ParamItem } from '../../types'
 
 const props = withDefaults(defineProps<{
@@ -38,24 +61,24 @@ const props = withDefaults(defineProps<{
   keyPlaceholder?: string
   valuePlaceholder?: string
   typeOptions: Array<{ label: string; value: string }>
-  /** 已引用字典项的展示文本（最新值），有值表示该行描述来自字典引用 */
-  dictDisplay?: string
 }>(), {
   keyPlaceholder: 'Key',
   valuePlaceholder: 'Value',
 })
 
-const emit = defineEmits<{
+defineEmits<{
   remove: [item: ParamItem]
   'pick-dict': [item: ParamItem]
-  'clear-dict-ref': [item: ParamItem]
 }>()
 
-const isDictRef = computed(() => Boolean(props.item.descriptionDictRef))
+const dictStore = useDictionaryStore()
+const requestStore = useRequestStore()
 
-function clearDictRef() {
-  emit('clear-dict-ref', props.item)
-}
+/** 该字段是否有字典绑定（非空）—— 决定描述列展示「命中/Tooltip」还是「直接编辑」 */
+const dictBound = computed(() => dictStore.dictIdForField(props.item.key, requestStore.activeRequestId) != null)
+
+// 行内手写描述编辑弹层（每行独立状态）
+const descPop = ref(false)
 </script>
 
 <style scoped>
@@ -66,11 +89,7 @@ function clearDictRef() {
   align-items: center;
   gap: 2px;
 }
-.param-row__dict-tag {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.fdd-edit-on {
+  color: var(--color-primary);
 }
 </style>

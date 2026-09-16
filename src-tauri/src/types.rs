@@ -153,6 +153,12 @@ pub struct ExportProject {
     // 1.0.4 fix：项目级数据字典（旧导出文件无此字段，serde(default) 兜底为空）
     #[serde(default)]
     pub dictionaries: Vec<ExportDictionary>,
+    // 1.0.4：字段名 ↔ 字典绑定规则（随导出携带，导入还原命中）
+    #[serde(default)]
+    pub field_rules: Vec<ExportFieldRule>,
+    // 1.0.4：接口×字段名例外（换绑/解绑），同样随导出携带还原
+    #[serde(default)]
+    pub field_overrides: Vec<ExportFieldOverride>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -228,6 +234,23 @@ pub struct ExportDictionaryItem {
     pub sort_order: i64,
 }
 
+/// 1.0.4：导出/导入里的「字段名 ↔ 字典」绑定规则（字典用 code 引用，避免 id 漂移）
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExportFieldRule {
+    pub field_name: String,
+    pub dictionary_code: String,
+}
+
+/// 1.0.4：导出/导入里的「接口 × 字段名」例外（换绑/解绑）
+/// 接口用 (method, url) 业务键定位（项目内通常唯一）；dictionary_code=None 表示解除绑定。
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExportFieldOverride {
+    pub field_name: String,
+    pub dictionary_code: Option<String>,
+    pub request_method: String,
+    pub request_url: String,
+}
+
 // ── 用例执行历史（M3-C 新增）──────────────────────────────────
 // 每用例保留最新 10 条（由触发器 trg_tch_keep_10 滚动淘汰）
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
@@ -262,6 +285,26 @@ pub struct DictionaryItem {
     pub value: String,
     pub description: String,
     pub sort_order: i64,
+}
+
+// ── 字典「字段名绑定」（1.0.4）────────────────────────────────
+// 规则：项目内 字段名 ↔ 字典（一对一）
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct FieldDictionaryRule {
+    pub id: i64,
+    pub project_id: i64,
+    pub field_name: String,
+    pub dictionary_id: i64,
+}
+
+// 例外：接口 × 字段名 的换绑/解绑（dictionary_id None = 解除）
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct FieldDictionaryOverride {
+    pub id: i64,
+    pub project_id: i64,
+    pub request_id: i64,
+    pub field_name: String,
+    pub dictionary_id: Option<i64>,
 }
 
 // ── 压测历史（1.0.4 新增，M3 Task 3 使用）──────────────────────

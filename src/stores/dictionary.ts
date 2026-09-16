@@ -1,16 +1,20 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import type { DataDictionary, DictionaryItem } from '../types'
+import type { DataDictionary, DictionaryItem, FieldDictionaryRule, FieldDictionaryOverride } from '../types'
 
 /**
  * 数据字典 Store —— 全局共享字典（builtin）与项目自定义字典。
  * items 按 dictionary_id 分桶缓存。
+ * 1.0.4「字段名绑定」：项目级 field_name ↔ dictionary 规则 + 接口×字段名例外
  */
 export const useDictionaryStore = defineStore('dictionary', () => {
   const dictionaries = ref<DataDictionary[]>([])
   // dictionaryId → DictionaryItem[]
   const itemsMap = ref<Record<number, DictionaryItem[]>>({})
+  // 1.0.4：字段名 ↔ 字典 绑定规则 / 例外
+  const fieldRules = ref<FieldDictionaryRule[]>([])
+  const fieldOverrides = ref<FieldDictionaryOverride[]>([])
 
   // 1.0.4 fix：字典管理页选中的字典 id（左侧树 → 右侧 JSON 编辑面板联动）
   const selectedDictId = ref<number | null>(null)
@@ -132,13 +136,112 @@ export const useDictionaryStore = defineStore('dictionary', () => {
     return null
   }
 
+  // ── 1.0.4「字段名绑定」：规则 / 例外 / 复制 ────────────────────
+
+  async function loadFieldBindings(projectId: number | null) {
+    if (projectId == null) {
+      fieldRules.value = []
+      fieldOverrides.value = []
+      return
+    }
+    fieldRules.value = await invoke<FieldDictionaryRule[]>('list_field_rules', { projectId })
+    fieldOverrides.value = await invoke<FieldDictionaryOverride[]>('list_field_overrides', { projectId })
+  }
+
+  async function setFieldRule(projectId: number, fieldName: string, dictionaryId: number) {
+    await invoke('set_field_rule', { projectId, fieldName, dictionaryId })
+    // 本地同步：id 为占位（-1，刷新后由后端补齐）；更新/删除按 project_id+field_name 业务键定位
+    upsertLocal(
+      fieldRules.value,
+      { id: -1, project_id: projectId, field_name: fieldName, dictionary_id: dictionaryId },
+      r => r.project_id === projectId && r.field_name === fieldName,
+    )
+  }
+
+  async function removeFieldRule(projectId: number, fieldName: string) {
+    await invoke('delete_field_rule', { projectId, fieldName })
+    fieldRules.value = fieldRules.value.filter(r => !(r.project_id === projectId && r.field_name === fieldName))
+  }
+
+  async function setFieldOverride(
+    projectId: number, requestId: number, fieldName: string, dictionaryId: number | null,
+  ) {
+    await invoke('set_field_override', { projectId, requestId, fieldName, dictionaryId })
+    upsertLocal(
+      fieldOverrides.value,
+      { id: -1, project_id: projectId, request_id: requestId, field_name: fieldName, dictionary_id: dictionaryId },
+      o => o.project_id === projectId && o.request_id === requestId && o.field_name === fieldName,
+    )
+  }
+
+  async function removeFieldOverride(projectId: number, requestId: number, fieldName: string) {
+    await invoke('delete_field_override', { projectId, requestId, fieldName })
+    fieldOverrides.value = fieldOverrides.value.filter(o =>
+      !(o.project_id === projectId && o.request_id === requestId && o.field_name === fieldName))
+  }
+
+  /** 复制字典到目标项目（含字典项 + 源项目里绑定它的字段规则） */
+  async function copyDictionaryToProject(
+    sourceDictionaryId: number,
+    sourceProjectId: number,
+    targetProjectId: number,
+  ): Promise<DataDictionary> {
+    const d = await invoke<DataDictionary>('copy_dictionary_to_project', {
+      sourceDictionaryId,
+      sourceProjectId,
+      targetProjectId,
+    })
+    dictionaries.value.push(d)
+    itemsMap.value[d.id] = await invoke<DictionaryItem[]>('list_dictionary_items', { dictionaryId: d.id })
+    // 目标项目规则可能新增了绑定，刷新
+    await loadFieldBindings(targetProjectId)
+    return d
+  }
+
+  /**
+   * 解析某字段最终绑定的字典 id：
+   * 接口×字段名例外优先（dictionary_id=null 表示解除绑定 → 返回 null 且不回落规则）；
+   * 否则用项目规则。
+   */
+  function dictIdForField(fieldName: string, activeRequestId: number | null | undefined): number | null {
+    if (activeRequestId != null) {
+      const ov = fieldOverrides.value.find(o => o.request_id === activeRequestId && o.field_name === fieldName)
+      if (ov) return ov.dictionary_id
+    }
+    const rule = fieldRules.value.find(r => r.field_name === fieldName)
+    return rule ? rule.dictionary_id : null
+  }
+
+  /** 本地列表 upsert：命中替换、否则追加（用于规则/例外的本地镜像同步） */
+  function upsertLocal<T>(list: T[], item: T, match: (t: T) => boolean) {
+    const i = list.findIndex(match)
+    if (i >= 0) list[i] = item
+    else list.push(item)
+  }
+
+  /** 按 id 取字典 */
+  function dictById(id: number | null | undefined): DataDictionary | null {
+    if (id == null) return null
+    return dictionaries.value.find(d => d.id === id) ?? null
+  }
+
   return {
     dictionaries,
     itemsMap,
+    fieldRules,
+    fieldOverrides,
     selectedDictId,
     selectedDict,
     setSelectedDict,
     loadDictionaries,
+    loadFieldBindings,
+    setFieldRule,
+    removeFieldRule,
+    setFieldOverride,
+    removeFieldOverride,
+    copyDictionaryToProject,
+    dictIdForField,
+    dictById,
     createDictionary,
     createDictionaryWithItems,
     updateDictionary,

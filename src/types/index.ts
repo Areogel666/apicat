@@ -169,6 +169,22 @@ export interface DictionaryItem {
   sort_order: number
 }
 
+// ── 字典「字段名绑定」（1.0.4）──────────────────────────────
+export interface FieldDictionaryRule {
+  id: number
+  project_id: number
+  field_name: string
+  dictionary_id: number
+}
+
+export interface FieldDictionaryOverride {
+  id: number
+  project_id: number
+  request_id: number
+  field_name: string
+  dictionary_id: number | null   // null = 解除绑定
+}
+
 // ── 压测历史（1.0.4 新增）─────────────────────────────────────
 export interface StressRun {
   id: number

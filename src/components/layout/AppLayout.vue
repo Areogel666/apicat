@@ -18,31 +18,23 @@
           @click="leftPanel = 'dictionary'"
         >📖</button>
       </div>
-      <!-- 1.0.4 fix：接口模式 → 左侧接口树 + 右侧主编辑区；字典模式 → 左侧字典树 + 右侧 JSON 编辑面板 -->
-      <template v-if="leftPanel === 'interface'">
-        <Sidebar :style="{ width: sidebarWidth + 'px', flexShrink: 0 }" />
-        <ResizableSplitter
-          direction="horizontal"
-          :default-size="sidebarWidth"
-          :min-size="160"
-          :max-size="500"
-          storage-key="layout.sidebarWidth"
-          @resize="onSidebarResize"
-        />
-        <MainPanel style="flex: 1; min-width: 0" />
-      </template>
-      <template v-else>
-        <DictionarySidebar :style="{ width: sidebarWidth + 'px', flexShrink: 0 }" />
-        <ResizableSplitter
-          direction="horizontal"
-          :default-size="sidebarWidth"
-          :min-size="160"
-          :max-size="500"
-          storage-key="layout.sidebarWidth"
-          @resize="onSidebarResize"
-        />
-        <DictionaryJsonPanel style="flex: 1; min-width: 0" />
-      </template>
+      <!-- 1.0.4 fix：左右面板均常驻(v-show)，切换时保留全部浏览状态（接口树展开/选中、编辑区、字典选中） -->
+      <div class="side-pane" v-show="leftPanel === 'interface'">
+        <Sidebar :style="{ width: sidebarWidth + 'px' }" />
+      </div>
+      <div class="side-pane" v-show="leftPanel !== 'interface'">
+        <DictionarySidebar :style="{ width: sidebarWidth + 'px' }" />
+      </div>
+      <ResizableSplitter
+        direction="horizontal"
+        :default-size="sidebarWidth"
+        :min-size="160"
+        :max-size="500"
+        storage-key="layout.sidebarWidth"
+        @resize="onSidebarResize"
+      />
+      <MainPanel v-show="leftPanel === 'interface'" style="flex: 1; min-width: 0" />
+      <DictionaryJsonPanel v-show="leftPanel !== 'interface'" style="flex: 1; min-width: 0" />
     </div>
   </div>
 </template>
@@ -79,6 +71,12 @@ function onSidebarResize(size: number) {
   display: flex;
   flex: 1;
   overflow: hidden;
+}
+
+/* 常驻侧栏容器（v-show 显隐；隐藏时 display:none 不占位） */
+.side-pane {
+  display: flex;
+  flex-shrink: 0;
 }
 
 /* 1.0.4：窄竖栏（40px 上层 Tab） */

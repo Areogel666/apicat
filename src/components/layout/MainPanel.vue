@@ -185,10 +185,8 @@
               </div>
               <div v-for="(q, idx) in sortedQueryParams" :key="rowKey(idx, q)" class="param-row-wrap">
                 <ParamRow :item="q" :type-options="typeOptions" key-placeholder="Key" value-placeholder="Value"
-                  :dict-display="dictDisplayOf(q)"
                   @remove="queryParams.splice(queryParams.indexOf(q), 1)"
-                  @pick-dict="openDictPicker"
-                  @clear-dict-ref="clearDictRefOf(q)" />
+                  @pick-dict="openDictPicker" />
               </div>
               <n-button size="small" dashed style="margin-top:4px; width:100%" @click="addQueryParam">
                 + 添加 Query Param
@@ -262,10 +260,8 @@
               </div>
               <div v-for="(h, idx) in sortedHeaders" :key="rowKey(idx, h)" class="param-row-wrap">
                 <ParamRow :item="h" :type-options="typeOptions" key-placeholder="Header 名" value-placeholder="值"
-                  :dict-display="dictDisplayOf(h)"
                   @remove="requestHeaders.splice(requestHeaders.indexOf(h), 1)"
-                  @pick-dict="openDictPicker"
-                  @clear-dict-ref="clearDictRefOf(h)" />
+                  @pick-dict="openDictPicker" />
               </div>
               <n-button size="small" dashed style="margin-top:4px; width:100%" @click="addHeader">
                 + 添加 Header
@@ -338,10 +334,8 @@
                 </div>
                 <div v-for="(f, idx) in sortedUrlencoded" :key="rowKey(idx, f)" class="param-row-wrap">
                   <ParamRow :item="f" :type-options="typeOptions" key-placeholder="字段名" value-placeholder="值"
-                    :dict-display="dictDisplayOf(f)"
                     @remove="urlencodedParams.splice(urlencodedParams.indexOf(f), 1)"
-                    @pick-dict="openDictPicker"
-                    @clear-dict-ref="clearDictRefOf(f)" />
+                    @pick-dict="openDictPicker" />
                 </div>
                 <n-button size="small" dashed style="margin-top:4px; width:100%" @click="addUrlencodedField">
                   + 添加字段
@@ -375,10 +369,8 @@
               </div>
               <div v-for="(f, idx) in sortedFormData" :key="rowKey(idx, f)" class="param-row-wrap">
                 <ParamRow :item="f" :type-options="typeOptions" key-placeholder="字段名" value-placeholder="值"
-                  :dict-display="dictDisplayOf(f)"
                   @remove="formDataParams.splice(formDataParams.indexOf(f), 1)"
-                  @pick-dict="openDictPicker"
-                  @clear-dict-ref="clearDictRefOf(f)" />
+                  @pick-dict="openDictPicker" />
               </div>
               <n-button size="small" dashed style="margin-top:4px; width:100%" @click="addFormDataField">
                 + 添加字段
@@ -498,15 +490,47 @@
     </div>
 
     <!-- 1.0.4：字典选择弹窗（描述列 📖） -->
-    <n-modal v-model:show="showDictPicker" :preset="'card'" title="选择字典项" style="width: 420px">
-      <div style="max-height: 360px; overflow: auto; padding: var(--spacing-sm) 0">
-        <n-tree
-          :data="dictPickerTreeData"
-          block-line
-          default-expand-all
-          expand-on-click
-          @update:selected-keys="onDictPickerSelect"
+    <!-- 1.0.4：字段名 ↔ 字典绑定弹窗（描述列 📖） -->
+    <n-modal v-model:show="showDictPicker" :preset="'card'" title="字段绑定字典" style="width: 480px">
+      <div class="dict-bind">
+        <div class="dict-bind__hint">
+          {{ dictPickerParam ? `给字段「${dictPickerParam.key}」选择绑定字典：项目规则影响同项目所有同名；仅当前接口只作用于本接口。` : '' }}
+        </div>
+        <div class="dict-bind__scope">
+          <n-radio-group v-model:value="bindScope" size="small">
+            <n-radio-button value="rule">项目规则</n-radio-button>
+            <n-radio-button value="override">仅当前接口</n-radio-button>
+          </n-radio-group>
+          <span v-if="bindScope === 'override' && requestStore.activeRequestId == null" class="dict-bind__hint">
+            （当前无激活接口）
+          </span>
+        </div>
+        <div v-if="boundInfo" class="dict-bind__current">
+          <span>{{ bindScope === 'override' ? '接口例外' : '当前绑定' }}：</span>
+          <n-tag size="small" :bordered="false" :type="boundInfo.type">{{ boundInfo.text }}</n-tag>
+          <!-- 可解除时才给按钮（绑定了/设置了例外） -->
+          <n-button v-if="boundInfo.unbindable" size="tiny" quaternary @click="unbindFieldDict">
+            {{ bindScope === 'override' ? '恢复项目规则' : '解除绑定' }}
+          </n-button>
+        </div>
+        <n-input
+          v-model:value="dictSearchText"
+          size="small"
+          clearable
+          placeholder="搜索字典（编码/名称）"
+          class="dict-bind__search"
         />
+        <div v-for="d in filteredDicts" :key="d.id"
+          :class="['dict-bind__item', d.id === boundInfo?.dictId && 'dict-bind__item-active']"
+          @click="bindFieldDict(d.id)">
+          <span class="dict-bind__code">{{ d.code }}</span>
+          <span class="dict-bind__name">{{ d.name }}</span>
+          <span class="dict-bind__count">{{ (dictionaryStore.itemsMap[d.id] ?? []).length }} 项</span>
+        </div>
+        <div v-if="dictionaryStore.dictionaries.length && !filteredDicts.length" class="dict-bind__empty">
+          没有匹配「{{ dictSearchText }}」的字典
+        </div>
+        <div class="dict-bind__empty" v-if="!dictionaryStore.dictionaries.length">暂无字典，请先在左侧 📖 数据字典侧栏创建</div>
       </div>
     </n-modal>
 
@@ -555,7 +579,7 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import {
   NSelect, NInput, NButton, NTabs, NTabPane, NEmpty,
   NTag, NDivider, NRadioGroup, NRadioButton, NRadio,
-  NDropdown, NTooltip, NModal, NTree,
+  NDropdown, NTooltip, NModal,
   useMessage, useDialog,
 } from 'naive-ui'
 import { parseUrl, buildUrl, resolveEffectiveUrl, hasUnresolvedPlaceholder } from '../../utils/urlParser'
@@ -743,16 +767,11 @@ function rowKey(idx: number, p: ParamItem): string {
   return `${requestStore.activeRequestId ?? 0}-${idx}-${p.key}`
 }
 
-// [BUG-9f2e] 临时探针：打印 desc 摘要，定位「类型/描述跨接口残留」的实际数据来源
-function debugDesc(arr: ParamItem[] | undefined | null): string {
-  return (arr ?? []).map(p => `${p.key}:${p.description ?? '∅'}`).join('|') || '(空)'
-}
-
 // ── 1.0.4 fix：用例切换不丢「类型/描述」 ──────────────────────
 // 类型/描述属于接口定义；用例快照（旧数据）往往没有这些字段，切用例时若直接用
 // 用例快照覆盖编辑区，类型/描述会消失。这里让用例缺失（空/undefined）的元数据
 // 由接口参数同 key 补全；用例自己写过的仍然保留。
-type MetaSource = Map<string, Pick<ParamItem, 'type' | 'description' | 'descriptionDictRef'>>
+type MetaSource = Map<string, Pick<ParamItem, 'type' | 'description'>>
 
 function metaFromRaw(jsonStr: string | null | undefined): MetaSource {
   try {
@@ -770,9 +789,8 @@ function mergeParamMeta(list: ParamItem[], base: MetaSource): ParamItem[] {
     if (!b) return p
     const type = p.type == null || p.type === '' ? b.type : p.type
     const description = p.description == null || p.description === '' ? b.description : p.description
-    const descriptionDictRef = p.descriptionDictRef == null ? b.descriptionDictRef : p.descriptionDictRef
-    if (type === p.type && description === p.description && descriptionDictRef === p.descriptionDictRef) return p
-    return { ...p, type, description, descriptionDictRef }
+    if (type === p.type && description === p.description) return p
+    return { ...p, type, description }
   })
 }
 
@@ -826,20 +844,81 @@ function urlencodedStorageBody(): string {
   return JSON.stringify(urlencodedParams.value)
 }
 
-// 字典引用弹窗状态
+// 1.0.4：字段名 ↔ 字典 绑定弹窗（规则由 store 集中维护）
 const dictPickerParam = ref<ParamItem | null>(null)
 const showDictPicker = ref(false)
-const dictPickerItemId = ref<number | null>(null)
 const dictionaryStoreLoaded = ref(false)
+
+// 1.0.4：绑定作用域（项目规则 / 仅当前接口）
+const bindScope = ref<'rule' | 'override'>('rule')
+// 绑定弹窗内字典搜索过滤（编码/名称）
+const dictSearchText = ref('')
+const filteredDicts = computed(() => {
+  const kw = dictSearchText.value.trim().toLowerCase()
+  if (!kw) return dictionaryStore.dictionaries
+  return dictionaryStore.dictionaries.filter(d =>
+    d.code.toLowerCase().includes(kw) || d.name.toLowerCase().includes(kw))
+})
+
+const ruleBoundDictId = computed(() =>
+  dictPickerParam.value
+    ? (dictionaryStore.fieldRules.find(r => r.field_name === dictPickerParam.value!.key)?.dictionary_id ?? null)
+    : null)
+
+// 当前作用域下已绑定的字典 id（用于「再点一次取消绑定」）
+const currentBoundIdForScope = computed<number | null>(() => {
+  const q = dictPickerParam.value
+  if (!q) return null
+  if (bindScope.value === 'rule') return ruleBoundDictId.value
+  const rid = requestStore.activeRequestId
+  if (rid == null) return null
+  const ov = dictionaryStore.fieldOverrides.find(o => o.request_id === rid && o.field_name === q.key)
+  return ov ? ov.dictionary_id : null
+})
+
+// 当前作用域下的绑定展示信息
+const boundInfo = computed<{ text: string; type: 'success' | 'default' | 'warning'; dictId: number | null; unbindable: boolean } | null>(() => {
+  const q = dictPickerParam.value
+  if (!q) return null
+  const dictOf = (id: number | null) => (id != null ? dictionaryStore.dictById(id) : null)
+  if (bindScope.value === 'rule') {
+    const d = dictOf(ruleBoundDictId.value)
+    return d
+      ? { text: `${d.code}（${d.name}）`, type: 'success' as const, dictId: d.id, unbindable: true }
+      : { text: '未绑定', type: 'default' as const, dictId: null, unbindable: false }
+  }
+  // override：仅当前接口的例外状态
+  if (requestStore.activeRequestId == null) {
+    return { text: '无激活接口', type: 'default' as const, dictId: null, unbindable: false }
+  }
+  const ov = dictionaryStore.fieldOverrides.find(o =>
+    o.request_id === requestStore.activeRequestId && o.field_name === q.key)
+  if (!ov) return { text: '未设置例外（跟随项目规则）', type: 'default' as const, dictId: null, unbindable: false }
+  if (ov.dictionary_id == null) {
+    return { text: '已解除（本接口不命中字典）', type: 'warning' as const, dictId: null, unbindable: true }
+  }
+  const d = dictOf(ov.dictionary_id)
+  return d
+    ? { text: `${d.code}（${d.name}）`, type: 'success' as const, dictId: d.id, unbindable: true }
+    : { text: '字典已删除', type: 'warning' as const, dictId: null, unbindable: true }
+})
+
+// 1.0.4 fix：项目就绪/切换时预加载字段绑定规则（保证描述列命中展示就绪；
+// interface 面板下 DictionarySidebar 不渲染，只有此处负责加载，保留该 watch）
+watch(() => projectStore.currentProjectId, (pid) => {
+  dictionaryStore.loadFieldBindings(pid).catch(() => {})
+}, { immediate: true })
 
 async function openDictPicker(q: ParamItem) {
   dictPickerParam.value = q
-  dictPickerItemId.value = q.descriptionDictRef ?? null
+  bindScope.value = 'rule'
+  dictSearchText.value = ''
   if (!dictionaryStoreLoaded.value) {
     try {
       await dictionaryStore.loadDictionaries(projectStore.currentProjectId)
+      await dictionaryStore.loadFieldBindings(projectStore.currentProjectId)
     } catch (e) {
-      console.error('[dict-picker] loadDictionaries failed:', e)
+      console.error('[dict-picker] load failed:', e)
       // 加载失败但已有缓存 → 仍可弹窗；完全无数据 → 明确报错而非“没反应”
       if (dictionaryStore.dictionaries.length === 0) {
         message.error('加载数据字典失败：' + String(e))
@@ -849,7 +928,7 @@ async function openDictPicker(q: ParamItem) {
     }
     dictionaryStoreLoaded.value = true
   }
-  // 未配置字典：不弹空面板，引导去字典侧栏创建（1.0.4 fix）
+  // 未配置字典：不弹空面板，引导去字典侧栏创建
   if (dictionaryStore.dictionaries.length === 0) {
     message.info('暂无字典，请先在左侧 📖 数据字典侧栏创建')
     return
@@ -857,43 +936,51 @@ async function openDictPicker(q: ParamItem) {
   showDictPicker.value = true
 }
 
-const dictPickerTreeData = computed(() =>
-  dictionaryStore.dictionaries.map(d => ({
-    key: `dict-${d.id}`,
-    label: `${d.code}（${d.name}）`,
-    children: dictionaryStore.itemsMap[d.id]?.map(item => ({
-      key: `item-${item.id}`,
-      label: `${item.value} = ${item.label}`,
-      isLeaf: true,
-    })) ?? [],
-  })),
-)
-
-function onDictPickerSelect(keys: Array<string | number>) {
-  const k = keys[0]
-  if (!k) return
-  const str = String(k)
-  if (!str.startsWith('item-')) return
-  const itemId = Number(str.slice(5))
-  const item = dictionaryStore.getItemById(itemId)
-  if (item && dictPickerParam.value) {
-    dictPickerParam.value.description = `${item.value} = ${item.label}`
-    dictPickerParam.value.descriptionDictRef = item.id
+/** 绑定/换绑：按作用域登记（rule=项目规则 / override=仅当前接口例外）；再点已绑定字典 = 取消/恢复 */
+async function bindFieldDict(dictionaryId: number) {
+  const q = dictPickerParam.value
+  const pid = projectStore.currentProjectId
+  if (!q || pid == null) return
+  // 再次点击已绑定的字典 → 按当前作用域取消绑定（解除项目规则 / 恢复项目规则）
+  if (dictionaryId === currentBoundIdForScope.value) {
+    await unbindFieldDict()
+    return
   }
-  showDictPicker.value = false
+  try {
+    if (bindScope.value === 'override') {
+      const rid = requestStore.activeRequestId
+      if (rid == null) { message.warning('当前没有激活接口，无法设置接口例外'); return }
+      await dictionaryStore.setFieldOverride(pid, rid, q.key, dictionaryId)
+      message.success(`当前接口字段「${q.key}」已换绑字典`)
+    } else {
+      await dictionaryStore.setFieldRule(pid, q.key, dictionaryId)
+      message.success(`字段「${q.key}」已绑定字典`)
+    }
+    showDictPicker.value = false
+  } catch (e) {
+    message.error(String(e))
+  }
 }
 
-// 1.0.4：某参数行「字典显示文本」—— 优先字典项最新内容，取不到（字典被删）回退快照文本
-function dictDisplayOf(p: ParamItem): string {
-  if (!p.descriptionDictRef) return ''
-  const item = dictionaryStore.getItemById(p.descriptionDictRef)
-  if (item) return `${item.value} = ${item.label}`
-  return p.description || ''
-}
-
-// 1.0.4：断开某行的字典引用（回退为纯文本，可手改）
-function clearDictRefOf(p: ParamItem) {
-  p.descriptionDictRef = null
+/** 解除：rule 作用域移除项目规则；override 作用域移除接口例外（恢复跟随项目规则） */
+async function unbindFieldDict() {
+  const q = dictPickerParam.value
+  const pid = projectStore.currentProjectId
+  if (!q || pid == null) return
+  try {
+    if (bindScope.value === 'override') {
+      const rid = requestStore.activeRequestId
+      if (rid == null) return
+      await dictionaryStore.removeFieldOverride(pid, rid, q.key)
+      message.success(`已恢复「${q.key}」跟随项目规则`)
+    } else {
+      await dictionaryStore.removeFieldRule(pid, q.key)
+      message.success(`已解除「${q.key}」的字典绑定`)
+    }
+    showDictPicker.value = false
+  } catch (e) {
+    message.error(String(e))
+  }
 }
 
 // form-data KV 字段（bodyType === 'form_data' 时使用）
@@ -940,7 +1027,7 @@ function syncUrlencodedFromKv(text: string) {
       const value = trimmed.substring(colonIdx + 1).trim()
       const src = prev.find(p => p.key === key)
       params.push(src
-        ? { key, value, enabled: true, type: src.type, description: src.description, descriptionDictRef: src.descriptionDictRef }
+        ? { key, value, enabled: true, type: src.type, description: src.description }
         : { key, value, enabled: true })
     } else {
       params.push({ key: trimmed, value: '', enabled: true })
@@ -1128,8 +1215,6 @@ watch(() => requestStore.activeRequest, async (req, oldReq) => {
     // 此刻 queryParams 等仍是 oldReq 的编辑区内容（尚未被新接口覆盖），
     // 落库目标明确为 oldReq.id —— 类型/描述只会写回本接口，绝不串到目标接口。
     flushPersist(oldReq.id)
-    // [BUG-9f2e] 探针：保存草稿时旧接口的编辑区快照
-    console.warn(`[BUG-9f2e] save draft  -> id=${oldReq.id} desc=[${debugDesc(queryParams.value)}]`)
   }
 
   isInitializing = true
@@ -1165,8 +1250,6 @@ watch(() => requestStore.activeRequest, async (req, oldReq) => {
       // 此处直接赋值即可完整还原 value。
       pathParamValues.value = { ...draft.pathParamValues }
       isDraft = true
-      // [BUG-9f2e] 探针：从草稿恢复后的编辑区（若这里出现别家接口的 desc，即草稿被污染）
-      console.warn(`[BUG-9f2e] restore draft -> id=${req.id} desc=[${debugDesc(queryParams.value)}]`)
     } else {
       // 2b. 从 DB 加载：按接口原始定义初始化，清空所有临时调试状态
       url.value = req.url
@@ -1189,8 +1272,6 @@ watch(() => requestStore.activeRequest, async (req, oldReq) => {
       // 解析存储的 params/headers JSON
       try { queryParams.value = JSON.parse(req.params) } catch { queryParams.value = [] }
       try { requestHeaders.value = JSON.parse(req.headers) } catch { requestHeaders.value = [] }
-      // [BUG-9f2e] 探针：从 DB 加载后的编辑区（若这里出现别家接口的 desc，说明 B 的 DB 已被写脏）
-      console.warn(`[BUG-9f2e] load db      -> id=${req.id} desc=[${debugDesc(queryParams.value)}]`)
 
       // 重置 UI 模式为默认 table（仅无草稿时）
       queryMode.value = 'table'
@@ -2453,6 +2534,54 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
   font-family: monospace;
   font-size: var(--font-size-sm);
 }
+
+/* 1.0.4：字段绑定字典弹窗 */
+.dict-bind {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  max-height: 380px;
+  overflow-y: auto;
+  padding: var(--spacing-sm) 0;
+}
+.dict-bind__hint {
+  font-size: var(--font-size-sm);
+  color: var(--text-tertiary);
+  line-height: 1.6;
+}
+.dict-bind__current {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+.dict-bind__item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+.dict-bind__item:hover { background: var(--bg-hover); }
+.dict-bind__item-active { border-color: var(--color-primary); background: var(--bg-selected); }
+.dict-bind__code {
+  font-family: monospace;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.dict-bind__name {
+  color: var(--text-primary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dict-bind__count { font-size: var(--font-size-sm); color: var(--text-tertiary); }
+.dict-bind__empty { color: var(--text-tertiary); font-size: var(--font-size-sm); padding: var(--spacing-sm) 0; }
 
 /* 无 Tab 时的空白引导页 */
 .tab-empty-guide {

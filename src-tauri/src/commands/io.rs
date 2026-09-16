@@ -3,6 +3,7 @@
 use crate::{db::AppDb, error::CmdResult, types::*};
 use sqlx::SqliteConnection;
 use tauri::State;
+use super::data_dictionary::field_rule_exists;
 
 // ═══════════════════════════════════════════════════════════
 //  URL path 段分类 helpers（Postman/OpenAPI 导入导出共用）
@@ -148,6 +149,8 @@ pub async fn export_apicat(db: State<'_, AppDb>, project_id: i64) -> CmdResult<S
     let envs = export_environments(&db, project_id).await?;
     let collections = export_collections_tree(&db, project_id, None).await?;
     let dictionaries = export_dictionaries(&db, project_id).await?;
+    let field_rules = export_field_rules(&db, project_id).await?;
+    let field_overrides = export_field_overrides(&db, project_id).await?;
 
     let export = ApiCatExport {
         version: "1.1".to_string(),
@@ -158,6 +161,8 @@ pub async fn export_apicat(db: State<'_, AppDb>, project_id: i64) -> CmdResult<S
             environments: envs,
             collections,
             dictionaries,
+            field_rules,
+            field_overrides,
         },
     };
     serde_json::to_string_pretty(&export)
@@ -339,6 +344,51 @@ async fn export_dictionaries(db: &AppDb, project_id: i64) -> CmdResult<Vec<Expor
         });
     }
     Ok(out)
+}
+
+/// 1.0.4：导出「字段名 ↔ 字典」绑定规则（字典用 code 引用）
+async fn export_field_rules(db: &AppDb, project_id: i64) -> CmdResult<Vec<ExportFieldRule>> {
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT r.field_name, d.code FROM field_dictionary_rules r \
+         JOIN data_dictionaries d ON d.id = r.dictionary_id \
+         WHERE r.project_id = ?1 ORDER BY r.field_name",
+    )
+    .bind(project_id)
+    .fetch_all(&db.0)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(field_name, dictionary_code)| ExportFieldRule {
+            field_name,
+            dictionary_code,
+        })
+        .collect())
+}
+
+/// 1.0.4：导出「接口 × 字段名」例外（换绑/解绑；接口用 method+url 定位）
+async fn export_field_overrides(db: &AppDb, project_id: i64) -> CmdResult<Vec<ExportFieldOverride>> {
+    let rows: Vec<(String, Option<String>, String, String)> = sqlx::query_as(
+        "SELECT oo.field_name, \
+                CASE WHEN oo.dictionary_id IS NULL THEN NULL \
+                     ELSE (SELECT code FROM data_dictionaries WHERE id = oo.dictionary_id) END, \
+                r.method, r.url \
+         FROM field_dictionary_overrides oo \
+         JOIN api_requests r ON r.id = oo.request_id \
+         JOIN collections c ON c.id = r.collection_id \
+         WHERE oo.project_id = ?1 AND c.project_id = ?1",
+    )
+    .bind(project_id)
+    .fetch_all(&db.0)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(field_name, dictionary_code, request_method, request_url)| ExportFieldOverride {
+            field_name,
+            dictionary_code,
+            request_method,
+            request_url,
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -525,7 +575,74 @@ async fn import_apicat_inner(
         }
     }
 
+    // 1.0.4：导入「字段名 ↔ 字典」绑定规则（按字典 code 关联；目标项目同字段已有规则跳过）
+    for rule in &export.project.field_rules {
+        let dict: Option<(i64,)> = sqlx::query_as(
+            "SELECT id FROM data_dictionaries WHERE code = ?1 AND (project_id IS NULL OR project_id = ?2) LIMIT 1",
+        )
+        .bind(&rule.dictionary_code)
+        .bind(pid)
+        .fetch_optional(&mut *conn)
+        .await?;
+        let Some((dict_id,)) = dict else { continue };
+        if !field_rule_exists(&mut *conn, pid, &rule.field_name).await? {
+            sqlx::query(
+                "INSERT INTO field_dictionary_rules (project_id, field_name, dictionary_id) \
+                 VALUES (?,?,?)",
+            )
+            .bind(pid)
+            .bind(&rule.field_name)
+            .bind(dict_id)
+            .execute(&mut *conn)
+            .await?;
+        }
+    }
+
     import_collections_tree(conn, pid, None, &export.project.collections).await?;
+
+    // 1.0.4：导入「接口 × 字段名」例外（按 method+url 定位请求；匹配不到则跳过）
+    for ov in &export.project.field_overrides {
+        let req: Option<(i64,)> = sqlx::query_as(
+            "SELECT r.id FROM api_requests r \
+             JOIN collections c ON c.id = r.collection_id \
+             WHERE c.project_id = ?1 AND r.method = ?2 AND r.url = ?3 LIMIT 1",
+        )
+        .bind(pid)
+        .bind(&ov.request_method)
+        .bind(&ov.request_url)
+        .fetch_optional(&mut *conn)
+        .await?;
+        let Some((req_id,)) = req else { continue };
+        // 例外目标字典：None=解除（写 NULL）；Some(code)=换绑，code 找不到则跳过该条
+        let actual_dict: Option<i64> = match &ov.dictionary_code {
+            None => None,
+            Some(code) => {
+                let d: Option<(i64,)> = sqlx::query_as(
+                    "SELECT id FROM data_dictionaries WHERE code = ?1 AND (project_id IS NULL OR project_id = ?2) LIMIT 1",
+                )
+                .bind(code)
+                .bind(pid)
+                .fetch_optional(&mut *conn)
+                .await?;
+                match d {
+                    Some(x) => Some(x.0),
+                    None => continue,
+                }
+            }
+        };
+        sqlx::query(
+            "INSERT INTO field_dictionary_overrides (project_id, request_id, field_name, dictionary_id) \
+             VALUES (?1, ?2, ?3, ?4) \
+             ON CONFLICT(project_id, request_id, field_name) DO UPDATE SET dictionary_id = ?4",
+        )
+        .bind(pid)
+        .bind(req_id)
+        .bind(&ov.field_name)
+        .bind(actual_dict)
+        .execute(&mut *conn)
+        .await?;
+    }
+
     Ok(pid)
 }
 

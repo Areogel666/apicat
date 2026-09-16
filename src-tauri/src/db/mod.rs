@@ -67,6 +67,12 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Err
         sqlx::query(stmt).execute(pool).await?;
     }
 
+    // 1.0.4：字典「字段名绑定」规则与例外（0003，纯幂等 CREATE）
+    let migration_sql_3 = include_str!("../../migrations/0003_field_rules.sql");
+    for stmt in split_sql_statements(migration_sql_3) {
+        sqlx::query(stmt).execute(pool).await?;
+    }
+
     // 1.0.4：api_requests.description 幂等加列
     // ALTER TABLE ADD COLUMN 非幂等，不能写进 0002 SQL 文件；
     // 用 PRAGMA table_info 检测列是否存在，不存在才 ALTER。

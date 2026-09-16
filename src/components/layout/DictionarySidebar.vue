@@ -6,15 +6,25 @@
     </div>
 
     <n-empty v-if="!currentProjectId" description="请先选择或创建项目" size="small" style="margin-top: 40px" />
-    <div v-else class="dict-sidebar__tree">
-      <n-tree
-        :data="treeData"
-        :render-suffix="renderSuffix"
-        default-expand-all
-        block-line
-        expand-on-click
-        @update:selected-keys="onTreeSelect"
+    <div v-else class="dict-sidebar__body">
+      <n-input
+        v-model:value="dictSearch"
+        size="small"
+        clearable
+        placeholder="搜索字典 / 字典项"
+        class="dict-sidebar__search"
       />
+      <div class="dict-sidebar__tree">
+        <n-tree
+          :data="filteredTree"
+          :render-suffix="renderSuffix"
+          default-expand-all
+          block-line
+          expand-on-click
+          @update:selected-keys="onTreeSelect"
+        />
+        <div v-if="treeData.length && !filteredTree.length" class="dict-sidebar__noresult">没有匹配「{{ dictSearch }}」</div>
+      </div>
     </div>
 
     <!-- 新建/编辑字典弹窗（编辑时仅名；新建时可直接填字典项 JSON 一键创建） -->
@@ -54,6 +64,21 @@
         <n-button type="primary" :loading="savingItem" @click="saveItem">保存</n-button>
       </template>
     </n-modal>
+
+    <!-- 复制字典到项目弹窗 -->
+    <n-modal v-model:show="showCopyModal" :preset="'dialog'" title="复制字典到项目">
+      <div class="dict-form">
+        <div class="dict-form__hint">
+          将把字典「{{ copySourceDict?.code }}」及全部字典项复制到所选项目；
+          源项目里已绑定该字典的字段规则也会一并复制（目标项目同字段名已有规则则跳过）。
+        </div>
+        <n-select v-model:value="copyTargetProjectId" :options="copyProjectOptions" placeholder="选择目标项目" />
+      </div>
+      <template #action>
+        <n-button @click="showCopyModal = false">取消</n-button>
+        <n-button type="primary" :loading="savingCopy" @click="confirmCopyDict">复制</n-button>
+      </template>
+    </n-modal>
   </aside>
 </template>
 
@@ -61,11 +86,11 @@
 import { computed, h, ref, watch } from 'vue'
 import type { TreeOption } from 'naive-ui'
 import {
-  NButton, NEmpty, NInput, NModal, NTree, NDropdown, useMessage,
+  NButton, NEmpty, NInput, NModal, NTree, NSelect, NDropdown, useMessage,
 } from 'naive-ui'
 import { useDictionaryStore } from '../../stores/dictionary'
 import { useProjectStore } from '../../stores/project'
-import type { DictionaryItem } from '../../types'
+import type { DictionaryItem, DataDictionary } from '../../types'
 
 const store = useDictionaryStore()
 const projectStore = useProjectStore()
@@ -117,6 +142,19 @@ const treeData = computed<DictNode[]>(() =>
   })),
 )
 
+// 1.0.4 fix：字典树搜索（按字典 code/name 或字典项 value/label 过滤）
+const dictSearch = ref('')
+const filteredTree = computed<DictNode[]>(() => {
+  const kw = dictSearch.value.trim().toLowerCase()
+  if (!kw) return treeData.value
+  return treeData.value.flatMap(d => {
+    const dLabel = String(d.label ?? '')
+    if (dLabel.toLowerCase().includes(kw)) return [d]
+    const kids = (d.children ?? []).filter(c => String(c.label ?? '').toLowerCase().includes(kw))
+    return kids.length ? [{ ...d, children: kids }] : []
+  })
+})
+
 function renderSuffix(info: { option: TreeOption }) {
   const key = String(info.option.key)
   if (key.startsWith('dict-')) {
@@ -126,12 +164,15 @@ function renderSuffix(info: { option: TreeOption }) {
         { label: '新增字典项', key: 'add-item' },
         { label: '编辑', key: 'edit' },
         { label: '删除', key: 'delete' },
+        { type: 'divider', key: 'd1' },
+        { label: '复制到项目…', key: 'copy' },
       ],
       onSelect: (action: string) => {
         if (!d) return
         if (action === 'add-item') onAddItem(d.id)
         else if (action === 'edit') onEditDict(d.id)
         else if (action === 'delete') onDeleteDict(d.id)
+        else if (action === 'copy') onShowCopyDict(d.id)
       },
     }, {
       default: () => h(NButton, { size: 'tiny', quaternary: true }, { default: () => '⋮' }),
@@ -227,6 +268,45 @@ async function saveDict() {
   }
 }
 
+// ── 1.0.4：复制字典到项目 ──────────────────────────────────────
+const showCopyModal = ref(false)
+const savingCopy = ref(false)
+const copySourceDict = ref<DataDictionary | null>(null)
+const copyTargetProjectId = ref<number | null>(null)
+
+const copyProjectOptions = computed(() =>
+  projectStore.projects
+    .filter(p => p.id !== projectStore.currentProjectId)
+    .map(p => ({ label: p.name, value: p.id })),
+)
+
+function onShowCopyDict(id: number) {
+  const d = store.dictionaries.find(x => x.id === id)
+  if (!d) return
+  copySourceDict.value = d
+  copyTargetProjectId.value = copyProjectOptions.value[0]?.value ?? null
+  showCopyModal.value = true
+}
+
+async function confirmCopyDict() {
+  const d = copySourceDict.value
+  const pid = projectStore.currentProjectId
+  if (!d || pid == null || copyTargetProjectId.value == null) {
+    message.warning('缺少目标项目')
+    return
+  }
+  savingCopy.value = true
+  try {
+    await store.copyDictionaryToProject(d.id, pid, copyTargetProjectId.value)
+    message.success(`已复制到项目`)
+    showCopyModal.value = false
+  } catch (e) {
+    message.error(String(e))
+  } finally {
+    savingCopy.value = false
+  }
+}
+
 async function onDeleteDict(id: number) {
   try {
     await store.deleteDictionary(id)
@@ -301,9 +381,11 @@ async function onDeleteItem(id: number) {
 watch(currentProjectId, (pid) => {
   if (pid != null) {
     store.loadDictionaries(pid).catch(() => {})
+    store.loadFieldBindings(pid).catch(() => {})
   } else {
     store.dictionaries = []
     store.setSelectedDict(null)
+    void store.loadFieldBindings(null)   // 内部会清空 rules/overrides
   }
 }, { immediate: true })
 </script>
@@ -329,10 +411,26 @@ watch(currentProjectId, (pid) => {
   font-size: var(--font-size-base);
   font-weight: 600;
 }
+.dict-sidebar__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.dict-sidebar__search {
+  padding: var(--spacing-xs) var(--spacing-sm) 0;
+  flex-shrink: 0;
+}
 .dict-sidebar__tree {
   flex: 1;
   overflow-y: auto;
   padding: var(--spacing-xs) 0;
+}
+.dict-sidebar__noresult {
+  padding: var(--spacing-sm) var(--spacing-sm);
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
 }
 .dict-form {
   display: flex;

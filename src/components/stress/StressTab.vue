@@ -250,7 +250,7 @@ async function onExportReport(run: StressRun) {
 .cfg-group {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--spacing-xs);
 }
 .cfg-label {
   font-size: var(--font-size-sm);
@@ -261,21 +261,21 @@ async function onExportReport(run: StressRun) {
 .stats-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--spacing-xs);
 }
 .stat-cell {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 6px 10px;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
   background: var(--bg-elevated);
   border: 1px solid var(--border-base);
   border-radius: var(--radius-sm);
 }
-.stat-label { font-size: 10px; color: var(--text-tertiary); }
+.stat-label { font-size: var(--font-size-sm); color: var(--text-tertiary); }
 .stat-value { font-size: var(--font-size-base); font-weight: 600; font-family: monospace; }
 .stat-done { color: var(--color-success); }
-.stat-running { flex-direction: row; align-items: center; color: var(--text-secondary); gap: 6px; }
+.stat-running { flex-direction: row; align-items: center; color: var(--text-secondary); gap: var(--spacing-xs); }
 .stress-error { color: var(--color-error); font-size: var(--font-size-sm); }
 
 .chart-box, .compare-box {
@@ -286,16 +286,15 @@ async function onExportReport(run: StressRun) {
 .stress-canvas { display: block; width: 100%; height: 150px; }
 .chart-legend {
   display: flex;
-  gap: 16px;
-  padding: 4px 10px;
-  font-size: 11px;
+  gap: var(--spacing-md);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-sm);
   background: var(--bg-elevated);
   border-top: 1px solid var(--border-base);
 }
 .legend-tps { color: var(--color-success); }
 .legend-avg { color: var(--color-info); }
 .legend-p95 { color: var(--color-warning); }
-.legend-item { }
 
 .history-block {
   border-top: 1px solid var(--border-base);
@@ -312,7 +311,7 @@ async function onExportReport(run: StressRun) {
   font-weight: 600;
   color: var(--text-tertiary);
 }
-.history-actions { display: flex; align-items: center; gap: 6px; }
+.history-actions { display: flex; align-items: center; gap: var(--spacing-xs); }
 
 .history-list {
   display: flex;

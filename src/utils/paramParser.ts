@@ -1,14 +1,15 @@
 import type { ParamItem } from '../types'
 
 /**
- * 用旧参数表中同 key 的元数据（type / description / descriptionDictRef）补全解析结果。
+ * 用旧参数表中同 key 的元数据（type / description）补全解析结果。
  * KV/JSON 文本本身不表达元数据，切换模式时用 prev 保留表格里已填的类型与描述（1.0.4 fix）。
+ * 注：字典按「字段名」绑定（FieldDictDesc 消费），descriptionDictRef 已作废不在此流动。
  */
 function inheritMeta(item: ParamItem, prev?: ParamItem[]): ParamItem {
   if (!prev) return item
   const src = prev.find(p => p.key === item.key)
   if (!src) return item
-  return { ...item, type: src.type, description: src.description, descriptionDictRef: src.descriptionDictRef }
+  return { ...item, type: src.type, description: src.description }
 }
 
 /**

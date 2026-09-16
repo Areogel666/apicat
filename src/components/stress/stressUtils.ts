@@ -4,7 +4,8 @@ import type { StressStats, StressChartPoint } from '../../types'
 
 // 1.0.4：耗时直方图桶标签（与 Rust LATENCY_BUCKETS 一致：10 桶）
 export const LATENCY_LABELS = ['<1', '1-2', '2-5', '5-10', '10-20', '20-50', '50-100', '100-200', '200-500', '>500']
-export const histMaxBucket = 40
+/** 耗时直方图最大柱高（px） */
+export const MAX_HIST_BAR_HEIGHT = 40
 
 /** 从 :root CSS 变量读取色值，用于 canvas 绘制时跟随主题 */
 export function readToken(name: string, fallback: string): string {
@@ -13,7 +14,7 @@ export function readToken(name: string, fallback: string): string {
 }
 
 export function histHeight(bucket: { pct: number }): number {
-  return Math.max(2, Math.round(bucket.pct / 100 * histMaxBucket))
+  return Math.max(2, Math.round(bucket.pct / 100 * MAX_HIST_BAR_HEIGHT))
 }
 
 /** 状态码 → 颜色 token */
