@@ -1112,14 +1112,15 @@ function parseCurl(curlText: string): { method: string; url: string; headers: Pa
       headers.push({ key: hm[1].substring(0, colonIdx).trim(), value: hm[1].substring(colonIdx + 1).trim(), enabled: true })
     }
   }
-  // 匹配 --data / -d / --data-urlencode（curl 三种数据参数）
+  // 匹配 --data / -d / --data-binary / --data-raw / --data-urlencode（curl 的 data 参数全家族）
+  // 用反向引用 \1 配对同一引号，body 内含双引号也不截断（如 --data-raw '{"a":1}' 的 JSON）
   const dataMatch =
-    text.match(/(?:--data(?:-urlencode)?|-d)\s+['"]([^'"]*)['"]/s) ||
-    text.match(/(?:--data(?:-urlencode)?|-d)\s+\$['"]([^'"]*)['"]/s)
+    text.match(/(?:--data(?:-binary|-raw|-urlencode)?|-d)\s+(["'])([\s\S]*?)\1/s) ||
+    text.match(/(?:--data(?:-binary|-raw|-urlencode)?|-d)\s+\$(["'])([\s\S]*?)\1/s)
 
   let body = ''
   if (dataMatch) {
-    const rawValue = dataMatch[1]
+    const rawValue = dataMatch[2]  // [1] 是引号字符，[2] 才是 body 内容（反向引用正则）
     // --data-urlencode：值已经 URL 编码，解码后作为 body
     if (text.includes('--data-urlencode')) {
       try {
