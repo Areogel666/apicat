@@ -3,40 +3,53 @@
     <!-- 左：产品名 + 项目切换 -->
     <div class="top-bar__left">
       <span class="top-bar__logo">🐱 ApiCat</span>
-      <n-select
-        :value="currentProjectId"
-        :options="projectOptions"
-        placeholder="选择项目"
-        size="small"
-        style="width: 160px"
-        @update:value="handleProjectChange"
-      />
+      <div class="ctx-select ctx-select--project">
+        <span class="ctx-select__prefix">📁</span>
+        <n-select
+          :value="currentProjectId"
+          :options="projectOptions"
+          placeholder="选择项目"
+          size="small"
+          class="ctx-select__control"
+          style="width: 160px"
+          @update:value="handleProjectChange"
+        />
+      </div>
     </div>
 
     <!-- 右：环境切换 + 全局 Cookie + 设置 -->
     <div class="top-bar__right">
-      <n-select
-        :value="currentEnvValue"
-        :options="envOptions"
-        placeholder="无环境"
-        size="small"
-        style="width: 150px"
-        @update:value="handleEnvChange"
-      />
-      <n-button
-        size="small"
-        quaternary
-        :title="themeStore.effectiveMode === 'dark' ? '切换到浅色模式' : '切换到深色模式'"
-        @click="toggleThemeMode"
-      >{{ themeStore.effectiveMode === 'dark' ? '🌙' : '☀️' }}</n-button>
-      <n-button size="small" quaternary title="Cookie 管理" @click="showCookieManager = true">🍪</n-button>
-      <n-dropdown
-        :options="settingsMenuOptions"
-        placement="bottom-end"
-        @select="handleSettingsMenu"
-      >
-        <n-button size="small" quaternary title="更多操作">⚙️</n-button>
-      </n-dropdown>
+      <div class="ctx-select ctx-select--env">
+        <span class="ctx-select__prefix">🌐</span>
+        <n-select
+          :value="currentEnvValue"
+          :options="envOptions"
+          placeholder="无环境"
+          size="small"
+          class="ctx-select__control"
+          style="width: 150px"
+          @update:value="handleEnvChange"
+        />
+      </div>
+
+      <!-- 操作图标组：安静的小圆底 hover，与切换器用发丝线分隔 -->
+      <div class="top-bar__actions">
+        <n-button
+          size="small"
+          quaternary
+          circle
+          :title="themeStore.effectiveMode === 'dark' ? '切换到浅色模式' : '切换到深色模式'"
+          @click="toggleThemeMode"
+        >{{ themeStore.effectiveMode === 'dark' ? '🌙' : '☀️' }}</n-button>
+        <n-button size="small" quaternary circle title="Cookie 管理" @click="showCookieManager = true">🍪</n-button>
+        <n-dropdown
+          :options="settingsMenuOptions"
+          placement="bottom-end"
+          @select="handleSettingsMenu"
+        >
+          <n-button size="small" quaternary circle title="更多操作">⚙️</n-button>
+        </n-dropdown>
+      </div>
     </div>
   </header>
 
@@ -230,10 +243,24 @@ const RENAME_PROJ_SENTINEL = -2
 const DELETE_PROJ_SENTINEL = -3
 
 const projectOptions = computed(() => {
-  const opts: Array<{label: string; value: number; disabled?: boolean}> = projectStore.projects.map(p => ({ label: p.name, value: p.id }))
-  opts.push({ label: '✏️ 重命名当前项目...', value: RENAME_PROJ_SENTINEL, disabled: !projectStore.currentProjectId })
-  opts.push({ label: '🗑️ 删除当前项目...', value: DELETE_PROJ_SENTINEL, disabled: !projectStore.currentProjectId })
-  opts.push({ label: '➕ 新建项目...', value: CREATE_PROJ_SENTINEL })
+  const opts: Array<Record<string, unknown>> = [
+    {
+      type: 'group',
+      label: '项目',
+      key: 'proj-switch',
+      children: projectStore.projects.map(p => ({ label: p.name, value: p.id })),
+    },
+    {
+      type: 'group',
+      label: '项目操作',
+      key: 'proj-actions',
+      children: [
+        { label: '✏️ 重命名当前项目...', value: RENAME_PROJ_SENTINEL, disabled: !projectStore.currentProjectId },
+        { label: '🗑️ 删除当前项目...', value: DELETE_PROJ_SENTINEL, disabled: !projectStore.currentProjectId },
+        { label: '➕ 新建项目...', value: CREATE_PROJ_SENTINEL },
+      ],
+    },
+  ]
   return opts
 })
 
@@ -266,12 +293,26 @@ const ENV_MANAGE_SENTINEL = -1
 const ENV_NULL_SENTINEL = 0  // 代表"无环境"
 
 const envOptions = computed(() => [
-  { label: '无环境', value: ENV_NULL_SENTINEL },
-  ...envStore.environments.map(e => ({
-    label: e.name + (e.is_active ? ' ✓' : ''),
-    value: e.id,
-  })),
-  { label: '管理环境...', value: ENV_MANAGE_SENTINEL },
+  {
+    type: 'group',
+    label: '环境',
+    key: 'env-switch',
+    children: [
+      { label: '无环境', value: ENV_NULL_SENTINEL },
+      ...envStore.environments.map(e => ({
+        label: e.name + (e.is_active ? ' ✓' : ''),
+        value: e.id,
+      })),
+    ],
+  },
+  {
+    type: 'group',
+    label: '环境操作',
+    key: 'env-actions',
+    children: [
+      { label: '管理环境...', value: ENV_MANAGE_SENTINEL },
+    ],
+  },
 ])
 
 // 当前激活的 env value（用于 v-model）
@@ -323,5 +364,54 @@ async function handleEnvChange(val: number) {
   letter-spacing: -0.3px;
   white-space: nowrap;
   user-select: none;
+  margin-right: var(--spacing-sm);
+}
+
+/* ── 上下文切换器（项目 / 环境）：表单感：有 icon、浅底、发丝边框 ── */
+.ctx-select {
+  position: relative;
+  display: inline-flex;
+}
+
+.ctx-select__prefix {
+  position: absolute;
+  left: var(--spacing-sm);
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: var(--font-size-base);
+  line-height: 1;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* 触发表单感：浅底 + 整圈发丝边框，与右侧纯图标按钮区分 */
+.ctx-select :deep(.n-base-selection) {
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  padding-left: calc(var(--font-size-base) + var(--spacing-md) + 2px); /* 给 prefix icon 让位 */
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.ctx-select :deep(.n-base-selection:hover) {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+/* 聚焦时用品牌主色描边，强调"当前所在上下文" */
+.ctx-select :deep(.n-base-selection--focus) {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary-soft);
+}
+
+/* ── 操作图标组：安静 + 发丝线分隔 ── */
+.top-bar__actions {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-left: var(--spacing-sm);
+  padding-left: var(--spacing-sm);
+  border-left: 1px solid var(--border-base);
 }
 </style>
