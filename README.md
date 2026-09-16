@@ -5,7 +5,7 @@
     一款基于 Tauri、Rust 和 Vue 3 构建的轻量、高性能 API 调试与测试工具。
   </p>
   <p>
-    <img src="https://img.shields.io/badge/version-1.0.3-orange" alt="version"/>
+    <img src="https://img.shields.io/badge/version-1.0.4-orange" alt="version"/>
     <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="platform"/>
     <img src="https://img.shields.io/badge/license-MIT-green" alt="license"/>
   </p>
@@ -36,6 +36,9 @@ ApiCat is a modern desktop application for API debugging and testing, powered by
 - **Productivity Boosters**: Inline method selector with color coding, URL ↔ QueryParams two-way binding, cURL import/export, drag-and-drop sorting, syntax-highlighted response viewer.
 - **Unsaved Change Indicator**: Orange dot on request nodes signals unsaved modifications; green dot confirms a successful save (auto-fades after 1.5s).
 - **Theme Studio**: Customize colors, layout density, corner radius, and font size with live preview — preset themes, contrast checking, and theme JSON import/export.
+- **Data Dictionary Field Binding**: Bind a dictionary to a field name (project-level rules + per-request overrides); every same-named field across requests auto-resolves its value to a meaning, with hover to view the full enum. Copy a dictionary (with its rules) to another project.
+- **Param Metadata**: Field `type` / `description` persisted per request — survive switching requests, test cases, and KV/JSON/Text modes; never bleed across requests.
+- **Stress History Tab**: A dedicated "Stress" tab beside the request editor listing past runs with report download (Markdown) and two-run comparison.
 
 ### 🚀 Quick Start (For Users)
 
@@ -72,7 +75,7 @@ Build output: `src-tauri/target/release/bundle/msi/`
 
 ### 📋 Changelog
 
-- Latest stable: [docs/release/1.0.3.md](docs/release/1.0.3.md)
+- Latest stable: [docs/release/1.0.4.md](docs/release/1.0.4.md)
 - Beta history: [docs/release/1.0.0-beta.md](docs/release/1.0.0-beta.md)
 
 ### 📄 License
@@ -99,6 +102,9 @@ ApiCat 是一款基于 Tauri 2.0 + Rust + Vue 3 的轻量、高性能、无跨�
 - **效率工具**：Method 内联彩色选择器、URL ↔ Params 双向绑定、cURL 导入导出、拖拽排序、JSON 高亮与折叠。
 - **暂存状态指示**：左侧树节点旁的橙色圆点表示有未保存修改，绿色圆点表示刚保存成功（1.5s 后自动消失）。
 - **主题工作室**：自由定制配色、布局密度、圆角与字号，实时预览；内置预设主题、对比度检查与主题 JSON 导入导出。
+- **数据字典「字段名绑定」**：项目级「字段名 ↔ 字典」规则 + 接口级例外；项目内所有同名字段按当前取值自动命中展示含义，悬停查看全部枚举；可把字典（含规则）整体复制到其它项目。
+- **参数元数据持久化**：字段「类型 / 描述」随每个接口独立保存，切换接口、用例或 KV/JSON/Text 模式都不丢、不串扰。
+- **压测历史 Tab**：编辑区新增常驻「压测」页，本接口历史回看、Markdown 报告下载、双条历史对比。
 
 ### 🚀 快速使用
 
@@ -146,7 +152,7 @@ npm run tauri build
 
 ### 📋 更新记录
 
-- 最新稳定版说明： [docs/release/1.0.3.md](docs/release/1.0.3.md)
+- 最新稳定版说明： [docs/release/1.0.4.md](docs/release/1.0.4.md)
 - Beta 阶段历史记录： [docs/release/1.0.0-beta.md](docs/release/1.0.0-beta.md)
 
 ### 📄 开源协议
