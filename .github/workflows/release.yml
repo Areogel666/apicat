@@ -26,7 +26,11 @@ jobs:
             bundles: dmg
             artifact-name: macos-dmg-arm64
 
-          - platform: macos-13          # Intel runner
+          # macos-13 已于 2025-12-04 被 GitHub 退役：job 永远拿不到 runner，
+          # 排队 24h 后被判超时取消，导致整个矩阵运行 cancelled、Release 建不出来。
+          # macos-15-intel 是 Intel(x86_64) 的接替标签（最后一个 x86_64 镜像，
+          # GitHub 计划 2027 秋停用，届时应评估砍掉此目标）。
+          - platform: macos-15-intel    # Intel runner
             target: x86_64-apple-darwin
             bundles: dmg
             artifact-name: macos-dmg-x64
