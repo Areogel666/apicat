@@ -115,10 +115,8 @@ export const useRequestStore = defineStore('request', () => {
     if (draft.bodyType === 'form_data') {
       body = JSON.stringify(draft.formDataParams)
     } else if (draft.bodyType === 'form_urlencoded') {
-      const enabledFields = draft.urlencodedParams.filter(f => f.enabled && f.key)
-      const sp = new URLSearchParams()
-      enabledFields.forEach(f => sp.append(f.key, f.value))
-      body = sp.toString()
+      // 1.0.4 fix：结构化存储（JSON 数组，含类型/描述）；发送时才编码 k=v
+      body = JSON.stringify(draft.urlencodedParams)
     }
 
     await updateRequest(id, {
@@ -142,6 +140,31 @@ export const useRequestStore = defineStore('request', () => {
       s.delete(id)
       savedRequestIds.value = s
     }, 1500)
+  }
+
+  /**
+   * 1.0.4：参数元数据（type/description/字典引用）静默落库。
+   * 与 updateRequest 的区别：不清理 dirtyRequestIds、不删 draftCache ——
+   * 自动保存只保证数据不因重启丢失，不改变「保存按钮 / Ctrl+S」的 dirty 语义。
+   */
+  async function persistParams(
+    id: number,
+    data: { params: string; headers: string; body_type: string; body: string },
+  ): Promise<void> {
+    const req = Object.values(requestMap.value).flat().find(r => r.id === id)
+    if (!req) return
+    await invoke('update_request', {
+      id,
+      name: req.name,
+      method: req.method,
+      url: req.url,
+      params: data.params,
+      headers: data.headers,
+      bodyType: data.body_type,
+      body: data.body,
+      authType: req.auth_type,
+      authConfig: req.auth_config,
+    })
   }
 
   async function deleteRequest(id: number, collectionId: number) {
@@ -203,6 +226,7 @@ export const useRequestStore = defineStore('request', () => {
     loadRequests,
     createRequest,
     updateRequest,
+    persistParams,
     deleteRequest,
     duplicateRequest,
     renameRequest,

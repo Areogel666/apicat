@@ -172,18 +172,18 @@
             <!-- 表格模式 -->
             <template v-if="queryMode === 'table'">
               <n-empty v-if="!queryParams.length" description="暂无参数" size="small" />
-              <!-- 1.0.4：表头行 -->
+              <!-- 1.0.4：表头行（值紧随字段名） -->
               <div v-else class="param-row param-row--header">
                 <span class="param-col-check" />
                 <span class="param-col-key" @click="toggleSort('query')">
                   字段名 {{ sortIndicators.query }}
                 </span>
+                <span class="param-col-value" style="flex:1">值</span>
                 <span class="param-col-type">类型</span>
                 <span class="param-col-desc">描述</span>
-                <span class="param-col-value" style="flex:1">值</span>
                 <span class="param-col-del" />
               </div>
-              <div v-for="(q, idx) in sortedQueryParams" :key="idx" class="param-row-wrap">
+              <div v-for="(q, idx) in sortedQueryParams" :key="rowKey(idx, q)" class="param-row-wrap">
                 <ParamRow :item="q" :type-options="typeOptions" key-placeholder="Key" value-placeholder="Value"
                   :dict-display="dictDisplayOf(q)"
                   @remove="queryParams.splice(queryParams.indexOf(q), 1)"
@@ -249,18 +249,18 @@
 
             <template v-if="headerMode === 'table'">
               <n-empty v-if="!requestHeaders.length" description="暂无 Headers" size="small" />
-              <!-- 1.0.4：表头行 -->
+              <!-- 1.0.4：表头行（值紧随字段名） -->
               <div v-else class="param-row param-row--header">
                 <span class="param-col-check" />
                 <span class="param-col-key" @click="toggleSort('header')">
                   Header 名 {{ sortIndicators.header }}
                 </span>
+                <span class="param-col-value" style="flex:1">值</span>
                 <span class="param-col-type">类型</span>
                 <span class="param-col-desc">描述</span>
-                <span class="param-col-value" style="flex:1">值</span>
                 <span class="param-col-del" />
               </div>
-              <div v-for="(h, idx) in sortedHeaders" :key="idx" class="param-row-wrap">
+              <div v-for="(h, idx) in sortedHeaders" :key="rowKey(idx, h)" class="param-row-wrap">
                 <ParamRow :item="h" :type-options="typeOptions" key-placeholder="Header 名" value-placeholder="值"
                   :dict-display="dictDisplayOf(h)"
                   @remove="requestHeaders.splice(requestHeaders.indexOf(h), 1)"
@@ -325,18 +325,18 @@
               <!-- 表格模式 -->
               <template v-if="urlencodedMode === 'table'">
                 <n-empty v-if="!urlencodedParams.length" description="暂无字段" size="small" />
-                <!-- 1.0.4：表头行 -->
+                <!-- 1.0.4：表头行（值紧随字段名） -->
                 <div v-else class="param-row param-row--header">
                   <span class="param-col-check" />
                   <span class="param-col-key" @click="toggleSort('urlencoded')">
                     字段名 {{ sortIndicators.urlencoded }}
                   </span>
+                  <span class="param-col-value" style="flex:1">值</span>
                   <span class="param-col-type">类型</span>
                   <span class="param-col-desc">描述</span>
-                  <span class="param-col-value" style="flex:1">值</span>
                   <span class="param-col-del" />
                 </div>
-                <div v-for="(f, idx) in sortedUrlencoded" :key="idx" class="param-row-wrap">
+                <div v-for="(f, idx) in sortedUrlencoded" :key="rowKey(idx, f)" class="param-row-wrap">
                   <ParamRow :item="f" :type-options="typeOptions" key-placeholder="字段名" value-placeholder="值"
                     :dict-display="dictDisplayOf(f)"
                     @remove="urlencodedParams.splice(urlencodedParams.indexOf(f), 1)"
@@ -362,18 +362,18 @@
             <!-- form-data KV 表格 -->
             <template v-if="bodyType === 'form_data'">
               <n-empty v-if="!formDataParams.length" description="暂无字段" size="small" />
-              <!-- 1.0.4：表头行 -->
+              <!-- 1.0.4：表头行（值紧随字段名） -->
               <div v-else class="param-row param-row--header">
                 <span class="param-col-check" />
                 <span class="param-col-key" @click="toggleSort('formdata')">
                   字段名 {{ sortIndicators.formdata }}
                 </span>
+                <span class="param-col-value" style="flex:1">值</span>
                 <span class="param-col-type">类型</span>
                 <span class="param-col-desc">描述</span>
-                <span class="param-col-value" style="flex:1">值</span>
                 <span class="param-col-del" />
               </div>
-              <div v-for="(f, idx) in sortedFormData" :key="idx" class="param-row-wrap">
+              <div v-for="(f, idx) in sortedFormData" :key="rowKey(idx, f)" class="param-row-wrap">
                 <ParamRow :item="f" :type-options="typeOptions" key-placeholder="字段名" value-placeholder="值"
                   :dict-display="dictDisplayOf(f)"
                   @remove="formDataParams.splice(formDataParams.indexOf(f), 1)"
@@ -489,15 +489,18 @@
         <n-tab-pane name="testcases" tab="用例" display-directive="show:lazy">
           <TestCaseManager :request-id="requestStore.activeRequest?.id ?? 0" />
         </n-tab-pane>
+
+        <!-- 1.0.4 fix：压测 Tab —— 历史结果查看 / 报告下载常驻入口（原先只在压测结果弹窗里可看） -->
+        <n-tab-pane name="stress" tab="压测" display-directive="show:lazy">
+          <StressTab @start="(c, t) => handleStartStress(c, t, false)" />
+        </n-tab-pane>
       </n-tabs>
     </div>
 
     <!-- 1.0.4：字典选择弹窗（描述列 📖） -->
     <n-modal v-model:show="showDictPicker" :preset="'card'" title="选择字典项" style="width: 420px">
       <div style="max-height: 360px; overflow: auto; padding: var(--spacing-sm) 0">
-        <n-empty v-if="!dictionaryStore.dictionaries.length" description="暂无字典，请先在字典侧栏创建" size="small" />
         <n-tree
-          v-else
           :data="dictPickerTreeData"
           block-line
           default-expand-all
@@ -552,7 +555,7 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import {
   NSelect, NInput, NButton, NTabs, NTabPane, NEmpty,
   NTag, NDivider, NRadioGroup, NRadioButton, NRadio,
-  NDropdown, NTooltip,
+  NDropdown, NTooltip, NModal, NTree,
   useMessage, useDialog,
 } from 'naive-ui'
 import { parseUrl, buildUrl, resolveEffectiveUrl, hasUnresolvedPlaceholder } from '../../utils/urlParser'
@@ -575,6 +578,7 @@ import TestCaseBar from '../testcase/TestCaseBar.vue'
 import TestCaseManager from '../testcase/TestCaseManager.vue'
 import StressConfigModal from '../stress/StressConfigModal.vue'
 import StressResultPanel from '../stress/StressResultPanel.vue'
+import StressTab from '../stress/StressTab.vue'
 import ResizableSplitter from '../common/ResizableSplitter.vue'
 import ParamRow from '../io/ParamRow.vue'
 import type { ParamItem, ParsedUrl, StressConfig } from '../../types'
@@ -594,9 +598,9 @@ const queryJsonText = ref('')
 function switchQueryMode(newMode: ParamMode) {
   // 先把当前模式内容同步到 queryParams（table 是 source of truth）
   if (queryMode.value === 'kv') {
-    queryParams.value = parseKvText(queryKvText.value)
+    queryParams.value = parseKvText(queryKvText.value, queryParams.value)
   } else if (queryMode.value === 'json') {
-    queryParams.value = parseJsonToParams(queryJsonText.value)
+    queryParams.value = parseJsonToParams(queryJsonText.value, queryParams.value)
   }
   // 再渲染目标模式
   if (newMode === 'kv') {
@@ -643,9 +647,9 @@ const autoHeaders = computed<Array<{key: string; value: string}>>(() => {
 
 function switchHeaderMode(newMode: ParamMode) {
   if (headerMode.value === 'kv') {
-    requestHeaders.value = parseKvText(headerKvText.value)
+    requestHeaders.value = parseKvText(headerKvText.value, requestHeaders.value)
   } else if (headerMode.value === 'json') {
-    requestHeaders.value = parseJsonToParams(headerJsonText.value)
+    requestHeaders.value = parseJsonToParams(headerJsonText.value, requestHeaders.value)
   }
   if (newMode === 'kv') {
     headerKvText.value = toKvText(requestHeaders.value)
@@ -734,20 +738,123 @@ const sortedHeaders = computed(() => sortedList(requestHeaders.value, 'header'))
 const sortedUrlencoded = computed(() => sortedList(urlencodedParams.value, 'urlencoded'))
 const sortedFormData = computed(() => sortedList(formDataParams.value, 'formdata'))
 
+// 行 key 带接口作用域：切接口后强制重建行节点，杜绝 Vue 复用上一接口的行 DOM 导致残留
+function rowKey(idx: number, p: ParamItem): string {
+  return `${requestStore.activeRequestId ?? 0}-${idx}-${p.key}`
+}
+
+// [BUG-9f2e] 临时探针：打印 desc 摘要，定位「类型/描述跨接口残留」的实际数据来源
+function debugDesc(arr: ParamItem[] | undefined | null): string {
+  return (arr ?? []).map(p => `${p.key}:${p.description ?? '∅'}`).join('|') || '(空)'
+}
+
+// ── 1.0.4 fix：用例切换不丢「类型/描述」 ──────────────────────
+// 类型/描述属于接口定义；用例快照（旧数据）往往没有这些字段，切用例时若直接用
+// 用例快照覆盖编辑区，类型/描述会消失。这里让用例缺失（空/undefined）的元数据
+// 由接口参数同 key 补全；用例自己写过的仍然保留。
+type MetaSource = Map<string, Pick<ParamItem, 'type' | 'description' | 'descriptionDictRef'>>
+
+function metaFromRaw(jsonStr: string | null | undefined): MetaSource {
+  try {
+    const arr: ParamItem[] = JSON.parse(jsonStr || '[]')
+    return new Map(arr.map(p => [p.key, p]))
+  } catch {
+    return new Map()
+  }
+}
+
+function mergeParamMeta(list: ParamItem[], base: MetaSource): ParamItem[] {
+  if (base.size === 0) return list
+  return list.map(p => {
+    const b = base.get(p.key)
+    if (!b) return p
+    const type = p.type == null || p.type === '' ? b.type : p.type
+    const description = p.description == null || p.description === '' ? b.description : p.description
+    const descriptionDictRef = p.descriptionDictRef == null ? b.descriptionDictRef : p.descriptionDictRef
+    if (type === p.type && description === p.description && descriptionDictRef === p.descriptionDictRef) return p
+    return { ...p, type, description, descriptionDictRef }
+  })
+}
+
+/** 去掉 type/description/字典引用后比较 JSON 数组，用于 dirty 判定（元数据不参与） */
+function stripMeta(json: string): string {
+  try {
+    const arr: ParamItem[] = JSON.parse(json)
+    if (!Array.isArray(arr)) return json
+    return JSON.stringify(arr.map(p => ({ key: p.key, value: p.value, enabled: p.enabled })))
+  } catch {
+    return json
+  }
+}
+
+// ── 1.0.4 fix：form_urlencoded 的 body 存储升级为结构化 JSON 数组 ──
+// 旧存储是 k=v 文本（URLSearchParams 编码），放不下 type/description/字典引用，
+// 导致 URL-Encoded 表格的类型/描述切用例、重启即丢。
+// 现改为：DB/用例里 body 存 JSON 数组（与 form_data 一致，含全部元数据）；
+// 发送请求时才编码为 k=v（syncUrlencodedData）。旧 k=v 数据加载时自动回退解析。
+function parseUrlencodedBody(body: string | null | undefined): ParamItem[] {
+  const raw = body ?? ''
+  // 优先：结构化 JSON 数组
+  try {
+    const arr = JSON.parse(raw)
+    if (Array.isArray(arr)) {
+      return arr
+        .filter((x: unknown): x is Record<string, unknown> => Boolean(x) && typeof x === 'object')
+        .map(x => ({
+          key: String(x.key ?? ''),
+          value: String(x.value ?? ''),
+          enabled: x.enabled !== false,
+          type: typeof x.type === 'string' ? x.type : undefined,
+          description: typeof x.description === 'string' ? x.description : undefined,
+          descriptionDictRef: typeof x.descriptionDictRef === 'number' ? x.descriptionDictRef : undefined,
+        }))
+    }
+  } catch { /* 非 JSON → 走旧格式兜底 */ }
+  // 旧格式：k=v 文本
+  try {
+    const sp = new URLSearchParams(raw)
+    const params: ParamItem[] = []
+    sp.forEach((value, key) => params.push({ key, value, enabled: true }))
+    return params
+  } catch {
+    return []
+  }
+}
+
+/** 当前编辑区 urlencoded 的结构化存储串（发送仍走 k=v，见 syncUrlencodedData） */
+function urlencodedStorageBody(): string {
+  return JSON.stringify(urlencodedParams.value)
+}
+
 // 字典引用弹窗状态
 const dictPickerParam = ref<ParamItem | null>(null)
 const showDictPicker = ref(false)
 const dictPickerItemId = ref<number | null>(null)
 const dictionaryStoreLoaded = ref(false)
 
-function openDictPicker(q: ParamItem) {
+async function openDictPicker(q: ParamItem) {
   dictPickerParam.value = q
   dictPickerItemId.value = q.descriptionDictRef ?? null
-  showDictPicker.value = true
   if (!dictionaryStoreLoaded.value) {
-    dictionaryStore.loadDictionaries(projectStore.currentProjectId)
+    try {
+      await dictionaryStore.loadDictionaries(projectStore.currentProjectId)
+    } catch (e) {
+      console.error('[dict-picker] loadDictionaries failed:', e)
+      // 加载失败但已有缓存 → 仍可弹窗；完全无数据 → 明确报错而非“没反应”
+      if (dictionaryStore.dictionaries.length === 0) {
+        message.error('加载数据字典失败：' + String(e))
+        dictionaryStoreLoaded.value = true
+        return
+      }
+    }
     dictionaryStoreLoaded.value = true
   }
+  // 未配置字典：不弹空面板，引导去字典侧栏创建（1.0.4 fix）
+  if (dictionaryStore.dictionaries.length === 0) {
+    message.info('暂无字典，请先在左侧 📖 数据字典侧栏创建')
+    return
+  }
+  showDictPicker.value = true
 }
 
 const dictPickerTreeData = computed(() =>
@@ -820,15 +927,21 @@ function switchUrlencodedToKv() {
   urlencodedMode.value = 'kv'
 }
 
-/** KV文本变更时，解析回 urlencodedParams */
+/** KV文本变更时，解析回 urlencodedParams（同 key 保留类型/描述/字典引用，1.0.4 fix） */
 function syncUrlencodedFromKv(text: string) {
+  const prev = urlencodedParams.value
   const params: ParamItem[] = []
   for (const line of text.split('\n')) {
     const trimmed = line.trim()
     if (!trimmed || trimmed.startsWith('#')) continue
     const colonIdx = trimmed.indexOf(':')
     if (colonIdx > 0) {
-      params.push({ key: trimmed.substring(0, colonIdx).trim(), value: trimmed.substring(colonIdx + 1).trim(), enabled: true })
+      const key = trimmed.substring(0, colonIdx).trim()
+      const value = trimmed.substring(colonIdx + 1).trim()
+      const src = prev.find(p => p.key === key)
+      params.push(src
+        ? { key, value, enabled: true, type: src.type, description: src.description, descriptionDictRef: src.descriptionDictRef }
+        : { key, value, enabled: true })
     } else {
       params.push({ key: trimmed, value: '', enabled: true })
     }
@@ -960,6 +1073,24 @@ function markRequestDirty() {
   requestStore.dirtyRequestIds = newSet
 }
 
+// ── 1.0.4 fix：参数元数据（类型/描述/字典引用）自动落库 ─────────
+// 只在「离开该接口」的瞬间落库一次，锁定离开的接口 id：
+//  - 无定时窗口 → 不存在把 A 的数据写进 B 的任何可能（问题 1.0.4-2 根治）
+//  - 离开即保存 → 重启不丢；不干预 Ctrl+S / dirty 语义
+function flushPersist(id: number) {
+  if (bodyType.value === 'form_data') syncFormData()
+  // form_urlencoded 落库用结构化 JSON（含类型/描述），发送时才编码 k=v
+  const persistBody = bodyType.value === 'form_urlencoded' ? urlencodedStorageBody() : bodyContent.value
+  void requestStore.persistParams(id, {
+    params: JSON.stringify(queryParams.value),
+    headers: JSON.stringify(requestHeaders.value),
+    body_type: bodyType.value,
+    body: persistBody,
+  }).catch(() => {
+    // 静默失败：不打断编辑，下次 Ctrl+S 兜底
+  })
+}
+
 // ── 监听激活接口变化，同步到编辑区 ───────────────────────────
 let isInitializing = false
 watch(() => requestStore.activeRequest, async (req, oldReq) => {
@@ -969,16 +1100,21 @@ watch(() => requestStore.activeRequest, async (req, oldReq) => {
   //    dirty 标记的唯一职责是控制"保存按钮亮起 / Ctrl+S 触发落库"，
   //    与"切 Tab 时是否保留编辑态"完全解耦。
   if (oldReq) {
+    // ⚠️ 1.0.4 fix：参数数组必须深拷贝（JSON round-trip）后再入草稿。
+    // 若浅拷贝（[...arr]），元素对象仍是共享引用 —— A 的参数对象与草稿里的
+    // 是同一个，来回切接口时 A 的类型/描述会经由此共享引用“透”到 B 相同位置参数
+    // （特征：B 该位没描述被 A 覆盖，有描述则不覆盖）。深拷贝后各接口草稿完全隔离。
+    const deep = (arr: ParamItem[]): ParamItem[] => JSON.parse(JSON.stringify(arr ?? []))
     requestStore.draftCache[oldReq.id] = {
       method: method.value,
       url: url.value,
       pathParamValues: { ...pathParamValues.value },
-      queryParams: [...queryParams.value],
-      requestHeaders: [...requestHeaders.value],
+      queryParams: deep(queryParams.value),
+      requestHeaders: deep(requestHeaders.value),
       bodyType: bodyType.value,
       bodyContent: bodyContent.value,
-      formDataParams: [...formDataParams.value],
-      urlencodedParams: [...urlencodedParams.value],
+      formDataParams: deep(formDataParams.value),
+      urlencodedParams: deep(urlencodedParams.value),
       queryMode: queryMode.value,
       queryKvText: queryKvText.value,
       queryJsonText: queryJsonText.value,
@@ -988,6 +1124,12 @@ watch(() => requestStore.activeRequest, async (req, oldReq) => {
       urlencodedMode: urlencodedMode.value,
       urlencodedKvText: urlencodedKvText.value,
     }
+    // 1.0.4 fix：切走即落库，锁定离开的接口 oldReq.id。
+    // 此刻 queryParams 等仍是 oldReq 的编辑区内容（尚未被新接口覆盖），
+    // 落库目标明确为 oldReq.id —— 类型/描述只会写回本接口，绝不串到目标接口。
+    flushPersist(oldReq.id)
+    // [BUG-9f2e] 探针：保存草稿时旧接口的编辑区快照
+    console.warn(`[BUG-9f2e] save draft  -> id=${oldReq.id} desc=[${debugDesc(queryParams.value)}]`)
   }
 
   isInitializing = true
@@ -997,14 +1139,18 @@ watch(() => requestStore.activeRequest, async (req, oldReq) => {
     const draft = requestStore.draftCache[req.id]
     if (draft) {
       // 2a. 从草稿恢复：所有编辑状态完整还原
+      // ⚠️ 1.0.4 fix：恢复也必须深拷贝 —— 直接赋草稿数组会把「另一个接口的草稿数组引用」
+      // 当成本接口编辑区（若某条路径误把 A 的数据存进 B 的草稿）。深拷贝后编辑区对象
+      // 永远独立，物理上与其它接口无关。此前的浅拷贝恢复是最大嫌疑。
+      const deep = (arr: ParamItem[]): ParamItem[] => JSON.parse(JSON.stringify(arr ?? []))
       url.value = draft.url
       method.value = draft.method
       bodyType.value = draft.bodyType
       bodyContent.value = draft.bodyContent
-      queryParams.value = draft.queryParams
-      requestHeaders.value = draft.requestHeaders
-      formDataParams.value = draft.formDataParams
-      urlencodedParams.value = draft.urlencodedParams
+      queryParams.value = deep(draft.queryParams)
+      requestHeaders.value = deep(draft.requestHeaders)
+      formDataParams.value = deep(draft.formDataParams)
+      urlencodedParams.value = deep(draft.urlencodedParams)
       // UI 模式状态跟随草稿
       queryMode.value = draft.queryMode
       queryKvText.value = draft.queryKvText
@@ -1019,6 +1165,8 @@ watch(() => requestStore.activeRequest, async (req, oldReq) => {
       // 此处直接赋值即可完整还原 value。
       pathParamValues.value = { ...draft.pathParamValues }
       isDraft = true
+      // [BUG-9f2e] 探针：从草稿恢复后的编辑区（若这里出现别家接口的 desc，即草稿被污染）
+      console.warn(`[BUG-9f2e] restore draft -> id=${req.id} desc=[${debugDesc(queryParams.value)}]`)
     } else {
       // 2b. 从 DB 加载：按接口原始定义初始化，清空所有临时调试状态
       url.value = req.url
@@ -1033,12 +1181,7 @@ watch(() => requestStore.activeRequest, async (req, oldReq) => {
       }
 
       if (req.body_type === 'form_urlencoded') {
-        try {
-          const sp = new URLSearchParams(req.body || '')
-          const params: ParamItem[] = []
-          sp.forEach((value, key) => params.push({ key, value, enabled: true }))
-          urlencodedParams.value = params
-        } catch { urlencodedParams.value = [] }
+        urlencodedParams.value = parseUrlencodedBody(req.body)
       } else {
         urlencodedParams.value = []
       }
@@ -1046,6 +1189,8 @@ watch(() => requestStore.activeRequest, async (req, oldReq) => {
       // 解析存储的 params/headers JSON
       try { queryParams.value = JSON.parse(req.params) } catch { queryParams.value = [] }
       try { requestHeaders.value = JSON.parse(req.headers) } catch { requestHeaders.value = [] }
+      // [BUG-9f2e] 探针：从 DB 加载后的编辑区（若这里出现别家接口的 desc，说明 B 的 DB 已被写脏）
+      console.warn(`[BUG-9f2e] load db      -> id=${req.id} desc=[${debugDesc(queryParams.value)}]`)
 
       // 重置 UI 模式为默认 table（仅无草稿时）
       queryMode.value = 'table'
@@ -1073,6 +1218,12 @@ watch(() => requestStore.activeRequest, async (req, oldReq) => {
     // 加载该接口历史 + 测试用例
     await historyStore.loadHistory(req.id, null)
     await testCaseStore.loadTestCases(req.id)
+    // 1.0.4 fix：loadTestCases 内部会自动激活「第一个收藏用例」（activeTestCaseId 变为非 null），
+    // 此处必须把 responseStore 视图指针同步到同一用例，否则响应面板仍留在 raw 桶，
+    // 看不到上次在该用例下发请求的结果（表现为「该用例尚未发送过请求」）。
+    responseStore.setCurrent(req.id, testCaseStore.activeTestCaseId)
+    // History 也跟随激活用例加载，避免切回后 History 与响应不同步
+    await historyStore.loadHistory(req.id, testCaseStore.activeTestCaseId)
   } else {
     // 3. 无激活接口：全部清空
     responseStore.setCurrent(null, null)
@@ -1367,8 +1518,8 @@ function addHeader() {
 /** 将公共 Headers 模板中启用的条目批量写入编辑区（跳过 key 已存在的条目） */
 function applyHeaderTemplate() {
   // 先确保 kv/json 模式的内容已同步到 requestHeaders
-  if (headerMode.value === 'kv') requestHeaders.value = parseKvText(headerKvText.value)
-  else if (headerMode.value === 'json') requestHeaders.value = parseJsonToParams(headerJsonText.value)
+  if (headerMode.value === 'kv') requestHeaders.value = parseKvText(headerKvText.value, requestHeaders.value)
+  else if (headerMode.value === 'json') requestHeaders.value = parseJsonToParams(headerJsonText.value, requestHeaders.value)
 
   const existingKeys = new Set(requestHeaders.value.map(h => h.key.toLowerCase()))
   const tplItems = headerTemplateStore.getEnabledItems()
@@ -1460,7 +1611,7 @@ watch(bodyType, (newType, oldType) => {
   if ((oldType === 'raw_json' || oldType === 'raw_text') && newType === 'form_urlencoded') {
     const text = bodyContent.value.trim()
     if (!text) return
-    const params = parseTextToParams(text)
+    const params = parseTextToParams(text, urlencodedParams.value)
     if (params.length > 0) {
       urlencodedParams.value = params
       // 同步更新 KV 文本模式（如果用户在 URL Encoded 面板切到过 KV 模式）
@@ -1475,7 +1626,7 @@ watch(bodyType, (newType, oldType) => {
   if ((oldType === 'raw_json' || oldType === 'raw_text') && newType === 'form_data') {
     const text = bodyContent.value.trim()
     if (!text) return
-    const params = parseTextToParams(text)
+    const params = parseTextToParams(text, formDataParams.value)
     if (params.length > 0) formDataParams.value = params
     return
   }
@@ -1542,15 +1693,23 @@ watch(bodyType, (newType, oldType) => {
   }
 })
 
-/** 将文本（JSON 或 key=value）解析为 ParamItem[]，转换失败返回空数组 */
-function parseTextToParams(text: string): ParamItem[] {
+/** 将文本（JSON 或 key=value）解析为 ParamItem[]，转换失败返回空数组。
+ * @param prev 切出前的旧表格，同 key 保留 type/description/字典引用（1.0.4 fix） */
+function parseTextToParams(text: string, prev?: ParamItem[]): ParamItem[] {
+  const withMeta = (items: ParamItem[]): ParamItem[] => {
+    if (!prev) return items
+    return items.map(it => {
+      const src = prev.find(p => p.key === it.key)
+      return src ? { ...it, type: src.type, description: src.description, descriptionDictRef: src.descriptionDictRef } : it
+    })
+  }
   // 优先尝试 JSON parse
   try {
     const obj = JSON.parse(text)
     if (typeof obj === 'object' && obj !== null && !Array.isArray(obj)) {
-      return Object.entries(obj).map(([k, v]) => ({
+      return withMeta(Object.entries(obj).map(([k, v]) => ({
         key: k, value: String(v), enabled: true,
-      }))
+      })))
     }
   } catch { /* 非 JSON，继续尝试 */ }
 
@@ -1559,7 +1718,7 @@ function parseTextToParams(text: string): ParamItem[] {
     const sp = new URLSearchParams(text)
     const params: ParamItem[] = []
     sp.forEach((val, key) => { params.push({ key, value: val, enabled: true }) })
-    if (params.length > 0) return params
+    return withMeta(params)
   } catch { /* 解析失败 */ }
 
   return []
@@ -1574,12 +1733,12 @@ watch(requestHeaders, markRequestDirty, { deep: true })
 // KV文本/JSON模式下，文本内容变化时即时解析回 queryParams（从而触发 URL 同步）
 watch(queryKvText, (text) => {
   if (queryMode.value !== 'kv' || isInitializing) return
-  queryParams.value = parseKvText(text)
+  queryParams.value = parseKvText(text, queryParams.value)
 })
 
 watch(queryJsonText, (text) => {
   if (queryMode.value !== 'json' || isInitializing) return
-  queryParams.value = parseJsonToParams(text)
+  queryParams.value = parseJsonToParams(text, queryParams.value)
 })
 
 // ── 复制当前编辑区为 cURL ───────────────────────────────────────
@@ -1587,10 +1746,10 @@ watch(queryJsonText, (text) => {
 // pathParamValues 已填值），输出的 cURL URL 是 effectiveUrl —— 占位符已替换 + 拼 base_url。
 async function handleCopyAsCurl() {
   // 与 handleSend 保持一致：先同步非表格模式内容到权威数据源，避免漏 KV/JSON 文本态改动
-  if (queryMode.value === 'kv') queryParams.value = parseKvText(queryKvText.value)
-  else if (queryMode.value === 'json') queryParams.value = parseJsonToParams(queryJsonText.value)
-  if (headerMode.value === 'kv') requestHeaders.value = parseKvText(headerKvText.value)
-  else if (headerMode.value === 'json') requestHeaders.value = parseJsonToParams(headerJsonText.value)
+  if (queryMode.value === 'kv') queryParams.value = parseKvText(queryKvText.value, queryParams.value)
+  else if (queryMode.value === 'json') queryParams.value = parseJsonToParams(queryJsonText.value, queryParams.value)
+  if (headerMode.value === 'kv') requestHeaders.value = parseKvText(headerKvText.value, requestHeaders.value)
+  else if (headerMode.value === 'json') requestHeaders.value = parseJsonToParams(headerJsonText.value, requestHeaders.value)
 
   // 计算 body（form_data / form_urlencoded 需要序列化）
   let bodyStr = bodyContent.value
@@ -1645,10 +1804,10 @@ async function handleCopyAsCurl() {
 // ── 发送请求 ──────────────────────────────────────────────────
 async function handleSend() {
   // 非表格模式时先同步内容到 source of truth（queryParams / requestHeaders）
-  if (queryMode.value === 'kv') queryParams.value = parseKvText(queryKvText.value)
-  else if (queryMode.value === 'json') queryParams.value = parseJsonToParams(queryJsonText.value)
-  if (headerMode.value === 'kv') requestHeaders.value = parseKvText(headerKvText.value)
-  else if (headerMode.value === 'json') requestHeaders.value = parseJsonToParams(headerJsonText.value)
+  if (queryMode.value === 'kv') queryParams.value = parseKvText(queryKvText.value, queryParams.value)
+  else if (queryMode.value === 'json') queryParams.value = parseJsonToParams(queryJsonText.value, queryParams.value)
+  if (headerMode.value === 'kv') requestHeaders.value = parseKvText(headerKvText.value, requestHeaders.value)
+  else if (headerMode.value === 'json') requestHeaders.value = parseJsonToParams(headerJsonText.value, requestHeaders.value)
   // form-data 序列化
   if (bodyType.value === 'form_data') syncFormData()
   if (bodyType.value === 'form_urlencoded') syncUrlencodedData()
@@ -1723,7 +1882,7 @@ async function handleSend() {
         headers: JSON.stringify(requestHeaders.value),
         params_: JSON.stringify(queryParams.value),
         bodyType: bodyType.value,
-        body: bodyContent.value,
+        body: bodyType.value === 'form_urlencoded' ? urlencodedStorageBody() : bodyContent.value,
       })
       // 1.0.4：响应此前写入了 raw 桶（尚未有用例），迁移到新用例桶后切视图
       responseStore.setCurrent(activeReq.id, tc.id)
@@ -1780,12 +1939,14 @@ function checkParamsDirty() {
   const activeTc = cases.find(c => c.id === activeId)
   if (!activeTc) { paramsDirty.value = false; return }
 
+  // 1.0.0 fix:类型/描述/字典引用是「定义级元数据，不参与「参数不同」判定，
+  // 否则用例切换时补全元数据会误触发 dirty 提示
   const sameMethod = (activeTc.method ?? method.value) === method.value
   const sameUrl = (activeTc.url ?? resolvedUrl.value) === resolvedUrl.value
-  const sameHeaders = activeTc.headers === JSON.stringify(requestHeaders.value)
-  const sameParams = activeTc.params === JSON.stringify(queryParams.value)
+  const sameHeaders = stripMeta(activeTc.headers) === stripMeta(JSON.stringify(requestHeaders.value))
+  const sameParams = stripMeta(activeTc.params) === stripMeta(JSON.stringify(queryParams.value))
   const sameBodyType = (activeTc.body_type ?? bodyType.value) === bodyType.value
-  const sameBody = (activeTc.body ?? bodyContent.value) === bodyContent.value
+  const sameBody = stripMeta(activeTc.body ?? '') === stripMeta(bodyContent.value)
 
   paramsDirty.value = !(sameMethod && sameUrl && sameHeaders && sameParams && sameBodyType && sameBody)
 }
@@ -1797,6 +1958,12 @@ async function handleActivateTestCase(id: number) {
   if (!tc) return
   isInitializing = true
   testCaseStore.activeTestCaseId = id
+  // 1.0.4 fix：用例快照缺的「类型/描述」用接口参数同 key 补全（避免切用例即丢失）
+  const activeReq = requestStore.activeRequest
+  const metaParamSrc = activeReq ? metaFromRaw(activeReq.params) : new Map<string, ParamItem>()
+  const metaBodySrc = activeReq && (activeReq.body_type === 'form_data' || activeReq.body_type === 'form_urlencoded')
+    ? metaFromRaw(activeReq.body)
+    : new Map<string, ParamItem>()
   // 1.0.4：切用例 → 响应视图切到该用例桶；History 按用例重载
   if (requestStore.activeRequestId != null) {
     responseStore.setCurrent(requestStore.activeRequestId, id)
@@ -1805,11 +1972,11 @@ async function handleActivateTestCase(id: number) {
   if (tc.method) method.value = tc.method
 
   if (tc.headers) { try { requestHeaders.value = JSON.parse(tc.headers) } catch {} }
-  
+
   if (tc.params) {
     try {
       const params: ParamItem[] = JSON.parse(tc.params)
-      queryParams.value = params
+      queryParams.value = mergeParamMeta(params, metaParamSrc)
       // Rebuild URL: use tc.url as base, append enabled params as query string
       const enabledParams = params.filter(p => p.enabled && p.key)
       // tc.url=null 表示继承接口的 url，需 fallback 到 activeRequest.url
@@ -1835,18 +2002,13 @@ async function handleActivateTestCase(id: number) {
   if (tc.body !== null && tc.body !== undefined) bodyContent.value = tc.body
   
   if (tc.body_type === 'form_data') {
-    try { formDataParams.value = JSON.parse(tc.body || '[]') } catch { formDataParams.value = [] }
+    try { formDataParams.value = mergeParamMeta(JSON.parse(tc.body || '[]'), metaBodySrc) } catch { formDataParams.value = [] }
   } else {
     formDataParams.value = []
   }
 
   if (tc.body_type === 'form_urlencoded') {
-    try {
-      const sp = new URLSearchParams(tc.body || '')
-      const params: ParamItem[] = []
-      sp.forEach((value, key) => params.push({ key, value, enabled: true }))
-      urlencodedParams.value = params
-    } catch { urlencodedParams.value = [] }
+    urlencodedParams.value = mergeParamMeta(parseUrlencodedBody(tc.body), metaBodySrc)
   } else {
     urlencodedParams.value = []
   }
@@ -1873,7 +2035,7 @@ async function handleSaveToActive() {
     headers: JSON.stringify(requestHeaders.value),
     params: JSON.stringify(queryParams.value),
     body_type: bodyType.value,
-    body: bodyContent.value,
+    body: bodyType.value === 'form_urlencoded' ? urlencodedStorageBody() : bodyContent.value,
   })
   paramsDirty.value = false
 }
@@ -1890,7 +2052,7 @@ async function handleSaveAsNew() {
     headers: JSON.stringify(requestHeaders.value),
     params_: JSON.stringify(queryParams.value),
     bodyType: bodyType.value,
-    body: bodyContent.value,
+    body: bodyType.value === 'form_urlencoded' ? urlencodedStorageBody() : bodyContent.value,
   })
   // 1.0.4：保存为新用例后，把当前 raw 桶响应迁到新用例桶并切视图
   responseStore.setCurrent(activeReq.id, tc.id)
@@ -1941,7 +2103,7 @@ async function handleCreateTestCase(name: string) {
     headers: JSON.stringify(requestHeaders.value),
     params_: JSON.stringify(queryParams.value),
     bodyType: bodyType.value,
-    body: bodyContent.value,
+    body: bodyType.value === 'form_urlencoded' ? urlencodedStorageBody() : bodyContent.value,
   })
 }
 
@@ -1964,12 +2126,7 @@ function handleRefill(snapshot: string) {
     }
 
     if (s.body_type === 'form_urlencoded') {
-      try {
-        const sp = new URLSearchParams(s.body || '')
-        const params: ParamItem[] = []
-        sp.forEach((value, key) => params.push({ key, value, enabled: true }))
-        urlencodedParams.value = params
-      } catch { urlencodedParams.value = [] }
+      urlencodedParams.value = parseUrlencodedBody(s.body)
     } else {
       urlencodedParams.value = []
     }
@@ -1985,12 +2142,13 @@ async function handleSaveRequest() {
   const req = requestStore.activeRequest
   if (!req) return
   // 非表格模式时先同步到 source of truth
-  if (queryMode.value === 'kv') queryParams.value = parseKvText(queryKvText.value)
-  else if (queryMode.value === 'json') queryParams.value = parseJsonToParams(queryJsonText.value)
-  if (headerMode.value === 'kv') requestHeaders.value = parseKvText(headerKvText.value)
-  else if (headerMode.value === 'json') requestHeaders.value = parseJsonToParams(headerJsonText.value)
+  if (queryMode.value === 'kv') queryParams.value = parseKvText(queryKvText.value, queryParams.value)
+  else if (queryMode.value === 'json') queryParams.value = parseJsonToParams(queryJsonText.value, queryParams.value)
+  if (headerMode.value === 'kv') requestHeaders.value = parseKvText(headerKvText.value, requestHeaders.value)
+  else if (headerMode.value === 'json') requestHeaders.value = parseJsonToParams(headerJsonText.value, requestHeaders.value)
   if (bodyType.value === 'form_data') syncFormData()
-  if (bodyType.value === 'form_urlencoded') syncUrlencodedData()
+  // form_urlencoded 存储用结构化 JSON（含类型/描述），发送时才编码 k=v
+  const saveBody = bodyType.value === 'form_urlencoded' ? urlencodedStorageBody() : bodyContent.value
 
   // 1.0.3 Bug Fix：保存前快照当前用例 Tab ID，防止保存后自动跳回第一个
   const preSaveActiveTestCaseId = testCaseStore.activeTestCaseId
@@ -2002,7 +2160,7 @@ async function handleSaveRequest() {
       params: JSON.stringify(queryParams.value),
       headers: JSON.stringify(requestHeaders.value),
       body_type: bodyType.value,
-      body: bodyContent.value,
+      body: saveBody,
     })
     // 清除本地草稿缓存（updateRequest 内部已清除 dirtyRequestIds）
     const newCache = { ...requestStore.draftCache }
@@ -2034,23 +2192,26 @@ function onKeyDown(e: KeyboardEvent) {
   }
 }
 onMounted(() => document.addEventListener('keydown', onKeyDown))
-onUnmounted(() => document.removeEventListener('keydown', onKeyDown))
+onUnmounted(() => {
+  document.removeEventListener('keydown', onKeyDown)
+})
 
 // ── 压测 ──────────────────────────────────────────────────────
 const stressStore = useStressStore()
 const showStressConfig = ref(false)
 const showStressResult = ref(false)
 
-async function handleStartStress(config: StressConfig, testCaseId: number | null) {
+async function handleStartStress(config: StressConfig, testCaseId: number | null, openResultModal = true) {
   // 先同步 kv/json 模式内容到 source of truth
-  if (queryMode.value === 'kv') queryParams.value = parseKvText(queryKvText.value)
-  else if (queryMode.value === 'json') queryParams.value = parseJsonToParams(queryJsonText.value)
-  if (headerMode.value === 'kv') requestHeaders.value = parseKvText(headerKvText.value)
-  else if (headerMode.value === 'json') requestHeaders.value = parseJsonToParams(headerJsonText.value)
+  if (queryMode.value === 'kv') queryParams.value = parseKvText(queryKvText.value, queryParams.value)
+  else if (queryMode.value === 'json') queryParams.value = parseJsonToParams(queryJsonText.value, queryParams.value)
+  if (headerMode.value === 'kv') requestHeaders.value = parseKvText(headerKvText.value, requestHeaders.value)
+  else if (headerMode.value === 'json') requestHeaders.value = parseJsonToParams(headerJsonText.value, requestHeaders.value)
   if (bodyType.value === 'form_data') syncFormData()
   if (bodyType.value === 'form_urlencoded') syncUrlencodedData()
 
-  showStressResult.value = true
+  // 压测 tab 内启动时不弹结果弹窗，直接在当前 tab 看实时进度
+  if (openResultModal) showStressResult.value = true
 
   // 若选择了用例，使用用例的参数覆盖当前参数
   let stressMethod = method.value

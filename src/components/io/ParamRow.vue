@@ -2,6 +2,8 @@
   <div class="param-row">
     <n-checkbox v-model:checked="item.enabled" />
     <n-input v-model:value="item.key" size="small" style="width:140px; flex-shrink:0" :placeholder="keyPlaceholder" />
+    <!-- 1.0.4 fix：值紧跟字段名（原排在最后，不直观） -->
+    <n-input v-model:value="item.value" size="small" style="flex:1" :placeholder="valuePlaceholder" />
     <!-- 1.0.4：类型列 -->
     <n-select
       v-model:value="item.type"
@@ -22,7 +24,6 @@
       <n-input v-else v-model:value="item.description" size="small" placeholder="字段描述" />
       <n-button size="tiny" quaternary title="选择字典项" @click="$emit('pick-dict', item)">📖</n-button>
     </div>
-    <n-input v-model:value="item.value" size="small" style="flex:1" :placeholder="valuePlaceholder" />
     <n-button size="tiny" quaternary @click="$emit('remove', item)">✕</n-button>
   </div>
 </template>
