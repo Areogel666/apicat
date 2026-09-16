@@ -18,17 +18,31 @@
           @click="leftPanel = 'dictionary'"
         >📖</button>
       </div>
-      <Sidebar v-if="leftPanel === 'interface'" :style="{ width: sidebarWidth + 'px', flexShrink: 0 }" />
-      <DictionarySidebar v-else :style="{ width: sidebarWidth + 'px', flexShrink: 0 }" />
-      <ResizableSplitter
-        direction="horizontal"
-        :default-size="sidebarWidth"
-        :min-size="160"
-        :max-size="500"
-        storage-key="layout.sidebarWidth"
-        @resize="onSidebarResize"
-      />
-      <MainPanel style="flex: 1; min-width: 0" />
+      <!-- 1.0.4 fix：接口模式 → 左侧接口树 + 右侧主编辑区；字典模式 → 左侧字典树 + 右侧 JSON 编辑面板 -->
+      <template v-if="leftPanel === 'interface'">
+        <Sidebar :style="{ width: sidebarWidth + 'px', flexShrink: 0 }" />
+        <ResizableSplitter
+          direction="horizontal"
+          :default-size="sidebarWidth"
+          :min-size="160"
+          :max-size="500"
+          storage-key="layout.sidebarWidth"
+          @resize="onSidebarResize"
+        />
+        <MainPanel style="flex: 1; min-width: 0" />
+      </template>
+      <template v-else>
+        <DictionarySidebar :style="{ width: sidebarWidth + 'px', flexShrink: 0 }" />
+        <ResizableSplitter
+          direction="horizontal"
+          :default-size="sidebarWidth"
+          :min-size="160"
+          :max-size="500"
+          storage-key="layout.sidebarWidth"
+          @resize="onSidebarResize"
+        />
+        <DictionaryJsonPanel style="flex: 1; min-width: 0" />
+      </template>
     </div>
   </div>
 </template>
@@ -38,6 +52,7 @@ import { ref } from 'vue'
 import TopBar from './TopBar.vue'
 import Sidebar from './Sidebar.vue'
 import DictionarySidebar from './DictionarySidebar.vue'
+import DictionaryJsonPanel from './DictionaryJsonPanel.vue'
 import MainPanel from './MainPanel.vue'
 import ResizableSplitter from '../common/ResizableSplitter.vue'
 

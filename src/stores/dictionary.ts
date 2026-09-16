@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { DataDictionary, DictionaryItem } from '../types'
 
@@ -11,6 +11,18 @@ export const useDictionaryStore = defineStore('dictionary', () => {
   const dictionaries = ref<DataDictionary[]>([])
   // dictionaryId → DictionaryItem[]
   const itemsMap = ref<Record<number, DictionaryItem[]>>({})
+
+  // 1.0.4 fix：字典管理页选中的字典 id（左侧树 → 右侧 JSON 编辑面板联动）
+  const selectedDictId = ref<number | null>(null)
+  const selectedDict = computed<DataDictionary | null>(() =>
+    selectedDictId.value != null
+      ? (dictionaries.value.find(d => d.id === selectedDictId.value) ?? null)
+      : null,
+  )
+
+  function setSelectedDict(id: number | null) {
+    selectedDictId.value = id
+  }
 
   async function loadDictionaries(projectId: number | null = null) {
     dictionaries.value = await invoke<DataDictionary[]>('list_dictionaries', { projectId })
@@ -33,6 +45,37 @@ export const useDictionaryStore = defineStore('dictionary', () => {
     dictionaries.value.push(d)
     itemsMap.value[d.id] = []
     return d
+  }
+
+  /** 1.0.4 fix：一键新建字典 + 初始字典项（同事务） */
+  async function createDictionaryWithItems(
+    code: string,
+    name: string,
+    description: string,
+    items: Array<{ label: string; value: string; description?: string }>,
+  ) {
+    const d = await invoke<DataDictionary>('create_dictionary_with_items', {
+      code,
+      name,
+      description,
+      projectId: null,
+      items,
+    })
+    dictionaries.value.push(d)
+    itemsMap.value[d.id] = await invoke<DictionaryItem[]>('list_dictionary_items', {
+      dictionaryId: d.id,
+    })
+    return d
+  }
+
+  /** 1.0.4 fix：以 JSON 全量替换某字典的字典项（先清空再插入） */
+  async function replaceDictionaryItems(
+    dictionaryId: number,
+    items: Array<{ label: string; value: string; description?: string }>,
+  ) {
+    const rows = await invoke<DictionaryItem[]>('replace_dictionary_items', { dictionaryId, items })
+    itemsMap.value[dictionaryId] = rows
+    return rows
   }
 
   async function updateDictionary(id: number, data: { name?: string; description?: string }) {
@@ -92,13 +135,18 @@ export const useDictionaryStore = defineStore('dictionary', () => {
   return {
     dictionaries,
     itemsMap,
+    selectedDictId,
+    selectedDict,
+    setSelectedDict,
     loadDictionaries,
     createDictionary,
+    createDictionaryWithItems,
     updateDictionary,
     deleteDictionary,
     createItem,
     updateItem,
     deleteItem,
+    replaceDictionaryItems,
     getItemById,
   }
 })

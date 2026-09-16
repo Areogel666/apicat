@@ -5,6 +5,14 @@ use sqlx::Sqlite;
 const DICT_COLS: &str = "id, code, name, description, builtin, project_id, created_at, updated_at";
 const ITEM_COLS: &str = "id, dictionary_id, label, value, description, sort_order";
 
+/// 批量写入用字典项输入（1.0.4 fix：一键新增 / JSON 预览编辑）
+#[derive(serde::Deserialize)]
+pub struct DictionaryItemInput {
+    pub label: String,
+    pub value: String,
+    pub description: Option<String>,
+}
+
 /// 获取数据字典列表（全局共享 builtin + 指定项目自定义）
 #[tauri::command]
 pub async fn list_dictionaries(
@@ -158,4 +166,80 @@ pub async fn delete_dictionary_item(db: State<'_, AppDb>, id: i64) -> CmdResult<
         .execute(&db.0)
         .await?;
     Ok(())
+}
+
+/// 一键新建字典 + 初始字典项（同一事务，1.0.4 fix）
+#[tauri::command]
+pub async fn create_dictionary_with_items(
+    db: State<'_, AppDb>,
+    code: String,
+    name: String,
+    description: Option<String>,
+    project_id: Option<i64>,
+    items: Vec<DictionaryItemInput>,
+) -> CmdResult<DataDictionary> {
+    let mut tx = db.0.begin().await?;
+    let dict_sql = format!(
+        "INSERT INTO data_dictionaries (code, name, description, builtin, project_id) \
+         VALUES (?1, ?2, ?3, 0, ?4) RETURNING {DICT_COLS}"
+    );
+    let dict: DataDictionary = sqlx::query_as::<Sqlite, DataDictionary>(&dict_sql)
+        .bind(&code)
+        .bind(&name)
+        .bind(description.unwrap_or_default())
+        .bind(project_id)
+        .fetch_one(&mut *tx)
+        .await?;
+    for (i, item) in items.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO dictionary_items (dictionary_id, label, value, description, sort_order) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+        )
+        .bind(dict.id)
+        .bind(&item.label)
+        .bind(&item.value)
+        .bind(item.description.clone().unwrap_or_default())
+        .bind(i as i64)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(dict)
+}
+
+/// 以 JSON 全量替换某字典的字典项（先清空再插入，同一事务，1.0.4 fix）。
+/// 返回替换后的字典项列表。
+#[tauri::command]
+pub async fn replace_dictionary_items(
+    db: State<'_, AppDb>,
+    dictionary_id: i64,
+    items: Vec<DictionaryItemInput>,
+) -> CmdResult<Vec<DictionaryItem>> {
+    let mut tx = db.0.begin().await?;
+    sqlx::query("DELETE FROM dictionary_items WHERE dictionary_id = ?1")
+        .bind(dictionary_id)
+        .execute(&mut *tx)
+        .await?;
+    for (i, item) in items.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO dictionary_items (dictionary_id, label, value, description, sort_order) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+        )
+        .bind(dictionary_id)
+        .bind(&item.label)
+        .bind(&item.value)
+        .bind(item.description.clone().unwrap_or_default())
+        .bind(i as i64)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    let sql = format!(
+        "SELECT {ITEM_COLS} FROM dictionary_items WHERE dictionary_id = ?1 ORDER BY sort_order ASC, id ASC"
+    );
+    let rows = sqlx::query_as::<Sqlite, DictionaryItem>(&sql)
+        .bind(dictionary_id)
+        .fetch_all(&db.0)
+        .await?;
+    Ok(rows)
 }

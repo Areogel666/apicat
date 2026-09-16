@@ -13,14 +13,27 @@
         default-expand-all
         block-line
         expand-on-click
+        @update:selected-keys="onTreeSelect"
       />
     </div>
 
-    <!-- 新建/编辑字典弹窗 -->
+    <!-- 新建/编辑字典弹窗（编辑时仅名；新建时可直接填字典项 JSON 一键创建） -->
     <n-modal v-model:show="showDictModal" :preset="'dialog'" :title="editingDictId !== null ? '编辑字典' : '新建字典'">
       <div class="dict-form">
         <n-input v-model:value="dictCode" placeholder="字典编码，如 STATUS_CODE" :disabled="editingDictId !== null" />
         <n-input v-model:value="dictName" placeholder="字典名，如 状态码" />
+        <template v-if="editingDictId === null">
+          <div class="dict-ops">
+            <span class="dict-ops__label">字典项</span>
+            <div v-for="(it, i) in newDictItems" :key="i" class="new-item-row">
+              <n-input v-model:value="it.value" size="small" placeholder="值，如 0" style="width: 80px; flex-shrink: 0" />
+              <n-input v-model:value="it.label" size="small" placeholder="展示名，如 成功" style="flex: 1" />
+              <n-input v-model:value="it.description" size="small" placeholder="描述（可选）" style="width: 110px" @keyup.enter="addNewItemRow" />
+              <n-button size="tiny" quaternary @click="newDictItems.splice(i, 1)">✕</n-button>
+            </div>
+            <n-button size="tiny" dashed block @click="addNewItemRow">+ 添加字典项</n-button>
+          </div>
+        </template>
       </div>
       <template #action>
         <n-button @click="showDictModal = false">取消</n-button>
@@ -45,7 +58,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, h, ref, watch } from 'vue'
 import type { TreeOption } from 'naive-ui'
 import {
   NButton, NEmpty, NInput, NModal, NTree, NDropdown, useMessage,
@@ -60,14 +73,22 @@ const message = useMessage()
 
 const currentProjectId = computed(() => projectStore.currentProjectId)
 
-// ── 字典弹窗状态 ────────────────────────────────────────────
+// ── 新建/编辑字典弹窗状态 ──────────────────────────────────────
 const showDictModal = ref(false)
 const savingDict = ref(false)
 const dictCode = ref('')
 const dictName = ref('')
 const editingDictId = ref<number | null>(null)
 
-// ── 字典项弹窗状态 ──────────────────────────────────────────
+// 1.0.4 fix：新建字典时用「操作表单」逐条添加字典项（非 JSON 输入）
+interface NewDictItem { value: string; label: string; description: string }
+const newDictItems = ref<NewDictItem[]>([])
+
+function addNewItemRow() {
+  newDictItems.value.push({ value: '', label: '', description: '' })
+}
+
+// ── 字典项弹窗状态 ──────────────────────────────────────────────
 const showItemModal = ref(false)
 const savingItem = ref(false)
 const itemLabel = ref('')
@@ -140,11 +161,25 @@ function findItem(id: number): DictionaryItem | null {
   return null
 }
 
+// 1.0.4 fix：树选中 → 驱动右侧 JSON 编辑面板（点击字典或其条目均可）
+function onTreeSelect(keys: Array<string | number>) {
+  const k = keys[0]
+  if (k == null) return
+  const str = String(k)
+  if (str.startsWith('dict-')) {
+    store.setSelectedDict(Number(str.slice(5)))
+  } else if (str.startsWith('item-')) {
+    const item = findItem(Number(str.slice(5)))
+    if (item) store.setSelectedDict(item.dictionary_id)
+  }
+}
+
 // ── 字典操作 ────────────────────────────────────────────────
 function onAddDict() {
   editingDictId.value = null
   dictCode.value = ''
   dictName.value = ''
+  newDictItems.value = []
   showDictModal.value = true
 }
 
@@ -172,8 +207,17 @@ async function saveDict() {
         message.warning('字典编码必填')
         return
       }
-      await store.createDictionary(dictCode.value.trim(), dictName.value.trim())
-      message.success('字典创建成功')
+      // 1.0.4 fix：一键创建（字典 + 操作表单里的字典项）
+      const items = newDictItems.value
+        .filter(it => it.value.trim() || it.label.trim())
+        .map(it => ({ value: it.value.trim(), label: it.label.trim(), description: it.description.trim() }))
+      await store.createDictionaryWithItems(
+        dictCode.value.trim(),
+        dictName.value.trim(),
+        '',
+        items,
+      )
+      message.success(items.length ? `字典创建成功（${items.length} 项）` : '字典创建成功')
     }
     showDictModal.value = false
   } catch (e) {
@@ -186,6 +230,7 @@ async function saveDict() {
 async function onDeleteDict(id: number) {
   try {
     await store.deleteDictionary(id)
+    if (store.selectedDictId === id) store.setSelectedDict(null)
     message.success('已删除')
   } catch (e) {
     message.error(String(e))
@@ -252,11 +297,15 @@ async function onDeleteItem(id: number) {
   }
 }
 
-onMounted(() => {
-  if (currentProjectId.value) {
-    store.loadDictionaries(currentProjectId.value)
+// 1.0.4 fix：项目变化时重新加载字典（保证左侧栏数据就绪）
+watch(currentProjectId, (pid) => {
+  if (pid != null) {
+    store.loadDictionaries(pid).catch(() => {})
+  } else {
+    store.dictionaries = []
+    store.setSelectedDict(null)
   }
-})
+}, { immediate: true })
 </script>
 
 <style scoped>
@@ -293,6 +342,23 @@ onMounted(() => {
 }
 .dict-form__hint {
   font-size: var(--font-size-sm);
-  color: var(--text-secondary);
+  color: var(--text-tertiary);
+}
+
+/* 1.0.4 fix：新建字典的操作表单 */
+.dict-ops {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+.dict-ops__label {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+.new-item-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 </style>
