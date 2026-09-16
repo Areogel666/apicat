@@ -147,15 +147,17 @@ pub async fn export_apicat(db: State<'_, AppDb>, project_id: i64) -> CmdResult<S
 
     let envs = export_environments(&db, project_id).await?;
     let collections = export_collections_tree(&db, project_id, None).await?;
+    let dictionaries = export_dictionaries(&db, project_id).await?;
 
     let export = ApiCatExport {
-        version: "1.0".to_string(),
+        version: "1.1".to_string(),
         exported_at: chrono::Utc::now().to_rfc3339(),
         project: ExportProject {
             name: proj_name,
             description: proj_desc,
             environments: envs,
             collections,
+            dictionaries,
         },
     };
     serde_json::to_string_pretty(&export)
@@ -223,13 +225,14 @@ async fn export_collections_tree(
     let mut result = Vec::new();
     for (coll_id, coll_name, sort_order) in colls {
         let reqs: Vec<(
+            i64,
             String, String, String,
             Option<String>, Option<String>,
             Option<String>, Option<String>,
             Option<String>, Option<String>,
             i64,
         )> = sqlx::query_as(
-            "SELECT name, method, url, params, headers, body_type, body, \
+            "SELECT id, name, method, url, params, headers, body_type, body, \
                     auth_type, auth_config, sort_order \
              FROM api_requests WHERE collection_id=? ORDER BY sort_order, id",
         )
@@ -240,31 +243,102 @@ async fn export_collections_tree(
         let children =
             Box::pin(export_collections_tree(db, project_id, Some(coll_id))).await?;
 
+        let mut requests = Vec::with_capacity(reqs.len());
+        for (
+            req_id, name, method, url, params, headers, body_type, body,
+            auth_type, auth_config, so,
+        ) in reqs {
+            let test_cases = export_test_cases(&db, req_id).await?;
+            requests.push(ExportRequest {
+                name,
+                method,
+                url,
+                params: params.unwrap_or_default(),
+                headers: headers.unwrap_or_default(),
+                body_type: body_type.unwrap_or_default(),
+                body: body.unwrap_or_default(),
+                auth_type: auth_type.unwrap_or_default(),
+                auth_config: auth_config.unwrap_or_default(),
+                sort_order: so,
+                test_cases,
+            });
+        }
+
         result.push(ExportCollection {
             name: coll_name,
             sort_order,
             children,
-            requests: reqs
-                .into_iter()
-                .map(
-                    |(name, method, url, params, headers, body_type, body,
-                      auth_type, auth_config, so)| ExportRequest {
-                        name,
-                        method,
-                        url,
-                        params: params.unwrap_or_default(),
-                        headers: headers.unwrap_or_default(),
-                        body_type: body_type.unwrap_or_default(),
-                        body: body.unwrap_or_default(),
-                        auth_type: auth_type.unwrap_or_default(),
-                        auth_config: auth_config.unwrap_or_default(),
-                        sort_order: so,
-                    },
-                )
-                .collect(),
+            requests,
         });
     }
     Ok(result)
+}
+
+/// 1.0.4 fix：导出接口下挂载的测试用例
+async fn export_test_cases(db: &AppDb, request_id: i64) -> CmdResult<Vec<ExportTestCase>> {
+    let rows: Vec<(
+        String, i64, Option<String>, Option<String>,
+        String, String, Option<String>, Option<String>, i64,
+    )> = sqlx::query_as(
+        "SELECT name, starred, method, url, headers, params, body_type, body, sort_order \
+         FROM test_cases WHERE request_id=? ORDER BY sort_order, id",
+    )
+    .bind(request_id)
+    .fetch_all(&db.0)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(
+            |(name, starred, method, url, headers, params, body_type, body, so)| ExportTestCase {
+                name,
+                starred,
+                method,
+                url,
+                headers,
+                params,
+                body_type,
+                body,
+                sort_order: so,
+            },
+        )
+        .collect())
+}
+
+/// 1.0.4 fix：导出数据字典（全局共享 + 本项目自定义），含全部字典项
+async fn export_dictionaries(db: &AppDb, project_id: i64) -> CmdResult<Vec<ExportDictionary>> {
+    let dicts: Vec<(String, String, String, i64)> = sqlx::query_as(
+        "SELECT code, name, description, id FROM data_dictionaries \
+         WHERE project_id IS NULL OR project_id=? ORDER BY builtin DESC, id",
+    )
+    .bind(project_id)
+    .fetch_all(&db.0)
+    .await?;
+
+    let mut out = Vec::with_capacity(dicts.len());
+    for (code, name, description, dict_id) in dicts {
+        let items: Vec<(String, String, String, i64)> = sqlx::query_as(
+            "SELECT value, label, description, sort_order FROM dictionary_items \
+             WHERE dictionary_id=? ORDER BY sort_order, id",
+        )
+        .bind(dict_id)
+        .fetch_all(&db.0)
+        .await?;
+        out.push(ExportDictionary {
+            code,
+            name,
+            description,
+            items: items
+                .into_iter()
+                .map(|(value, label, item_desc, so)| ExportDictionaryItem {
+                    value,
+                    label,
+                    description: item_desc,
+                    sort_order: so,
+                })
+                .collect(),
+        });
+    }
+    Ok(out)
 }
 
 #[tauri::command]
@@ -418,6 +492,39 @@ async fn import_apicat_inner(
         }
     }
 
+    // 1.0.4 fix：导入数据字典（同 code 视为同一定义，已存在则跳过）
+    for dict in &export.project.dictionaries {
+        let exists: Option<(i64,)> = sqlx::query_as("SELECT id FROM data_dictionaries WHERE code=?")
+            .bind(&dict.code)
+            .fetch_optional(&mut *conn)
+            .await?;
+        if exists.is_some() {
+            continue;
+        }
+        let (dict_id,): (i64,) = sqlx::query_as(
+            "INSERT INTO data_dictionaries (code, name, description, builtin, project_id) \
+             VALUES (?,?,?,0,NULL) RETURNING id",
+        )
+        .bind(&dict.code)
+        .bind(&dict.name)
+        .bind(&dict.description)
+        .fetch_one(&mut *conn)
+        .await?;
+        for item in &dict.items {
+            sqlx::query(
+                "INSERT INTO dictionary_items (dictionary_id, label, value, description, sort_order) \
+                 VALUES (?,?,?,?,?)",
+            )
+            .bind(dict_id)
+            .bind(&item.label)
+            .bind(&item.value)
+            .bind(&item.description)
+            .bind(item.sort_order)
+            .execute(&mut *conn)
+            .await?;
+        }
+    }
+
     import_collections_tree(conn, pid, None, &export.project.collections).await?;
     Ok(pid)
 }
@@ -442,11 +549,11 @@ async fn import_collections_tree(
         .await?;
 
         for req in &coll.requests {
-            sqlx::query(
+            let (req_id,): (i64,) = sqlx::query_as(
                 "INSERT INTO api_requests \
                  (collection_id, name, method, url, params, headers, body_type, body, \
                   auth_type, auth_config, sort_order) \
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
             )
             .bind(coll_id)
             .bind(&req.name)
@@ -459,8 +566,31 @@ async fn import_collections_tree(
             .bind(&req.auth_type)
             .bind(&req.auth_config)
             .bind(req.sort_order)
-            .execute(&mut *conn)
+            .fetch_one(&mut *conn)
             .await?;
+
+            // 1.0.4 fix：导入该接口下挂载的测试用例
+            for tc in &req.test_cases {
+                sqlx::query(
+                    "INSERT INTO test_cases \
+                     (request_id, collection_id, name, starred, method, url, headers, params, \
+                      body_type, body, sort_order) \
+                     VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                )
+                .bind(req_id)
+                .bind(coll_id)
+                .bind(&tc.name)
+                .bind(tc.starred)
+                .bind(&tc.method)
+                .bind(&tc.url)
+                .bind(&tc.headers)
+                .bind(&tc.params)
+                .bind(&tc.body_type)
+                .bind(&tc.body)
+                .bind(tc.sort_order)
+                .execute(&mut *conn)
+                .await?;
+            }
         }
 
         import_collections_tree(conn, project_id, Some(coll_id), &coll.children).await?;

@@ -150,6 +150,9 @@ pub struct ExportProject {
     pub description: Option<String>,
     pub environments: Vec<ExportEnv>,
     pub collections: Vec<ExportCollection>,
+    // 1.0.4 fix：项目级数据字典（旧导出文件无此字段，serde(default) 兜底为空）
+    #[serde(default)]
+    pub dictionaries: Vec<ExportDictionary>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -187,6 +190,41 @@ pub struct ExportRequest {
     pub body: String,
     pub auth_type: String,
     pub auth_config: String, // JSON
+    pub sort_order: i64,
+    // 1.0.4 fix：接口下挂载的用例（旧导出文件无此字段，serde(default) 兜底为空）
+    #[serde(default)]
+    pub test_cases: Vec<ExportTestCase>,
+}
+
+/// 1.0.4 fix：导出格式里的测试用例
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExportTestCase {
+    pub name: String,
+    pub starred: i64,
+    pub method: Option<String>,
+    pub url: Option<String>,
+    pub headers: String,
+    pub params: String,
+    pub body_type: Option<String>,
+    pub body: Option<String>,
+    pub sort_order: i64,
+}
+
+/// 1.0.4 fix：导出格式里的数据字典
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExportDictionary {
+    pub code: String,
+    pub name: String,
+    pub description: String,
+    #[serde(default)]
+    pub items: Vec<ExportDictionaryItem>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExportDictionaryItem {
+    pub value: String,
+    pub label: String,
+    pub description: String,
     pub sort_order: i64,
 }
 
