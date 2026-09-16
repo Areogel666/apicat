@@ -1,17 +1,23 @@
 # LAYOUT COMPONENTS — 核心 UI 层
 
 ## OVERVIEW
-6 个组件构成应用骨架：`AppLayout`（壳）→ `TopBar` + `Sidebar` + `MainPanel`（含 `TabBar`）。
+8 个组件构成应用骨架：`AppLayout`（壳）→ `TopBar` + `Sidebar` + `MainPanel`（含 `TabBar`）；1.0.4 新增 `DictionarySidebar` / `DictionaryJsonPanel` 两个字典面板。
 
 ## 组件职责
 | 组件 | 行数 | 职责 |
 |------|------|------|
-| `AppLayout.vue` | 32 | 顶栏 + 侧边栏 + 主面板的 flex 容器 |
-| `TopBar.vue` | 288 | 项目切换、环境选择、Cookie/环境管理入口、设置菜单（检查更新） |
-| `Sidebar.vue` | 1300+ | 接口树（NTree）、拖拽移动、右键菜单、搜索、新建/重命名/删除 |
-| `MainPanel.vue` | — | 请求编辑区（参数/Header/Body/Auth）+ 响应面板 |
-| `TabBar.vue` | — | 多标签栏，tab 开关/激活，与 tabStore 联动 |
-| `HeaderTemplateModal.vue` | — | 请求头模板管理弹窗 |
+| `AppLayout.vue` | 113 | 顶栏 + 侧边栏 + 主面板的 flex 容器 |
+| `TopBar.vue` | 417 | 项目切换、环境选择、Cookie/环境管理入口、设置菜单（检查更新） |
+| `Sidebar.vue` | 1313 | 接口树（NTree）、拖拽移动、右键菜单、搜索、新建/重命名/删除 |
+| `MainPanel.vue` | 2593 | 请求编辑区（参数/Header/Body/Auth）+ 响应面板，**全项目最大组件** |
+| `TabBar.vue` | 363 | 多标签栏，tab 开关/激活，与 tabStore 联动 |
+| `HeaderTemplateModal.vue` | 67 | 请求头模板管理弹窗 |
+| `DictionarySidebar.vue` | 461 | 数据字典树侧栏（1.0.4） |
+| `DictionaryJsonPanel.vue` | 355 | 字典 JSON 全量查看/替换面板（1.0.4） |
+
+### 常驻挂载约定（重要）
+`AppLayout` 里接口树/字典树侧栏与 `MainPanel` / `DictionaryJsonPanel` 全部用 **`v-show` 常驻**，切换时保留浏览状态。
+**不要**改回 `v-if` —— 卸载重挂会丢失滚动位置、折叠状态与未提交的编辑态。
 
 ## SIDEBAR 关键设计（Sidebar.vue）
 
@@ -48,6 +54,7 @@ await loadCollections(pid)  // 必须在 try 外执行
 ```
 
 ## ANTI-PATTERNS
+- **不要**把常驻面板改回 `v-if`（见上方「常驻挂载约定」）
 - **不要**在 `allowDrop` 参数里解构 `dragNode`（NTree 不传此字段，会得到 undefined）
 - **不要**在 Tauri Windows 上启用 `dragDropEnabled`（默认 true），会阻断 HTML5 drag and drop
 - **不要**在 `saveState`/`restoreState` 异常时中断后续加载逻辑

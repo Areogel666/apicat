@@ -1,8 +1,10 @@
 # PROJECT KNOWLEDGE BASE — ApiCat
 
-**Generated:** 2026-04-10
-**Commit:** aad4476
-**Branch:** feature/multi-tab
+**Generated:** 2026-09-16
+**Commit:** f2bdbc6
+**Branch:** feature/1.0.4
+
+> Claude Code 专用上下文（主题系统 / 发布流程 / 核心语义）见 `CLAUDE.md`。COMMANDS 两边都列，供不读 `CLAUDE.md` 的 agent 工具使用。
 
 ## OVERVIEW
 ApiCat 是一款桌面 API 调试工具（类 Postman），使用 Tauri 2.x + Vue 3 + TypeScript 构建前端，Rust + SQLite（sqlx 0.8）构建后端，单文件 `apicat.db` 存储所有数据。
@@ -14,16 +16,16 @@ apicat/
 │   ├── App.vue                 # 根组件，初始化 Pinia stores
 │   ├── main.ts                 # 应用入口，挂载 Naive UI
 │   ├── types/index.ts          # 前后端共享类型（必须与 types.rs 保持一致）
-│   ├── stores/                 # 12 个 Pinia stores（见 stores/AGENTS.md）
+│   ├── stores/                 # 15 个 Pinia stores（见 stores/AGENTS.md）
 │   ├── components/
 │   │   ├── layout/             # 核心布局组件（见 layout/AGENTS.md）
-│   │   ├── io/                 # 导入/导出对话框
+│   │   ├── io/                 # 导入/导出对话框 + ParamRow / FieldDictDesc（描述列渲染，历史遗留放在此处）
 │   │   ├── cookie/             # Cookie 管理
 │   │   ├── env/                # 环境变量管理
 │   │   ├── response/           # 响应面板、历史、JSON Viewer
 │   │   ├── stress/             # 压测配置与结果
 │   │   └── testcase/           # 测试用例
-│   └── utils/                  # curlBuilder / paramParser / urlParser
+│   └── utils/                  # curlBuilder / paramParser / urlParser / dictionaryJson
 ├── src-tauri/                  # Rust 后端（见 src-tauri/src/AGENTS.md）
 │   ├── src/
 │   │   ├── lib.rs              # 插件注册 + AppDb 注入 + command 注册
@@ -32,31 +34,25 @@ apicat/
 │   │   ├── db/mod.rs           # SQLite pool 初始化，WAL 模式
 │   │   ├── commands/           # Tauri command（见 commands/AGENTS.md）
 │   │   └── http/               # reqwest 客户端封装
-│   ├── migrations/0001_init.sql # 全部建表 SQL（幂等，手动分号分割执行）
+│   ├── migrations/             # 0001_init / 0002_data_dictionary / 0003_field_rules（幂等，手动分号分割执行）
 │   └── capabilities/default.json # IPC 权限声明（必须显式声明每个插件）
 ├── docs/
-│   ├── 1.0.0/                  # 按版本组织：plans/（设计方案）+ fix/（Bug 修复）
-│   │   ├── plans/
-│   │   └── fix/
-│   ├── 1.0.1/
-│   │   ├── plans/
-│   │   └── fix/
-│   ├── 1.0.2/                  # 当前迭代：issue.md 为本地待办清单（不提交）
-│   │   └── issue.md
-│   └── release/                # 发布说明（仅此目录提交到 git，其余 */plans/, */fix/, */issue.md 已 gitignore）
-└── scripts/apicat-test-gen/    # AI 测试用例生成脚本
+│   ├── 1.0.0/ … 1.0.4/         # 按版本组织：plans/（设计方案）+ fix/（Bug 修复）+ issue.md（本地待办）
+│   └── release/                # 发布说明（仅此目录提交到 git，其余 plans/, fix/, issue.md 已 gitignore）
+└── scripts/                    # apicat-test-gen/（AI 测试用例生成）+ repro-draft-pollution.mjs
 ```
 
 ## WHERE TO LOOK
 | 任务 | 位置 |
 |------|------|
 | 添加新 Tauri command | `src-tauri/src/commands/` 新增函数 → `lib.rs` invoke_handler 注册 |
-| 添加新数据库表 | `migrations/0001_init.sql` + `src-tauri/src/types.rs` + `src/types/index.ts` |
+| 添加新数据库表 | 新建 `migrations/000N_*.sql`，**并在 `db/mod.rs` 的 `run_migrations()` 加 `include_str!` + 执行循环**（SQL 是编译期内嵌的，不自动发现）+ `src-tauri/src/types.rs` + `src/types/index.ts` |
 | 添加新前端 store | `src/stores/` 新建文件，参考现有 setup store 风格 |
 | 修改 IPC 权限 | `src-tauri/capabilities/default.json` |
 | 导入/导出逻辑 | `src-tauri/src/commands/io.rs` + `src/components/io/` |
 | 侧边栏树逻辑 | `src/components/layout/Sidebar.vue`（1300+ 行，含拖拽） |
 | 压测功能 | `src-tauri/src/commands/stress.rs` + `src/components/stress/` |
+| 数据字典 / 字段名绑定 | 表 `field_dictionary_rules` / `field_dictionary_overrides` + `src-tauri/src/commands/data_dictionary.rs` + `src/components/io/FieldDictDesc.vue` |
 
 ## KEY PATTERNS
 
@@ -91,6 +87,8 @@ invoke('list_collections', { projectId: 1 })
 
 ## ANTI-PATTERNS (THIS PROJECT)
 - **不要**修改 `migrations/0001_init.sql` 现有表结构（会破坏已有 DB）；新表加在末尾
+- **不要**把 `ALTER TABLE ADD COLUMN` 写进 migration SQL——非幂等，二次启动即失败；用 `PRAGMA table_info` 判列存在再 ALTER（范例见 `db/mod.rs`）
+- **不要**把含复合 `BEGIN/END` 的语句（如 `CREATE TRIGGER`）写进 migration SQL——`split_sql_statements` 会按 `;` 拆坏；以单条 query 在代码里执行
 - **不要**在 capabilities 里省略新插件权限——Tauri 2.x IPC 层静默拒绝，异常会吞掉后续逻辑
 - **不要**在 `allowDrop` 回调参数里解构 `dragNode`——Naive UI NTree `AllowDrop` 类型不含此字段；用 `currentDragNode` ref 替代
 - **不要**在 Sidebar.vue 的 `saveState`/`restoreState` 抛出异常——必须用独立 `try/catch` 包裹，否则阻断 `loadCollections()`
@@ -108,6 +106,6 @@ npm run tauri build  # 生产打包（生成安装包）
 ## NOTES
 - DB 文件路径：平台 AppData 目录 + `com.apicat.app/apicat.db`（macOS: `~/Library/Application Support/com.apicat.app/`）
 - `plugin-store` 用于 Tab 状态持久化（跨会话保留已打开的标签页）
-- 检查更新 endpoint：`github.com/Areogel666/apicat/releases/latest`；当前无 `latest.json` 时正常降级提示"已是最新"
+- 检查更新 endpoint 配在 `src-tauri/tauri.conf.json` 的 `plugins.updater.endpoints`（指向 `releases/latest/download/latest.json`）；无 `latest.json` 时降级提示"已是最新"（`TopBar.vue` 捕获该错误）
 - `fix_migrations.rs` 在根目录是临时脚本，非正式代码
 - 自动清理：启动时 fire-and-forget 删除 30 天前未收藏的测试用例（`lib.rs: cleanup_old_test_cases`）

@@ -1,7 +1,7 @@
 # COMMANDS — Tauri IPC 命令层
 
 ## OVERVIEW
-10 个 `.rs` 文件，每个对应一个业务域。所有函数通过 `lib.rs` 的 `invoke_handler!` 宏注册。
+10 个业务 command 文件 + `mod.rs`，每个文件对应一个业务域。所有函数通过 `lib.rs` 的 `invoke_handler!` 宏注册。
 
 ## 文件清单与职责
 | 文件 | Commands | 说明 |
@@ -12,9 +12,10 @@
 | `send_request.rs` | `send_request`, `list_history` | 发送 HTTP 请求，写历史记录 |
 | `environment.rs` | `list/create/update/delete_environment`, `activate/deactivate_environment`, `list/create/update/delete_env_variable` | 环境变量管理 |
 | `cookie.rs` | `list/create/update/delete_cookie`, `get_cookies_for_domain` | Cookie 管理 |
-| `test_case.rs` | `list/create/update/delete_test_case` | 测试用例 CRUD |
-| `stress.rs` | `start_stress` | 压测（Tauri event 推送进度） |
-| `io.rs` | `export_apicat`, `export_postman`, `import_apicat`, `import_postman`, `import_openapi` | 导入/导出（699 行，最复杂） |
+| `test_case.rs` | `list/create/update/delete_test_case`, `list/add_test_case_history`, `delete_test_cases` | 测试用例 CRUD + 用例历史 |
+| `stress.rs` | `start_stress`, `list_stress_runs`, `delete_stress_run` | 压测（Tauri event 推送进度）+ 历史记录（1.0.4） |
+| `data_dictionary.rs` | `list/create/update/delete_dictionary`, `list/create/update/delete_dictionary_item`, `create_dictionary_with_items`, `replace_dictionary_items`, `list/set/delete_field_rule`, `list/set/delete_field_override`, `copy_dictionary_to_project` | 数据字典 + 「字段名绑定」规则/例外（1.0.4，472 行 17 个 command） |
+| `io.rs` | `export_apicat`, `export_postman`, `import_apicat`, `import_postman`, `import_openapi` | 导入/导出（1096 行，最复杂） |
 | `mod.rs` | — | `pub mod` 声明各子模块 |
 
 ## 关键 Command 说明
@@ -34,6 +35,18 @@ move_request(id, new_collection_id, sort_order)
 - `import_postman`：递归处理 items 树，用 `async-recursion` crate
 - `import_openapi`：解析 YAML/JSON，`serde_yaml` 处理 .yaml 格式
 - 导出文件写入由前端 `tauri-plugin-fs` 完成（后端只返回字符串）
+
+### 字段名绑定：rules vs overrides（1.0.4）
+```rust
+// 项目级规则：一个字段名在一个项目里一对一绑一个字典（DB 层 UNIQUE(project_id, field_name)，
+// set_field_rule 走 ON CONFLICT DO UPDATE 做 upsert）
+set_field_rule(project_id, field_name, dictionary_id: i64)
+
+// 接口级例外：允许某接口对同名字段换绑/解绑；dictionary_id = None 表示解除绑回规则
+set_field_override(project_id, request_id, field_name, dictionary_id: Option<i64>)
+```
+**例外优先于规则**——解析某接口某字段描述时先查 overrides，未命中才回落 rules。
+语义与展示细节见 `CLAUDE.md`「核心语义」。
 
 ### update_*_sort（批量排序）
 ```rust
