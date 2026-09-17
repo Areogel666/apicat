@@ -25,8 +25,11 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 ## 发布流程
 
 - 版本号三处必须同步:package.json / src-tauri/tauri.conf.json / src-tauri/Cargo.toml
-- git tag 格式 `v*.*.*`(如 v1.0.3),触发 `.github/workflows/release.yml` 构建;`releaseDraft: true` → 需手动 Publish
-- **推 tag 不会自动推分支**:`git push origin master v1.0.3` 分开推
+- git tag 格式 `v*.*.*`(如 v1.0.4),触发 `.github/workflows/release.yml` 构建;**推 tag 不会自动推分支**,`git push origin master v1.0.4` 分开推
+- **构建完必须手动 Publish**:`releaseDraft: true` 建的是草稿,而 `/releases/latest` **不返回草稿**。不点 Publish → 客户端更新永久 404,且 `TopBar` 会静默降级,根本没人会发现
+- **发版后务必验证**:浏览器开 `releases/latest/download/latest.json`,出 JSON 才算真的通了
+- **改 runner 标签前先查是否已退役**:`macos-13` 于 2025-12-04 退役,该 job 永远拿不到 runner,排队满 24h 被取消会**连带整个矩阵运行 cancelled**、Release 建不出来(现用 `macos-15-intel`)
+- **macOS 的 `bundles` 必须含 `app`**:更新载荷是 `.app.tar.gz` 而非 dmg,只传 dmg 会让 `latest.json` 缺失 `darwin-*` 条目,Mac 收不到更新
 
 ## 核心语义（1.0.4 起，改动前先读）
 
