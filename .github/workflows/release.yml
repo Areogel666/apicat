@@ -21,9 +21,11 @@ jobs:
             artifact-name: windows-msi
 
           # macOS (Apple Silicon + Intel 通用包)
+          # macOS 更新器用的是 .app.tar.gz（由 app bundle 生成），dmg 只是手动安装包。
+          # 只传 dmg 会导致 latest.json 缺失 darwin-* 条目，Mac 收不到自动更新。
           - platform: macos-latest
             target: aarch64-apple-darwin
-            bundles: dmg
+            bundles: app,dmg
             artifact-name: macos-dmg-arm64
 
           # macos-13 已于 2025-12-04 被 GitHub 退役：job 永远拿不到 runner，
@@ -32,7 +34,7 @@ jobs:
           # GitHub 计划 2027 秋停用，届时应评估砍掉此目标）。
           - platform: macos-15-intel    # Intel runner
             target: x86_64-apple-darwin
-            bundles: dmg
+            bundles: app,dmg
             artifact-name: macos-dmg-x64
 
           # Linux — 构建 AppImage（免安装，兼容性最好）和 deb
