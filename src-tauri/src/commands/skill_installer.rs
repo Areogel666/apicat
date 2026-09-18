@@ -102,14 +102,18 @@ fn create_link(src: &Path, dest: &Path) -> Result<String, crate::error::AppError
         remove_link(dest)?;
     }
 
-    // Windows: 目录符号链接（需要开发者模式或管理员权限，无权限时回退复制）
+    // Windows: junction（mklink /J，无需管理员权限）
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::fs::symlink_dir;
-        if symlink_dir(src, dest).is_ok() {
-            return Ok("symlink".to_string());
+        let src_str = src.to_string_lossy();
+        let dest_str = dest.to_string_lossy();
+        let output = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J", &dest_str, &src_str])
+            .output();
+        match output {
+            Ok(o) if o.status.success() => return Ok("junction".to_string()),
+            _ => {} // 静默回退复制
         }
-        // 静默回退复制（os error 1314 = 无符号链接权限，属预期）
     }
 
     // macOS/Linux: symlink
@@ -148,28 +152,36 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<(), crate::error::AppEr
 
 /// 删除链接（junction / symlink / 目录）
 fn remove_link(dest: &Path) -> Result<(), crate::error::AppError> {
-    let meta = dest.symlink_metadata();
-    match meta {
-        Ok(m) => {
-            if m.file_type().is_symlink() {
-                // symlink / junction
-                #[cfg(target_os = "windows")]
-                std::fs::remove_dir(dest)
-                    .map_err(|e| crate::error::AppError::Custom(format!("删除链接失败: {e}")))?;
-                #[cfg(not(target_os = "windows"))]
-                std::fs::remove_file(dest)
-                    .map_err(|e| crate::error::AppError::Custom(format!("删除链接失败: {e}")))?;
-            } else if m.is_dir() {
-                // 回退复制产生的真实目录
-                std::fs::remove_dir_all(dest)
-                    .map_err(|e| crate::error::AppError::Custom(format!("删除目录失败: {e}")))?;
-            } else {
-                std::fs::remove_file(dest)
-                    .map_err(|e| crate::error::AppError::Custom(format!("删除文件失败: {e}")))?;
+    let Ok(meta) = dest.symlink_metadata() else { return Ok(()) };
+    // junction 在 Rust 里 is_symlink() 返回 false（它是 reparse point 但不是 symlink），
+    // 但 is_dir() 返回 true。需要先尝试 remove_dir（对 junction 是「删链接」而非「删内容」），
+    // 失败再用 remove_dir_all（真实目录）。
+    #[cfg(target_os = "windows")]
+    {
+        if meta.is_dir() {
+            // 先试 remove_dir：junction 和空目录都能删；非空真实目录会失败
+            if std::fs::remove_dir(dest).is_ok() {
+                return Ok(());
             }
-            Ok(())
+            // 真实非空目录
+            std::fs::remove_dir_all(dest)
+                .map_err(|e| crate::error::AppError::Custom(format!("删除目录失败: {e}")))?;
+        } else {
+            std::fs::remove_file(dest)
+                .map_err(|e| crate::error::AppError::Custom(format!("删除文件失败: {e}")))?;
         }
-        Err(_) => Ok(()), // 不存在，无需删除
+        Ok(())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if meta.file_type().is_symlink() || meta.is_file() {
+            std::fs::remove_file(dest)
+                .map_err(|e| crate::error::AppError::Custom(format!("删除链接失败: {e}")))?;
+        } else {
+            std::fs::remove_dir_all(dest)
+                .map_err(|e| crate::error::AppError::Custom(format!("删除目录失败: {e}")))?;
+        }
+        Ok(())
     }
 }
 
