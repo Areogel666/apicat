@@ -76,6 +76,22 @@ fn broadcast(state: &BState, kind: &str) {
     let _ = state.app.emit("bridge-data-changed", json!({ "kind": kind }));
 }
 
+// ── JSON body 双键取值 ──────────────────────────────────────
+//
+// Bridge 调用方混用 camelCase（前端/文档示例）与 snake_case（Rust/脚本），
+// 每个字段都要先试 camel 再试 snake。此前 40+ 处手写 .or(body["..."])，
+// 漏写 snake 兜底会让该命名风格的参数被静默忽略。
+
+/// 取字符串字段：camelCase 优先，回退 snake_case
+fn get_str<'a>(body: &'a Value, camel: &str, snake: &str) -> Option<&'a str> {
+    body[camel].as_str().or(body[snake].as_str())
+}
+
+/// 取整数字段：camelCase 优先，回退 snake_case
+fn get_i64(body: &Value, camel: &str, snake: &str) -> Option<i64> {
+    body[camel].as_i64().or(body[snake].as_i64())
+}
+
 // ── Query 参数 ──────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -231,7 +247,7 @@ async fn update_project(State(s): State<BState>, Json(body): Json<Value>) -> axu
     )
     .bind(body["name"].as_str())
     .bind(body["description"].as_str())
-    .bind(body["docsOutputDir"].as_str().or(body["docs_output_dir"].as_str()))
+    .bind(get_str(&body, "docsOutputDir", "docs_output_dir"))
     .bind(id)
     .fetch_one(&s.pool)
     .await
@@ -268,7 +284,7 @@ async fn list_collections(State(s): State<BState>, Query(q): Query<ProjectQuery>
 }
 
 async fn create_collection(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
-    let Some(pid) = body["projectId"].as_i64().or(body["project_id"].as_i64()) else {
+    let Some(pid) = get_i64(&body, "projectId", "project_id") else {
         return err(StatusCode::BAD_REQUEST, "projectId required");
     };
     match sqlx::query_as::<_, Collection>(
@@ -276,7 +292,7 @@ async fn create_collection(State(s): State<BState>, Json(body): Json<Value>) -> 
          RETURNING id, project_id, parent_id, name, sort_order, created_at",
     )
     .bind(pid)
-    .bind(body["parentId"].as_i64().or(body["parent_id"].as_i64()))
+    .bind(get_i64(&body, "parentId", "parent_id"))
     .bind(body["name"].as_str().unwrap_or("未命名目录"))
     .fetch_one(&s.pool)
     .await
@@ -334,7 +350,7 @@ async fn get_request(State(s): State<BState>, Query(q): Query<IdQuery>) -> axum:
 }
 
 async fn create_request(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
-    let Some(cid) = body["collectionId"].as_i64().or(body["collection_id"].as_i64()) else {
+    let Some(cid) = get_i64(&body, "collectionId", "collection_id") else {
         return err(StatusCode::BAD_REQUEST, "collectionId required");
     };
     let sql = format!(
@@ -371,10 +387,10 @@ async fn update_request(State(s): State<BState>, Json(body): Json<Value>) -> axu
         .bind(body["url"].as_str())
         .bind(body["params"].as_str())
         .bind(body["headers"].as_str())
-        .bind(body["bodyType"].as_str().or(body["body_type"].as_str()))
+        .bind(get_str(&body, "bodyType", "body_type"))
         .bind(body["body"].as_str())
-        .bind(body["authType"].as_str().or(body["auth_type"].as_str()))
-        .bind(body["authConfig"].as_str().or(body["auth_config"].as_str()))
+        .bind(get_str(&body, "authType", "auth_type"))
+        .bind(get_str(&body, "authConfig", "auth_config"))
         .bind(body["description"].as_str())
         .bind(id)
         .fetch_one(&s.pool)
@@ -430,10 +446,10 @@ async fn list_test_cases(State(s): State<BState>, Query(q): Query<RequestQuery>)
 }
 
 async fn create_test_case(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
-    let Some(rid) = body["requestId"].as_i64().or(body["request_id"].as_i64()) else {
+    let Some(rid) = get_i64(&body, "requestId", "request_id") else {
         return err(StatusCode::BAD_REQUEST, "requestId required");
     };
-    let Some(cid) = body["collectionId"].as_i64().or(body["collection_id"].as_i64()) else {
+    let Some(cid) = get_i64(&body, "collectionId", "collection_id") else {
         return err(StatusCode::BAD_REQUEST, "collectionId required");
     };
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM test_cases WHERE request_id=?")
@@ -455,9 +471,9 @@ async fn create_test_case(State(s): State<BState>, Json(body): Json<Value>) -> a
         .bind(body["url"].as_str())
         .bind(body["headers"].as_str().unwrap_or("[]"))
         .bind(body["params"].as_str().unwrap_or("[]"))
-        .bind(body["bodyType"].as_str().or(body["body_type"].as_str()))
+        .bind(get_str(&body, "bodyType", "body_type"))
         .bind(body["body"].as_str())
-        .bind(body["caseType"].as_str().or(body["case_type"].as_str()).unwrap_or("happy_path"))
+        .bind(get_str(&body, "caseType", "case_type").unwrap_or("happy_path"))
         .bind(body["assertions"].as_str().unwrap_or("[]"))
         .bind(starred)
         .bind(count)
@@ -486,9 +502,9 @@ async fn update_test_case(State(s): State<BState>, Json(body): Json<Value>) -> a
         .bind(body["url"].as_str())
         .bind(body["headers"].as_str())
         .bind(body["params"].as_str())
-        .bind(body["bodyType"].as_str().or(body["body_type"].as_str()))
+        .bind(get_str(&body, "bodyType", "body_type"))
         .bind(body["body"].as_str())
-        .bind(body["caseType"].as_str().or(body["case_type"].as_str()))
+        .bind(get_str(&body, "caseType", "case_type"))
         .bind(body["assertions"].as_str())
         .bind(id)
         .fetch_one(&s.pool)
@@ -522,10 +538,10 @@ async fn list_test_case_history(State(s): State<BState>, Query(q): Query<IdQuery
 }
 
 async fn run_test_case(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
-    let Some(tc_id) = body["testCaseId"].as_i64().or(body["test_case_id"].as_i64()) else {
+    let Some(tc_id) = get_i64(&body, "testCaseId", "test_case_id") else {
         return err(StatusCode::BAD_REQUEST, "testCaseId required");
     };
-    let env_id = body["envId"].as_i64().or(body["env_id"].as_i64());
+    let env_id = get_i64(&body, "envId", "env_id");
     // 复用 Tauri command 的逻辑：直接调用 crate::commands::test_case_run
     // 但它是 #[tauri::command]，参数是 State —— 这里内联同样逻辑
     match crate::commands::test_case_run::run_test_case_impl(&s.pool, &s.http, tc_id, env_id).await {
@@ -573,7 +589,7 @@ async fn create_dictionary(State(s): State<BState>, Json(body): Json<Value>) -> 
         .bind(body["code"].as_str().unwrap_or(""))
         .bind(body["name"].as_str().unwrap_or(""))
         .bind(body["description"].as_str().unwrap_or(""))
-        .bind(body["projectId"].as_i64().or(body["project_id"].as_i64()))
+        .bind(get_i64(&body, "projectId", "project_id"))
         .fetch_one(&s.pool)
         .await
     {
@@ -594,7 +610,7 @@ async fn create_dictionary_with_items(State(s): State<BState>, Json(body): Json<
     .bind(body["code"].as_str().unwrap_or(""))
     .bind(body["name"].as_str().unwrap_or(""))
     .bind(body["description"].as_str().unwrap_or(""))
-    .bind(body["projectId"].as_i64().or(body["project_id"].as_i64()))
+    .bind(get_i64(&body, "projectId", "project_id"))
     .fetch_one(&mut *tx)
     .await;
 
@@ -653,7 +669,7 @@ async fn delete_dictionary(State(s): State<BState>, Json(body): Json<Value>) -> 
 }
 
 async fn replace_dictionary_items(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
-    let Some(dict_id) = body["dictionaryId"].as_i64().or(body["dictionary_id"].as_i64()) else {
+    let Some(dict_id) = get_i64(&body, "dictionaryId", "dictionary_id") else {
         return err(StatusCode::BAD_REQUEST, "dictionaryId required");
     };
     let mut tx = match s.pool.begin().await {
@@ -714,10 +730,10 @@ async fn list_field_rules(State(s): State<BState>, Query(q): Query<ProjectQuery>
 }
 
 async fn set_field_rule(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
-    let Some(pid) = body["projectId"].as_i64().or(body["project_id"].as_i64()) else {
+    let Some(pid) = get_i64(&body, "projectId", "project_id") else {
         return err(StatusCode::BAD_REQUEST, "projectId required");
     };
-    let Some(did) = body["dictionaryId"].as_i64().or(body["dictionary_id"].as_i64()) else {
+    let Some(did) = get_i64(&body, "dictionaryId", "dictionary_id") else {
         return err(StatusCode::BAD_REQUEST, "dictionaryId required");
     };
     match sqlx::query(
@@ -725,7 +741,7 @@ async fn set_field_rule(State(s): State<BState>, Json(body): Json<Value>) -> axu
          ON CONFLICT(project_id, field_name) DO UPDATE SET dictionary_id=excluded.dictionary_id",
     )
     .bind(pid)
-    .bind(body["fieldName"].as_str().or(body["field_name"].as_str()).unwrap_or(""))
+    .bind(get_str(&body, "fieldName", "field_name").unwrap_or(""))
     .bind(did)
     .execute(&s.pool)
     .await
@@ -736,12 +752,12 @@ async fn set_field_rule(State(s): State<BState>, Json(body): Json<Value>) -> axu
 }
 
 async fn delete_field_rule(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
-    let Some(pid) = body["projectId"].as_i64().or(body["project_id"].as_i64()) else {
+    let Some(pid) = get_i64(&body, "projectId", "project_id") else {
         return err(StatusCode::BAD_REQUEST, "projectId required");
     };
     match sqlx::query("DELETE FROM field_dictionary_rules WHERE project_id=? AND field_name=?")
         .bind(pid)
-        .bind(body["fieldName"].as_str().or(body["field_name"].as_str()).unwrap_or(""))
+        .bind(get_str(&body, "fieldName", "field_name").unwrap_or(""))
         .execute(&s.pool)
         .await
     {
@@ -776,14 +792,14 @@ async fn list_field_overrides(State(s): State<BState>, Query(q): Query<FieldOver
 }
 
 async fn set_field_override(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
-    let Some(pid) = body["projectId"].as_i64().or(body["project_id"].as_i64()) else {
+    let Some(pid) = get_i64(&body, "projectId", "project_id") else {
         return err(StatusCode::BAD_REQUEST, "projectId required");
     };
-    let Some(rid) = body["requestId"].as_i64().or(body["request_id"].as_i64()) else {
+    let Some(rid) = get_i64(&body, "requestId", "request_id") else {
         return err(StatusCode::BAD_REQUEST, "requestId required");
     };
     // dictionaryId 可为 null（解绑）
-    let did = body["dictionaryId"].as_i64().or(body["dictionary_id"].as_i64());
+    let did = get_i64(&body, "dictionaryId", "dictionary_id");
     match sqlx::query(
         "INSERT INTO field_dictionary_overrides (project_id, request_id, field_name, dictionary_id) \
          VALUES (?, ?, ?, ?) \
@@ -791,7 +807,7 @@ async fn set_field_override(State(s): State<BState>, Json(body): Json<Value>) ->
     )
     .bind(pid)
     .bind(rid)
-    .bind(body["fieldName"].as_str().or(body["field_name"].as_str()).unwrap_or(""))
+    .bind(get_str(&body, "fieldName", "field_name").unwrap_or(""))
     .bind(did)
     .execute(&s.pool)
     .await
@@ -802,10 +818,10 @@ async fn set_field_override(State(s): State<BState>, Json(body): Json<Value>) ->
 }
 
 async fn delete_field_override(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
-    let Some(pid) = body["projectId"].as_i64().or(body["project_id"].as_i64()) else {
+    let Some(pid) = get_i64(&body, "projectId", "project_id") else {
         return err(StatusCode::BAD_REQUEST, "projectId required");
     };
-    let Some(rid) = body["requestId"].as_i64().or(body["request_id"].as_i64()) else {
+    let Some(rid) = get_i64(&body, "requestId", "request_id") else {
         return err(StatusCode::BAD_REQUEST, "requestId required");
     };
     match sqlx::query(
@@ -813,7 +829,7 @@ async fn delete_field_override(State(s): State<BState>, Json(body): Json<Value>)
     )
     .bind(pid)
     .bind(rid)
-    .bind(body["fieldName"].as_str().or(body["field_name"].as_str()).unwrap_or(""))
+    .bind(get_str(&body, "fieldName", "field_name").unwrap_or(""))
     .execute(&s.pool)
     .await
     {
@@ -832,10 +848,10 @@ async fn send_request(State(s): State<BState>, Json(body): Json<Value>) -> axum:
         Ok(p) => p,
         Err(e) => return err(StatusCode::BAD_REQUEST, &format!("invalid params: {e}")),
     };
-    let request_id = body["requestId"].as_i64().or(body["request_id"].as_i64());
-    let test_case_id = body["testCaseId"].as_i64().or(body["test_case_id"].as_i64());
-    let env_id = body["envId"].as_i64().or(body["env_id"].as_i64());
-    let project_id = body["projectId"].as_i64().or(body["project_id"].as_i64());
+    let request_id = get_i64(&body, "requestId", "request_id");
+    let test_case_id = get_i64(&body, "testCaseId", "test_case_id");
+    let env_id = get_i64(&body, "envId", "env_id");
+    let project_id = get_i64(&body, "projectId", "project_id");
 
     match crate::commands::send_request::send_request_impl(
         &s.pool, &s.http, request_id, test_case_id, params, env_id, project_id,
@@ -867,7 +883,7 @@ async fn list_history(State(s): State<BState>, Query(q): Query<RequestQuery>) ->
 // ════════════════════════════════════════════════════════════
 
 async fn start_stress(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
-    let Some(request_id) = body["requestId"].as_i64().or(body["request_id"].as_i64()) else {
+    let Some(request_id) = get_i64(&body, "requestId", "request_id") else {
         return err(StatusCode::BAD_REQUEST, "requestId required");
     };
     let params: crate::http::client::SendRequestParams = match serde_json::from_value(body["params"].clone()) {
@@ -949,14 +965,14 @@ async fn list_env_variables(State(s): State<BState>, Query(q): Query<IdQuery>) -
 // ── 环境写操作 ──────────────────────────────────────────────
 
 async fn create_environment(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
-    let Some(pid) = body["projectId"].as_i64().or(body["project_id"].as_i64()) else {
+    let Some(pid) = get_i64(&body, "projectId", "project_id") else {
         return err(StatusCode::BAD_REQUEST, "projectId required");
     };
     let sql = format!("INSERT INTO environments (project_id, name, base_url) VALUES (?, ?, ?) RETURNING {ENV_COLS}");
     match sqlx::query_as::<_, Environment>(&sql)
         .bind(pid)
         .bind(body["name"].as_str().unwrap_or("未命名环境"))
-        .bind(body["baseUrl"].as_str().or(body["base_url"].as_str()))
+        .bind(get_str(&body, "baseUrl", "base_url"))
         .fetch_one(&s.pool)
         .await
     {
@@ -973,7 +989,7 @@ async fn update_environment(State(s): State<BState>, Json(body): Json<Value>) ->
     );
     match sqlx::query_as::<_, Environment>(&sql)
         .bind(body["name"].as_str())
-        .bind(body["baseUrl"].as_str().or(body["base_url"].as_str()))
+        .bind(get_str(&body, "baseUrl", "base_url"))
         .bind(id)
         .fetch_one(&s.pool)
         .await
@@ -992,10 +1008,10 @@ async fn delete_environment(State(s): State<BState>, Json(body): Json<Value>) ->
 }
 
 async fn activate_environment(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
-    let Some(pid) = body["projectId"].as_i64().or(body["project_id"].as_i64()) else {
+    let Some(pid) = get_i64(&body, "projectId", "project_id") else {
         return err(StatusCode::BAD_REQUEST, "projectId required");
     };
-    let Some(eid) = body["envId"].as_i64().or(body["env_id"].as_i64()) else {
+    let Some(eid) = get_i64(&body, "envId", "env_id") else {
         return err(StatusCode::BAD_REQUEST, "envId required");
     };
     let mut tx = match s.pool.begin().await { Ok(t) => t, Err(e) => return server_err(e) };
@@ -1012,7 +1028,7 @@ async fn activate_environment(State(s): State<BState>, Json(body): Json<Value>) 
 }
 
 async fn deactivate_environment(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
-    let Some(pid) = body["projectId"].as_i64().or(body["project_id"].as_i64()) else {
+    let Some(pid) = get_i64(&body, "projectId", "project_id") else {
         return err(StatusCode::BAD_REQUEST, "projectId required");
     };
     match sqlx::query("UPDATE environments SET is_active=0 WHERE project_id=?").bind(pid).execute(&s.pool).await {
@@ -1024,7 +1040,7 @@ async fn deactivate_environment(State(s): State<BState>, Json(body): Json<Value>
 // ── 环境变量写操作 ──────────────────────────────────────────
 
 async fn create_env_variable(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
-    let Some(eid) = body["envId"].as_i64().or(body["env_id"].as_i64()) else {
+    let Some(eid) = get_i64(&body, "envId", "env_id") else {
         return err(StatusCode::BAD_REQUEST, "envId required");
     };
     let sql = format!("INSERT INTO env_variables (env_id, key, value, description) VALUES (?, ?, ?, ?) RETURNING {ENV_VAR_COLS}");
@@ -1096,8 +1112,8 @@ async fn create_cookie(State(s): State<BState>, Json(body): Json<Value>) -> axum
          VALUES (?, ?, ?, ?, ?, ?) RETURNING {COOKIE_COLS}"
     );
     match sqlx::query_as::<_, Cookie>(&sql)
-        .bind(body["scopeType"].as_str().or(body["scope_type"].as_str()).unwrap_or("global"))
-        .bind(body["projectId"].as_i64().or(body["project_id"].as_i64()))
+        .bind(get_str(&body, "scopeType", "scope_type").unwrap_or("global"))
+        .bind(get_i64(&body, "projectId", "project_id"))
         .bind(body["domain"].as_str().unwrap_or(""))
         .bind(body["name"].as_str().unwrap_or(""))
         .bind(body["value"].as_str().unwrap_or(""))
