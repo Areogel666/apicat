@@ -1,7 +1,15 @@
 # ApiCat Bridge API 端点速查
 
-前缀：`http://127.0.0.1:{port}/api/v1/`
+**完整 URL 格式**：`http://127.0.0.1:{port}/api/v1/{端点名}`
+**所有端点都必须带 `/api/v1/` 前缀，不带会 404。**
+
 鉴权：所有端点需 `Authorization: Bearer {token}` 头（`/api/v1/health` 免鉴权，供探活）。
+
+示例（port=17320, token 从 bridge.json 读）：
+```bash
+curl -s http://127.0.0.1:17320/api/v1/health
+curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17320/api/v1/list_projects
+```
 
 ## 定位
 

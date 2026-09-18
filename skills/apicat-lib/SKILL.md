@@ -9,20 +9,30 @@ allowed-tools: Bash, Read, Glob
 ApiCat 是桌面 API 调试工具（Tauri 2 + SQLite）。1.0.5 起内置 localhost HTTP Bridge，外部技能通过 HTTP 调用全部 IPC 能力。
 
 **⚠️ 铁律：只走 HTTP Bridge，禁止直连 SQLite。**
-- 不要用 `sqlite3`、`python sqlite3`、或任何方式直接读写 `apicat.db`
+- ❌ 不要用 `sqlite3`、`python -c "import sqlite3"`、或任何方式直接读写 `apicat.db`
+- ❌ 不要去读 `migrations/*.sql` 来查表结构——用 `GET /api/v1/list_projects` 等 API
+- ❌ 不要先搜磁盘找数据库文件——先读 `bridge.json`
 - 直写 DB 会绕过 UI 刷新、业务校验、断言引擎
 - 如果 bridge.json 不存在 → 报错让用户启动 ApiCat，**不要回退到 SQLite**
 
 ## 最短路径（30 秒查项目）
 
 ```bash
-# 1. 读 bridge.json
+# 1. 读 bridge.json（Windows）
 cat "$APPDATA/com.apicat.app/bridge.json"
 # → {"port": 17320, "token": "xxx", "enabled": true}
 
-# 2. 用 token 调 API
-curl -s -H "Authorization: Bearer <token>" http://127.0.0.1:<port>/api/v1/list_projects
+# 2. 探活（注意：必须带 /api/v1/ 前缀）
+curl -s http://127.0.0.1:17320/api/v1/health
+# → {"ok":true,"data":{"status":"up"}}
+
+# 3. 查项目（token 从 bridge.json 里读）
+curl -s -H "Authorization: Bearer <token>" http://127.0.0.1:17320/api/v1/list_projects
+# → {"ok":true,"data":[{"id":2,"name":"global.market.xiaomi.com",...}]}
 ```
+
+**⚠️ 所有端点都必须带 `/api/v1/` 前缀**，不带会 404。
+完整 URL 格式：`http://127.0.0.1:{port}/api/v1/{端点名}`
 
 ## Step 1：定位 Bridge
 
