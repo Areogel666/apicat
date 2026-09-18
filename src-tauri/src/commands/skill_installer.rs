@@ -102,27 +102,22 @@ fn create_link(src: &Path, dest: &Path) -> Result<String, crate::error::AppError
         remove_link(dest)?;
     }
 
-    // Windows: junction（无需管理员权限）
+    // Windows: 目录符号链接（需要开发者模式或管理员权限，无权限时回退复制）
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::fs::symlink_dir;
-        match symlink_dir(src, dest) {
-            Ok(_) => return Ok("junction".to_string()),
-            Err(e) => {
-                eprintln!("[skill_installer] junction 失败，回退复制: {e}");
-            }
+        if symlink_dir(src, dest).is_ok() {
+            return Ok("symlink".to_string());
         }
+        // 静默回退复制（os error 1314 = 无符号链接权限，属预期）
     }
 
     // macOS/Linux: symlink
     #[cfg(not(target_os = "windows"))]
     {
         use std::os::unix::fs::symlink;
-        match symlink(src, dest) {
-            Ok(_) => return Ok("symlink".to_string()),
-            Err(e) => {
-                eprintln!("[skill_installer] symlink 失败，回退复制: {e}");
-            }
+        if symlink(src, dest).is_ok() {
+            return Ok("symlink".to_string());
         }
     }
 

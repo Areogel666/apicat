@@ -12,7 +12,7 @@
     </div>
 
     <div v-if="loading" class="empty">扫描中...</div>
-    <div v-else-if="!docsRoot" class="empty">
+    <div v-else-if="!resolvedDir" class="empty">
       未配置文档目录。<br>
       <span class="hint">在「项目设置」里配置文档输出目录，或用 apicat-doc-gen 技能生成文档。</span>
     </div>
@@ -62,14 +62,8 @@ const selectedKey = ref<string | null>(null)
 const selectedFile = ref<DocFile | null>(null)
 
 /** 文档根目录：优先 docs_output_dir，空则回落默认路径 */
-const docsRoot = computed(() => {
-  const pid = projectStore.currentProjectId
-  if (pid == null) return null
-  const proj = projectStore.projects.find(p => p.id === pid)
-  return proj?.docs_output_dir || null
-})
+const resolvedDir = ref<string | null>(null)
 
-/** 默认回落目录（由后端解析 ~，前端只传 null 让后端处理） */
 async function resolveDefaultDir(): Promise<string | null> {
   const pid = projectStore.currentProjectId
   if (pid == null) return null
@@ -174,6 +168,7 @@ function renderLabel({ option }: { option: { key?: unknown; label?: unknown; isL
 
 async function refresh() {
   const dir = await resolveDefaultDir()
+  resolvedDir.value = dir
   if (!dir) {
     files.value = []
     return

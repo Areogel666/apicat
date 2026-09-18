@@ -52,31 +52,32 @@ export const useDictionaryStore = defineStore('dictionary', () => {
     itemsMap.value = items
   }
 
-  /** 新建数据字典（全局共享，project 维度留待后续） */
-  async function createDictionary(code: string, name: string, description = '') {
+  /** 新建数据字典（projectId 传 null 为全局共享，传具体 id 为项目私有） */
+  async function createDictionary(code: string, name: string, description = '', projectId: number | null = null) {
     const d = await invoke<DataDictionary>('create_dictionary', {
       code,
       name,
       description,
-      projectId: null,
+      projectId,
     })
     dictionaries.value.push(d)
     itemsMap.value[d.id] = []
     return d
   }
 
-  /** 1.0.4 fix：一键新建字典 + 初始字典项（同事务） */
+  /** 一键新建字典 + 初始字典项（同事务） */
   async function createDictionaryWithItems(
     code: string,
     name: string,
     description: string,
     items: Array<{ label: string; value: string; description?: string }>,
+    projectId: number | null = null,
   ) {
     const d = await invoke<DataDictionary>('create_dictionary_with_items', {
       code,
       name,
       description,
-      projectId: null,
+      projectId,
       items,
     })
     dictionaries.value.push(d)

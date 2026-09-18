@@ -257,6 +257,7 @@ async function saveDict() {
         dictName.value.trim(),
         '',
         items,
+        projectStore.currentProjectId,
       )
       message.success(items.length ? `字典创建成功（${items.length} 项）` : '字典创建成功')
     }

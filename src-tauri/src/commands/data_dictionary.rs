@@ -355,17 +355,16 @@ pub async fn copy_dictionary_to_project(
     .await
     .map_err(|_| crate::error::AppError::Custom("源字典不存在".to_string()))?;
 
-    // 目标项目是否已有同 code
+    // code 列有全局 UNIQUE 约束，检查范围必须是全局而非仅目标项目
     let exists: Option<(i64,)> = sqlx::query_as(
-        "SELECT id FROM data_dictionaries WHERE project_id = ?1 AND code = ?2",
+        "SELECT id FROM data_dictionaries WHERE code = ?1",
     )
-    .bind(target_project_id)
     .bind(&src.code)
     .fetch_optional(&db.0)
     .await?;
     if exists.is_some() {
         return Err(crate::error::AppError::Custom(
-            format!("目标项目已存在字典「{}」，无需重复复制", src.code),
+            format!("字典 code「{}」已被占用（全局唯一），无法复制。请先重命名源字典或目标字典。", src.code),
         ));
     }
 
