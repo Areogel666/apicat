@@ -1,6 +1,6 @@
 ---
 name: apicat-lib
-description: ApiCat 本地库访问底座。定位 HTTP Bridge、鉴权、curl 约定。被 apicat-edit / apicat-test-gen / apicat-doc-gen 引用。触发词：apicat bridge、apicat 库、apicat 连接
+description: ApiCat 本地库访问底座。定位 HTTP Bridge、鉴权、curl 约定。被 apicat-edit / apicat-test-gen / apicat-doc-gen 引用。触发词：apicat、apicat 项目、apicat 库、apicat 接口、apicat 数据、apicat bridge、查看 apicat、看看 apicat、apicat 里有什么
 allowed-tools: Bash, Read, Glob
 ---
 

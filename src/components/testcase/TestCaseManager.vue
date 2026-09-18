@@ -261,6 +261,14 @@ function rowProps(row: TestCase) {
   }
 }
 
+/** 解析用例的断言数量（0 = 未配置） */
+function assertionCount(row: TestCase): number {
+  try {
+    const arr = JSON.parse(row.assertions || '[]')
+    return Array.isArray(arr) ? arr.length : 0
+  } catch { return 0 }
+}
+
 const columns: DataTableColumns<TestCase> = [
   { type: 'selection', width: 36 },
   {
@@ -271,6 +279,16 @@ const columns: DataTableColumns<TestCase> = [
       row.starred === 1 ? h('span', { class: 'star' }, '⭐ ') : null,
       h('span', { class: `type-badge type-${row.case_type}` }, CASE_TYPE_LABELS[row.case_type] ?? row.case_type),
       row.name,
+      (() => {
+        const n = assertionCount(row)
+        return n > 0
+          ? h('span', {
+              class: 'assert-count',
+              title: `${n} 条断言（点击编辑）`,
+              onClick: (e: MouseEvent) => { e.stopPropagation(); openAssertionEditor(row) },
+            }, ` [${n}]`)
+          : null
+      })(),
     ]),
     sorter: (a, b) => a.name.localeCompare(b.name),
   },
@@ -292,17 +310,20 @@ const columns: DataTableColumns<TestCase> = [
   {
     title: '',
     key: 'actions',
-    width: 40,
-    render: (row) => h(
-      'button',
-      {
+    width: 64,
+    render: (row) => h('span', { class: 'action-btns' }, [
+      h('button', {
         class: 'run-btn',
         title: '运行用例（含断言）',
         disabled: runningCaseId.value != null,
         onClick: (e: MouseEvent) => { e.stopPropagation(); runCase(row) },
-      },
-      runningCaseId.value === row.id ? '…' : '▶',
-    ),
+      }, runningCaseId.value === row.id ? '…' : '▶'),
+      h('button', {
+        class: 'run-btn',
+        title: '编辑断言',
+        onClick: (e: MouseEvent) => { e.stopPropagation(); openAssertionEditor(row) },
+      }, '⚖'),
+    ]),
   },
   {
     title: '更新时间',
@@ -699,5 +720,18 @@ watch(typeFilter, () => {
 .testcase-manager .case-list .run-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* 断言数量标记 */
+.testcase-manager .case-list .assert-count {
+  font-size: 10px;
+  color: var(--color-info, #2080f0);
+  font-weight: 600;
+}
+
+/* 操作按钮组 */
+.testcase-manager .case-list .action-btns {
+  display: inline-flex;
+  gap: 2px;
 }
 </style>

@@ -52,6 +52,9 @@
         <span class="preset-label">快捷模板：</span>
         <n-button size="tiny" quaternary @click="applyPreset('happy')">Happy Path</n-button>
         <n-button size="tiny" quaternary @click="applyPreset('client_error')">4xx 错误</n-button>
+        <n-button size="tiny" quaternary @click="applyPreset('unauthorized')">401 未授权</n-button>
+        <n-button size="tiny" quaternary @click="applyPreset('empty_list')">空列表</n-button>
+        <n-button size="tiny" quaternary @click="applyPreset('has_data')">有数据</n-button>
         <n-button size="tiny" quaternary @click="applyPreset('clear')">清空</n-button>
       </div>
     </div>
@@ -139,7 +142,7 @@ function onTypeChange(row: Row) {
   }
 }
 
-function applyPreset(kind: 'happy' | 'client_error' | 'clear') {
+function applyPreset(kind: 'happy' | 'client_error' | 'unauthorized' | 'empty_list' | 'has_data' | 'clear') {
   if (kind === 'clear') {
     rows.value = []
   } else if (kind === 'happy') {
@@ -147,9 +150,26 @@ function applyPreset(kind: 'happy' | 'client_error' | 'clear') {
       { type: 'status_code', path: '', operator: 'eq', expected: '200' },
       { type: 'json_path', path: '$.code', operator: 'eq', expected: '0' },
     ]
-  } else {
+  } else if (kind === 'client_error') {
     rows.value = [
       { type: 'status_code', path: '', operator: 'eq', expected: '400' },
+    ]
+  } else if (kind === 'unauthorized') {
+    rows.value = [
+      { type: 'status_code', path: '', operator: 'eq', expected: '401' },
+    ]
+  } else if (kind === 'empty_list') {
+    rows.value = [
+      { type: 'status_code', path: '', operator: 'eq', expected: '200' },
+      { type: 'json_path', path: '$.code', operator: 'eq', expected: '0' },
+      { type: 'json_path', path: '$.data', operator: 'not_null', expected: '' },
+    ]
+  } else if (kind === 'has_data') {
+    rows.value = [
+      { type: 'status_code', path: '', operator: 'eq', expected: '200' },
+      { type: 'json_path', path: '$.code', operator: 'eq', expected: '0' },
+      { type: 'json_path', path: '$.data', operator: 'not_null', expected: '' },
+      { type: 'json_path', path: '$.data.list', operator: 'not_null', expected: '' },
     ]
   }
 }

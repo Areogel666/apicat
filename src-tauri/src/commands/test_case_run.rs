@@ -105,7 +105,6 @@ pub async fn run_test_case_impl(
     let effective_env_id = match env_id {
         Some(eid) => Some(eid),
         None => {
-            // 通过 collection → project 找激活环境
             let pid: Option<i64> = sqlx::query_scalar(
                 "SELECT c.project_id FROM test_cases tc \
                  JOIN collections c ON tc.collection_id = c.id WHERE tc.id = ?",
@@ -151,6 +150,19 @@ pub async fn run_test_case_impl(
         send_params.body = replace_variables(&send_params.body, &variables, is_json);
         for h in send_params.headers.iter_mut().filter(|h| h.enabled) {
             h.value = replace_variables(&h.value, &variables, false);
+        }
+
+        // 相对 URL（如 /api/test）自动拼 base_url，避免 reqwest 解析失败
+        if !send_params.url.starts_with("http://") && !send_params.url.starts_with("https://") {
+            if let Some(base) = variables.get("base_url") {
+                let base = base.trim_end_matches('/');
+                let path = if send_params.url.starts_with('/') {
+                    send_params.url.clone()
+                } else {
+                    format!("/{}", send_params.url)
+                };
+                send_params.url = format!("{base}{path}");
+            }
         }
     }
 

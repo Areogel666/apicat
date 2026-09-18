@@ -33,12 +33,19 @@ pub struct AssertionResult {
     pub message: String,
 }
 
-/// 解析断言 JSON 数组；空串 / 非法 JSON → 空 Vec
+/// 解析断言 JSON 数组；空串 / 非法 JSON → 空 Vec（非法时打日志便于排查）
 pub fn parse_assertions(raw: &str) -> Vec<Assertion> {
-    if raw.trim().is_empty() {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed == "[]" {
         return Vec::new();
     }
-    serde_json::from_str(raw).unwrap_or_default()
+    match serde_json::from_str::<Vec<Assertion>>(trimmed) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("[assertion] 解析断言 JSON 失败: {e}, raw={}", &trimmed[..trimmed.len().min(200)]);
+            Vec::new()
+        }
+    }
 }
 
 /// 按路径取值。支持：
