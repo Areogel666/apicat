@@ -441,12 +441,15 @@ async fn create_test_case(State(s): State<BState>, Json(body): Json<Value>) -> a
     let name = body["name"].as_str().unwrap_or("");
     let final_name = if name.is_empty() { format!("用例 {}", count + 1) } else { name.to_string() };
 
+    // description / source 为可选：缺省时 description 落 NULL、source 沿用表默认 'manual'
     let sql = format!(
-        "INSERT INTO test_cases (request_id, collection_id, name, method, url, headers, params, body_type, body, case_type, assertions, starred, sort_order) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING {TC_COLS}"
+        "INSERT INTO test_cases (request_id, collection_id, name, description, source, method, url, headers, params, body_type, body, case_type, assertions, starred, sort_order) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING {TC_COLS}"
     );
     match sqlx::query_as::<_, TestCase>(&sql)
         .bind(rid).bind(cid).bind(&final_name)
+        .bind(body["description"].as_str())
+        .bind(body["source"].as_str().unwrap_or("manual"))
         .bind(body["method"].as_str())
         .bind(body["url"].as_str())
         .bind(body["headers"].as_str().unwrap_or("[]"))

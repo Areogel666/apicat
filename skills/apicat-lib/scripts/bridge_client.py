@@ -21,6 +21,8 @@ import sys
 import urllib.request
 import urllib.error
 from pathlib import Path
+from typing import Any
+from urllib.parse import urlencode
 
 
 def _bridge_json_path() -> Path:
@@ -35,6 +37,8 @@ def _bridge_json_path() -> Path:
 
 
 class ApiCatBridge:
+    """Bridge 客户端。get/post 返回响应的 data 字段，形状由端点决定（可能是 list/dict/None）。"""
+
     def __init__(self, bridge_file: str | None = None):
         path = Path(bridge_file) if bridge_file else _bridge_json_path()
         if not path.exists():
@@ -44,11 +48,10 @@ class ApiCatBridge:
         info = json.loads(path.read_text(encoding="utf-8"))
         if not info.get("enabled", True):
             raise RuntimeError("Bridge 已在设置中关闭，请先开启。")
-        self.port = info["port"]
         self.token = info["token"]
-        self.base = f"http://127.0.0.1:{self.port}/api/v1"
+        self.base = f"http://127.0.0.1:{info['port']}/api/v1"
 
-    def _request(self, method: str, path: str, body: dict | None = None) -> dict:
+    def _request(self, method: str, path: str, body: dict | None = None) -> Any:
         url = f"{self.base}{path}"
         headers = {
             "Authorization": f"Bearer {self.token}",
@@ -68,17 +71,20 @@ class ApiCatBridge:
             raise RuntimeError(f"Bridge 错误: {result.get('error', 'unknown')}")
         return result.get("data")
 
-    def get(self, path: str, params: dict | None = None):
+    def get(self, path: str, params: dict | None = None) -> Any:
+        """GET 请求。params 的 key/value 由本方法负责 percent-encode，调用方传原始值即可。"""
         if params:
-            qs = "&".join(f"{k}={v}" for k, v in params.items() if v is not None)
-            path = f"{path}?{qs}" if qs else path
+            # urlencode 处理空格/&/=/非 ASCII；勿用 doseq，调用方均为标量
+            qs = urlencode({k: v for k, v in params.items() if v is not None})
+            if qs:
+                path = f"{path}?{qs}"
         return self._request("GET", path)
 
-    def post(self, path: str, body: dict | None = None):
+    def post(self, path: str, body: dict | None = None) -> Any:
         return self._request("POST", path, body or {})
 
 
-if __name__ == "__main__":
+def main() -> None:
     # 自检：列出项目
     # Windows 下 Python 默认按 locale(GBK) 写 stdout/stderr，中文会乱码
     for _stream in (sys.stdout, sys.stderr):
@@ -93,3 +99,7 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"错误: {e}", file=sys.stderr)
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

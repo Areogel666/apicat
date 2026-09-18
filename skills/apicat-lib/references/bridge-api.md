@@ -100,9 +100,10 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_test_cases?request_id=5&la
 ```
 
 ### POST /create_test_case
+可选 `description`（缺省落 NULL）与 `source`（缺省 `'manual'`；AI 脚本传 `'ai_generated'`）。
 ```bash
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"requestId": 5, "collectionId": 2, "name": "Happy Path", "method": "GET", "url": "{{base_url}}/api/x", "headers": "[]", "params": "[{\"key\":\"userId\",\"value\":\"test\",\"enabled\":true}]", "bodyType": null, "body": null, "caseType": "happy_path", "assertions": "[{\"type\":\"status_code\",\"operator\":\"eq\",\"expected\":\"200\"}]"}' \
+  -d '{"requestId": 5, "collectionId": 2, "name": "Happy Path", "description": "备注", "source": "ai_generated", "method": "GET", "url": "{{base_url}}/api/x", "headers": "[]", "params": "[{\"key\":\"userId\",\"value\":\"test\",\"enabled\":true}]", "bodyType": null, "body": null, "caseType": "happy_path", "assertions": "[{\"type\":\"status_code\",\"operator\":\"eq\",\"expected\":\"200\"}]"}' \
   "$BASE/create_test_case"
 ```
 
