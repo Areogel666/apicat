@@ -68,6 +68,9 @@
   <!-- 公共 Headers 模板弹窗 -->
   <HeaderTemplateModal v-model:show="showHeaderTemplateModal" />
 
+  <!-- AI 技能管理弹窗 -->
+  <SkillManager v-model:show="showSkillManager" />
+
   <!-- 主题工作室弹窗 -->
   <ThemeStudioModal ref="themeStudioModalRef" />
 
@@ -107,6 +110,7 @@ import ImportDialog from '../io/ImportDialog.vue'
 import ExportDialog from '../io/ExportDialog.vue'
 import HeaderTemplateModal from './HeaderTemplateModal.vue'
 import ThemeStudioModal from '../theme/ThemeStudioModal.vue'
+import SkillManager from '../settings/SkillManager.vue'
 
 const projectStore = useProjectStore()
 const envStore = useEnvironmentStore()
@@ -119,6 +123,7 @@ const showCookieManager = ref(false)
 const showImportDialog = ref(false)
 const showExportDialog = ref(false)
 const showHeaderTemplateModal = ref(false)
+const showSkillManager = ref(false)
 
 // 1.0.5：Bridge 开关（默认开；Rust 侧启动时读同一 key）
 const bridgeEnabled = ref(true)
@@ -148,6 +153,7 @@ const settingsMenuOptions = computed(() => [
   { label: '📤 导出接口...', key: 'export' },
   { type: 'divider', key: 'd1' },
   { label: '📋 公共 Headers 模板...', key: 'headerTemplate' },
+  { label: '🤖 AI 技能管理...', key: 'skillManager' },
   { type: 'divider', key: 'd2' },
   { label: '🎨 主题', key: 'theme', children: themeChildren.value },
   { label: '🎨 主题工作室…', key: 'themeStudio' },
@@ -166,6 +172,7 @@ async function handleSettingsMenu(key: string) {
   if (key === 'import') showImportDialog.value = true
   else if (key === 'export') showExportDialog.value = true
   else if (key === 'headerTemplate') showHeaderTemplateModal.value = true
+  else if (key === 'skillManager') showSkillManager.value = true
   else if (key === 'themeStudio') themeStudioModalRef.value?.open()
   else if (key === 'checkUpdate') await checkForUpdate()
   else if (key === 'bridgeToggle') {
