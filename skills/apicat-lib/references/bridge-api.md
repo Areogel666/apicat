@@ -19,11 +19,39 @@ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17320/api/v1/list_pro
 curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_projects"
 ```
 
+### POST /create_project
+```bash
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name": "新项目", "description": ""}' "$BASE/create_project"
+```
+
+### POST /update_project
+```bash
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"id": 1, "name": "新名字", "docsOutputDir": "D:/docs"}' "$BASE/update_project"
+```
+
+### POST /delete_project
+
 ### GET /list_collections?project_id=N
 返回项目下所有目录。
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_collections?project_id=1"
 ```
+
+### POST /create_collection
+```bash
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"projectId": 1, "parentId": null, "name": "Banner"}' "$BASE/create_collection"
+```
+
+### POST /rename_collection
+```bash
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"id": 6, "name": "新目录名"}' "$BASE/rename_collection"
+```
+
+### POST /delete_collection
 
 ## 接口
 
