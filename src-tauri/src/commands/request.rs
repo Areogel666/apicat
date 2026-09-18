@@ -2,8 +2,7 @@ use crate::{db::AppDb, error::{map_unique_name_error, CmdResult}, types::ApiRequ
 use tauri::State;
 
 /// ApiRequest 反序列化列清单；必须与 types.rs::ApiRequest 字段严格一致
-const REQUEST_COLS: &str = "id, collection_id, name, method, url, params, headers, \
-    body_type, body, auth_type, auth_config, description, sort_order, created_at, updated_at";
+use crate::sql_cols::REQUEST_COLS;
 
 /// 获取 collection 下所有接口
 #[tauri::command]
@@ -85,9 +84,9 @@ pub async fn delete_request(db: State<'_, AppDb>, id: i64) -> CmdResult<()> {
 /// 复制接口（克隆所有字段，名称自动追加「副本」）
 #[tauri::command]
 pub async fn duplicate_request(db: State<'_, AppDb>, id: i64) -> CmdResult<ApiRequest> {
-    let src = sqlx::query_as::<_, ApiRequest>(
-        "SELECT id, collection_id, name, method, url, params, headers, body_type, body, auth_type, auth_config, description, sort_order, created_at, updated_at FROM api_requests WHERE id=?"
-    )
+    let src = sqlx::query_as::<_, ApiRequest>(&format!(
+        "SELECT {REQUEST_COLS} FROM api_requests WHERE id=?"
+    ))
     .bind(id)
     .fetch_one(&db.0)
     .await?;

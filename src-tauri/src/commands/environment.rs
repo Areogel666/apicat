@@ -1,6 +1,7 @@
 use crate::{
     db::AppDb,
     error::CmdResult,
+    sql_cols::ENV_COLS,
     types::{EnvVariable, Environment},
 };
 use tauri::State;
@@ -11,9 +12,9 @@ pub async fn list_environments(
     db: State<'_, AppDb>,
     project_id: i64,
 ) -> CmdResult<Vec<Environment>> {
-    let rows = sqlx::query_as::<_, Environment>(
-        "SELECT id, project_id, name, base_url, is_active, created_at FROM environments WHERE project_id=? ORDER BY created_at DESC, id DESC",
-    )
+    let rows = sqlx::query_as::<_, Environment>(&format!(
+        "SELECT {ENV_COLS} FROM environments WHERE project_id=? ORDER BY created_at DESC, id DESC"
+    ))
     .bind(project_id)
     .fetch_all(&db.0)
     .await?;

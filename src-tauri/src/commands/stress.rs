@@ -8,6 +8,7 @@
 use crate::{
     error::CmdResult,
     http::client::{send, SendRequestParams},
+    sql_cols::REQUEST_COLS,
     types::{ApiRequest, StressRun},
 };
 use serde::Serialize;
@@ -743,11 +744,9 @@ pub async fn build_stress_report_by_id(
     .ok_or_else(|| crate::error::AppError::Custom(format!("压测记录 {run_id} 不存在")))?;
 
     // 接口可能已取不到，那就降级成只显示 request_id，不报错
-    let request = sqlx::query_as::<Sqlite, ApiRequest>(
-        "SELECT id, collection_id, name, method, url, params, headers, body_type, body,
-                auth_type, auth_config, description, sort_order, created_at, updated_at
-         FROM api_requests WHERE id = ?1",
-    )
+    let request = sqlx::query_as::<Sqlite, ApiRequest>(&format!(
+        "SELECT {REQUEST_COLS} FROM api_requests WHERE id = ?1"
+    ))
     .bind(run.request_id)
     .fetch_optional(pool)
     .await?;

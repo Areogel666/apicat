@@ -9,6 +9,7 @@ use crate::{
         variable::replace_variables,
         HttpClient,
     },
+    sql_cols::{ENV_COLS, TEST_CASE_COLS},
     types::{EnvVariable, Environment, TestCase},
 };
 use serde::{Deserialize, Serialize};
@@ -46,12 +47,9 @@ pub async fn run_test_case_impl(
     env_id: Option<i64>,
 ) -> Result<RunCaseResult, crate::error::AppError> {
     // 1. 加载用例
-    let tc = sqlx::query_as::<_, TestCase>(
-        "SELECT id, request_id, collection_id, name, description, source, case_type, \
-         method, url, headers, params, body_type, body, assertions, last_run_at, last_status, \
-         last_duration_ms, last_response, starred, enabled, sort_order, created_at, updated_at \
-         FROM test_cases WHERE id=?",
-    )
+    let tc = sqlx::query_as::<_, TestCase>(&format!(
+        "SELECT {TEST_CASE_COLS} FROM test_cases WHERE id=?"
+    ))
     .bind(test_case_id)
     .fetch_one(pool)
     .await?;
@@ -125,9 +123,9 @@ pub async fn run_test_case_impl(
         }
     };
     if let Some(eid) = effective_env_id {
-        let env = sqlx::query_as::<_, Environment>(
-            "SELECT id, project_id, name, base_url, is_active, created_at FROM environments WHERE id=?",
-        )
+        let env = sqlx::query_as::<_, Environment>(&format!(
+            "SELECT {ENV_COLS} FROM environments WHERE id=?"
+        ))
         .bind(eid)
         .fetch_one(pool)
         .await?;

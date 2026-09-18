@@ -1,4 +1,4 @@
-use crate::{db::AppDb, error::CmdResult, types::Cookie};
+use crate::{db::AppDb, error::CmdResult, sql_cols::COOKIE_COLS, types::Cookie};
 use std::collections::HashSet;
 use tauri::State;
 
@@ -10,15 +10,15 @@ pub async fn list_cookies(
     project_id: Option<i64>,
 ) -> CmdResult<Vec<Cookie>> {
     let rows = if scope_type == "global" {
-        sqlx::query_as::<_, Cookie>(
-            "SELECT id, scope_type, project_id, domain, name, value, path, expires_at, http_only, secure, enabled FROM cookies WHERE scope_type='global' ORDER BY id DESC",
-        )
+        sqlx::query_as::<_, Cookie>(&format!(
+            "SELECT {COOKIE_COLS} FROM cookies WHERE scope_type='global' ORDER BY id DESC"
+        ))
         .fetch_all(&db.0)
         .await?
     } else {
-        sqlx::query_as::<_, Cookie>(
-            "SELECT id, scope_type, project_id, domain, name, value, path, expires_at, http_only, secure, enabled FROM cookies WHERE scope_type='project' AND project_id=? ORDER BY id DESC",
-        )
+        sqlx::query_as::<_, Cookie>(&format!(
+            "SELECT {COOKIE_COLS} FROM cookies WHERE scope_type='project' AND project_id=? ORDER BY id DESC"
+        ))
         .bind(project_id)
         .fetch_all(&db.0)
         .await?
@@ -89,9 +89,9 @@ pub async fn get_cookies_for_domain(
     domain: String,
     project_id: Option<i64>,
 ) -> CmdResult<Vec<Cookie>> {
-    let rows = sqlx::query_as::<_, Cookie>(
-        "SELECT id, scope_type, project_id, domain, name, value, path, expires_at, http_only, secure, enabled FROM cookies WHERE domain=? AND enabled=1 AND (scope_type='global' OR (scope_type='project' AND project_id=?)) ORDER BY scope_type DESC, id DESC",
-    )
+    let rows = sqlx::query_as::<_, Cookie>(&format!(
+        "SELECT {COOKIE_COLS} FROM cookies WHERE domain=? AND enabled=1 AND (scope_type='global' OR (scope_type='project' AND project_id=?)) ORDER BY scope_type DESC, id DESC"
+    ))
     .bind(&domain)
     .bind(project_id)
     .fetch_all(&db.0)

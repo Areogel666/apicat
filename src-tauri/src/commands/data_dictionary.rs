@@ -2,8 +2,7 @@ use crate::{db::AppDb, error::CmdResult, types::{DataDictionary, DictionaryItem,
 use tauri::State;
 use sqlx::Sqlite;
 
-const DICT_COLS: &str = "id, code, name, description, builtin, project_id, created_at, updated_at";
-const ITEM_COLS: &str = "id, dictionary_id, label, value, description, sort_order";
+use crate::sql_cols::{DICT_COLS, DICT_ITEM_COLS as ITEM_COLS};
 
 /// 批量写入用字典项输入（1.0.4 fix：一键新增 / JSON 预览编辑）
 #[derive(serde::Deserialize)]

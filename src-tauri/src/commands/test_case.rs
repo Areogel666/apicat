@@ -1,9 +1,7 @@
 use crate::{db::AppDb, error::CmdResult, types::{TestCase, TestCaseHistory}};
 use tauri::State;
 
-const SELECT_COLS: &str = "id, request_id, collection_id, name, description, source, case_type, \
-    method, url, headers, params, body_type, body, assertions, last_run_at, last_status, \
-    last_duration_ms, last_response, starred, enabled, sort_order, created_at, updated_at";
+use crate::sql_cols::TEST_CASE_COLS as SELECT_COLS;
 
 /// 获取某接口的所有测试用例（按 sort_order + id）
 #[tauri::command]
@@ -153,8 +151,7 @@ pub async fn delete_test_case(db: State<'_, AppDb>, id: i64) -> CmdResult<()> {
 
 // ── M3-C：用例执行历史 ─────────────────────────────────────────
 
-const HIST_COLS: &str = "id, test_case_id, status_code, duration_ms, \
-    response_preview, error_message, created_at";
+use crate::sql_cols::TEST_CASE_HISTORY_COLS as HIST_COLS;
 
 /// 列出某用例的最近 10 条历史调用（按时间倒序）
 #[tauri::command]

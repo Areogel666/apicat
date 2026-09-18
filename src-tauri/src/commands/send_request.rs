@@ -6,6 +6,7 @@ use crate::{
         variable::replace_variables,
         HttpClient,
     },
+    sql_cols::{COOKIE_COLS, ENV_COLS},
     types::{Cookie, EnvVariable, Environment, HistoryRecord, HttpResponse},
 };
 use sqlx::SqlitePool;
@@ -26,9 +27,9 @@ pub async fn send_request_impl(
     let mut resolved_params = params.clone();
 
     if let Some(env_id) = env_id {
-        let env = sqlx::query_as::<_, Environment>(
-            "SELECT id, project_id, name, base_url, is_active, created_at FROM environments WHERE id=?",
-        )
+        let env = sqlx::query_as::<_, Environment>(&format!(
+            "SELECT {ENV_COLS} FROM environments WHERE id=?"
+        ))
         .bind(env_id)
         .fetch_one(pool)
         .await?;
@@ -59,9 +60,9 @@ pub async fn send_request_impl(
     // 0.1 注入域名 Cookie
     if let Ok(parsed_url) = reqwest::Url::parse(&resolved_params.url) {
         if let Some(domain) = parsed_url.host_str() {
-            let cookie_rows = sqlx::query_as::<_, Cookie>(
-                "SELECT id, scope_type, project_id, domain, name, value, path, expires_at, http_only, secure, enabled FROM cookies WHERE domain=? AND enabled=1 AND (scope_type='global' OR (scope_type='project' AND project_id=?)) ORDER BY scope_type DESC, id DESC",
-            )
+            let cookie_rows = sqlx::query_as::<_, Cookie>(&format!(
+                "SELECT {COOKIE_COLS} FROM cookies WHERE domain=? AND enabled=1 AND (scope_type='global' OR (scope_type='project' AND project_id=?)) ORDER BY scope_type DESC, id DESC"
+            ))
             .bind(domain)
             .bind(project_id)
             .fetch_all(pool)

@@ -13,6 +13,10 @@ use sqlx::SqlitePool;
 use std::sync::Arc;
 use tauri::Emitter;
 
+use crate::sql_cols::{
+    COOKIE_COLS, DICT_COLS, ENV_COLS, ENV_VAR_COLS, REQUEST_COLS, TEST_CASE_COLS,
+    TEST_CASE_HISTORY_COLS,
+};
 use crate::types::*;
 
 /// Bridge 共享状态
@@ -310,8 +314,7 @@ async fn delete_collection(State(s): State<BState>, Json(body): Json<Value>) -> 
 // 接口
 // ════════════════════════════════════════════════════════════
 
-const REQ_COLS: &str = "id, collection_id, name, method, url, params, headers, body_type, body, \
-    auth_type, auth_config, description, sort_order, created_at, updated_at";
+const REQ_COLS: &str = REQUEST_COLS;
 
 async fn list_requests(State(s): State<BState>, Query(q): Query<CollectionQuery>) -> axum::response::Response {
     let sql = format!("SELECT {REQ_COLS} FROM api_requests WHERE collection_id=? ORDER BY sort_order, id");
@@ -407,9 +410,7 @@ async fn duplicate_request(State(s): State<BState>, Json(body): Json<Value>) -> 
 // 用例
 // ════════════════════════════════════════════════════════════
 
-const TC_COLS: &str = "id, request_id, collection_id, name, description, source, case_type, \
-    method, url, headers, params, body_type, body, assertions, last_run_at, last_status, \
-    last_duration_ms, last_response, starred, enabled, sort_order, created_at, updated_at";
+const TC_COLS: &str = TEST_CASE_COLS;
 
 async fn list_test_cases(State(s): State<BState>, Query(q): Query<RequestQuery>) -> axum::response::Response {
     // last_status 过滤（如 ?last_status=failed）；不传则返回全部 enabled 用例
@@ -507,13 +508,13 @@ async fn delete_test_case(State(s): State<BState>, Json(body): Json<Value>) -> a
 }
 
 async fn list_test_case_history(State(s): State<BState>, Query(q): Query<IdQuery>) -> axum::response::Response {
-    match sqlx::query_as::<_, TestCaseHistory>(
-        "SELECT id, test_case_id, status_code, duration_ms, response_preview, error_message, created_at \
-         FROM test_case_history WHERE test_case_id=? ORDER BY created_at DESC, id DESC LIMIT 10",
-    )
-    .bind(q.id)
-    .fetch_all(&s.pool)
-    .await
+    let sql = format!(
+        "SELECT {TEST_CASE_HISTORY_COLS} FROM test_case_history WHERE test_case_id=? ORDER BY created_at DESC, id DESC LIMIT 10"
+    );
+    match sqlx::query_as::<_, TestCaseHistory>(&sql)
+        .bind(q.id)
+        .fetch_all(&s.pool)
+        .await
     {
         Ok(rows) => ok(rows),
         Err(e) => server_err(e),
@@ -538,13 +539,13 @@ async fn run_test_case(State(s): State<BState>, Json(body): Json<Value>) -> axum
 // ════════════════════════════════════════════════════════════
 
 async fn list_dictionaries(State(s): State<BState>, Query(q): Query<ProjectQuery>) -> axum::response::Response {
-    match sqlx::query_as::<_, DataDictionary>(
-        "SELECT id, code, name, description, builtin, project_id, created_at, updated_at \
-         FROM data_dictionaries WHERE builtin=1 OR project_id=? ORDER BY builtin DESC, code",
-    )
-    .bind(q.project_id)
-    .fetch_all(&s.pool)
-    .await
+    let sql = format!(
+        "SELECT {DICT_COLS} FROM data_dictionaries WHERE builtin=1 OR project_id=? ORDER BY builtin DESC, code"
+    );
+    match sqlx::query_as::<_, DataDictionary>(&sql)
+        .bind(q.project_id)
+        .fetch_all(&s.pool)
+        .await
     {
         Ok(rows) => ok(rows),
         Err(e) => server_err(e),
@@ -919,12 +920,13 @@ async fn stress_report(State(s): State<BState>, Query(q): Query<StressReportQuer
 // ════════════════════════════════════════════════════════════
 
 async fn list_environments(State(s): State<BState>, Query(q): Query<ProjectQuery>) -> axum::response::Response {
-    match sqlx::query_as::<_, Environment>(
-        "SELECT id, project_id, name, base_url, is_active, created_at FROM environments WHERE project_id=? ORDER BY id",
-    )
-    .bind(q.project_id)
-    .fetch_all(&s.pool)
-    .await
+    let sql = format!(
+        "SELECT {ENV_COLS} FROM environments WHERE project_id=? ORDER BY id"
+    );
+    match sqlx::query_as::<_, Environment>(&sql)
+        .bind(q.project_id)
+        .fetch_all(&s.pool)
+        .await
     {
         Ok(rows) => ok(rows),
         Err(e) => server_err(e),
@@ -943,10 +945,6 @@ async fn list_env_variables(State(s): State<BState>, Query(q): Query<IdQuery>) -
         Err(e) => server_err(e),
     }
 }
-
-const ENV_COLS: &str = "id, project_id, name, base_url, is_active, created_at";
-const ENV_VAR_COLS: &str = "id, env_id, key, value, description, enabled";
-const COOKIE_COLS: &str = "id, scope_type, project_id, domain, name, value, path, expires_at, http_only, secure, enabled";
 
 // ── 环境写操作 ──────────────────────────────────────────────
 

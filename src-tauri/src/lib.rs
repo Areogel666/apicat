@@ -1,6 +1,7 @@
 mod db;
 mod error;
 mod types;
+mod sql_cols;
 mod commands;
 mod http;
 mod assertion;
