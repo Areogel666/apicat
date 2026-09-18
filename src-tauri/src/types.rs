@@ -6,6 +6,8 @@ pub struct Project {
     pub id: i64,
     pub name: String,
     pub description: Option<String>,
+    // 1.0.5：doc-gen 技能的文档输出目录（null = 用默认 ~/.apicat/apidoc/{project}）
+    pub docs_output_dir: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -116,6 +118,8 @@ pub struct TestCase {
     pub name: String,
     pub description: Option<String>,
     pub source: String, // "manual" | "ai_generated"
+    // 1.0.5：用例类型（happy_path/missing_required/unauthorized/boundary/empty_list/type_error/invalid_chars）
+    pub case_type: String,
     pub method: Option<String>,
     pub url: Option<String>,
     pub headers: String, // JSON 数组

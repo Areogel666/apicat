@@ -4,6 +4,7 @@ export interface Project {
   id: number
   name: string
   description: string | null
+  docs_output_dir: string | null   // 1.0.5：doc-gen 技能的文档输出目录
   created_at: string
   updated_at: string
 }
@@ -232,6 +233,27 @@ export interface CookieItem {
 
 // ── 测试用例类型 ──────────────────────────────────────
 
+/** 1.0.5：用例类型枚举（AI 技能分类 + 前端 badge/筛选用） */
+export type CaseType =
+  | 'happy_path'
+  | 'missing_required'
+  | 'unauthorized'
+  | 'boundary'
+  | 'empty_list'
+  | 'type_error'
+  | 'invalid_chars'
+
+/** case_type → 中文标签（badge / 筛选器共用） */
+export const CASE_TYPE_LABELS: Record<CaseType, string> = {
+  happy_path: '正常',
+  missing_required: '缺必填',
+  unauthorized: '未授权',
+  boundary: '边界值',
+  empty_list: '空列表',
+  type_error: '类型错误',
+  invalid_chars: '特殊字符',
+}
+
 export interface TestCase {
   id: number
   request_id: number | null
@@ -239,6 +261,7 @@ export interface TestCase {
   name: string
   description: string | null
   source: string            // "manual" | "ai_generated"
+  case_type: CaseType       // 1.0.5
   method: string | null
   url: string | null
   headers: string           // JSON 数组
@@ -267,4 +290,42 @@ export interface TestCaseHistory {
   response_preview: string | null  // ��ӦժҪ��ǰ�� ��1KB �ü���
   error_message: string | null     // ��������HTTP ����� status_code��
   created_at: string
+}
+
+// ── 断言（1.0.5 新增）────────────────────────────────────────
+
+export type AssertionType = 'status_code' | 'json_path'
+export type AssertionOperator = 'eq' | 'ne' | 'not_null' | 'contains'
+
+/** 存在 test_cases.assertions 列里的单条断言 */
+export interface Assertion {
+  type: AssertionType
+  /** json_path 专用，如 "$.code" / "$.data.list[0].id" */
+  path?: string
+  operator: AssertionOperator
+  expected: string
+}
+
+/** run_test_case 返回的单条断言求值结果 */
+export interface AssertionResult {
+  kind: string
+  path: string
+  operator: string
+  expected: string
+  actual: string
+  passed: boolean
+  message: string
+}
+
+/** run_test_case 的返回值 */
+export interface RunCaseResult {
+  test_case_id: number
+  status: 'passed' | 'failed' | 'error'
+  status_code: number | null
+  elapsed_ms: number
+  response_body: string
+  assertions: AssertionResult[]
+  passed_count: number
+  total_count: number
+  error_message: string | null
 }

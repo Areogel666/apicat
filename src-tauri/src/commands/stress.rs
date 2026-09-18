@@ -179,23 +179,18 @@ fn check_fd_limit(_max_concurrent: u32) -> Result<(), String> {
 
 // ── 主压测 Command ─────────────────────────────────────────
 
-/// 启动压测
-///
-/// # 参数
-/// - `params`：复用 SendRequestParams（与普通发请求相同的请求配置）
-/// - `concurrent`：并发 worker 数（1-500）
-/// - `mode`：`"count"` | `"duration"`
-/// - `value`：mode=count 时为总请求数；mode=duration 时为持续秒数
-#[tauri::command]
-pub async fn start_stress(
-    app: AppHandle,
-    db: State<'_, AppDb>,
+/// 核心压测逻辑（供 Tauri command 和 HTTP bridge 共用），阻塞到压测结束，返回最终统计
+pub async fn start_stress_impl(
+    app: &AppHandle,
+    pool: &sqlx::SqlitePool,
     request_id: i64,
     params: SendRequestParams,
     concurrent: u32,
-    mode: String,
+    mode: &str,
     value: u64,
-) -> CmdResult<()> {
+) -> Result<StressStats, crate::error::AppError> {
+    let app = app.clone();
+    let mode = mode.to_string();
     // ── 参数校验 ──────────────────────────────────────────
     if concurrent == 0 || concurrent > 500 {
         return Err(crate::error::AppError::Custom(
@@ -383,9 +378,24 @@ pub async fn start_stress(
     .bind(request_id)
     .bind(&config_json)
     .bind(&stats_json)
-    .execute(&db.0)
+    .execute(pool)
     .await;
 
+    Ok(final_snapshot)
+}
+
+/// Tauri command 包装：启动压测（阻塞到结束，前端靠事件收进度）
+#[tauri::command]
+pub async fn start_stress(
+    app: AppHandle,
+    db: State<'_, AppDb>,
+    request_id: i64,
+    params: SendRequestParams,
+    concurrent: u32,
+    mode: String,
+    value: u64,
+) -> CmdResult<()> {
+    start_stress_impl(&app, &db.0, request_id, params, concurrent, &mode, value).await?;
     Ok(())
 }
 

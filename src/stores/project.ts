@@ -89,8 +89,13 @@ export const useProjectStore = defineStore('project', () => {
     return project
   }
 
-  async function updateProject(id: number, name: string, description?: string) {
-    const updated = await invoke<Project>('update_project', { id, name, description: description ?? null })
+  async function updateProject(id: number, name: string, description?: string, docsOutputDir?: string | null) {
+    // docsOutputDir 未传时保留当前值（TopBar 重命名等场景不该清掉文档目录配置）
+    const current = projects.value.find(p => p.id === id)
+    const dir = docsOutputDir !== undefined ? docsOutputDir : (current?.docs_output_dir ?? null)
+    const updated = await invoke<Project>('update_project', {
+      id, name, description: description ?? null, docsOutputDir: dir,
+    })
     const idx = projects.value.findIndex(p => p.id === id)
     if (idx !== -1) projects.value[idx] = updated
     return updated

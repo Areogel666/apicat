@@ -862,7 +862,7 @@ const filteredDicts = computed(() => {
 
 const ruleBoundDictId = computed(() =>
   dictPickerParam.value
-    ? (dictionaryStore.fieldRules.find(r => r.field_name === dictPickerParam.value!.key)?.dictionary_id ?? null)
+    ? dictionaryStore.ruleDictIdForField(dictPickerParam.value.key)
     : null)
 
 // 当前作用域下已绑定的字典 id（用于「再点一次取消绑定」）

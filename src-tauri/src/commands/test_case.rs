@@ -1,9 +1,9 @@
 use crate::{db::AppDb, error::CmdResult, types::{TestCase, TestCaseHistory}};
 use tauri::State;
 
-const SELECT_COLS: &str = "id, request_id, collection_id, name, description, source, method, url, \
-    headers, params, body_type, body, assertions, last_run_at, last_status, last_duration_ms, \
-    last_response, starred, enabled, sort_order, created_at, updated_at";
+const SELECT_COLS: &str = "id, request_id, collection_id, name, description, source, case_type, \
+    method, url, headers, params, body_type, body, assertions, last_run_at, last_status, \
+    last_duration_ms, last_response, starred, enabled, sort_order, created_at, updated_at";
 
 /// 获取某接口的所有测试用例（按 sort_order + id）
 #[tauri::command]
@@ -35,6 +35,7 @@ pub async fn create_test_case(
     params: Option<String>,
     body_type: Option<String>,
     body: Option<String>,
+    case_type: Option<String>,
 ) -> CmdResult<TestCase> {
     // 判断是否为该接口的第一个用例 → 自动收藏
     let existing_count: i64 = sqlx::query_scalar(
@@ -54,8 +55,8 @@ pub async fn create_test_case(
 
     let sql = format!(
         "INSERT INTO test_cases \
-            (request_id, collection_id, name, method, url, headers, params, body_type, body, starred, sort_order) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+            (request_id, collection_id, name, method, url, headers, params, body_type, body, case_type, starred, sort_order) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
          RETURNING {SELECT_COLS}"
     );
     let row = sqlx::query_as::<_, TestCase>(&sql)
@@ -68,6 +69,7 @@ pub async fn create_test_case(
         .bind(params.as_deref().unwrap_or("[]"))
         .bind(&body_type)
         .bind(&body)
+        .bind(case_type.as_deref().unwrap_or("happy_path"))
         .bind(starred)
         .bind(existing_count)   // sort_order = 当前用例数（末尾插入）
         .fetch_one(&db.0)
@@ -75,7 +77,7 @@ pub async fn create_test_case(
     Ok(row)
 }
 
-/// 更新测试用例名称 / 收藏状态 / 请求参数
+/// 更新测试用例名称 / 收藏状态 / 请求参数 / 类型 / 断言
 #[tauri::command]
 pub async fn update_test_case(
     db: State<'_, AppDb>,
@@ -88,10 +90,13 @@ pub async fn update_test_case(
     params: Option<String>,
     body_type: Option<String>,
     body: Option<String>,
+    case_type: Option<String>,
+    assertions: Option<String>,
 ) -> CmdResult<TestCase> {
     let sql = format!(
         "UPDATE test_cases SET name=?, starred=?, method=?, url=?, headers=?, params=?, \
-         body_type=?, body=?, updated_at=datetime('now') \
+         body_type=?, body=?, case_type=COALESCE(?, case_type), \
+         assertions=COALESCE(?, assertions), updated_at=datetime('now') \
          WHERE id=? RETURNING {SELECT_COLS}"
     );
     let row = sqlx::query_as::<_, TestCase>(&sql)
@@ -103,6 +108,8 @@ pub async fn update_test_case(
         .bind(params.as_deref().unwrap_or("[]"))
         .bind(&body_type)
         .bind(&body)
+        .bind(&case_type)
+        .bind(&assertions)
         .bind(id)
         .fetch_one(&db.0)
         .await?;

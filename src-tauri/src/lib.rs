@@ -3,6 +3,8 @@ mod error;
 mod types;
 mod commands;
 mod http;
+mod assertion;
+mod bridge;
 
 use commands::{
     collection::{create_collection, delete_collection, list_collections, rename_collection, update_collection_sort, move_collection},
@@ -29,6 +31,7 @@ use commands::{
         create_test_case, delete_test_case, list_test_cases, update_test_case,
         list_test_case_history, add_test_case_history, delete_test_cases,
     },
+    test_case_run::run_test_case,
     stress::{start_stress, list_stress_runs, delete_stress_run},
     io::{export_apicat, export_postman, import_apicat, import_postman, import_openapi},
 };
@@ -66,9 +69,20 @@ pub fn run() {
             app.manage(http::HttpClient(http_client));
 
             // 启动时静默清理 30 天前的未收藏测试用例（fire-and-forget）
+            let cleanup_pool = pool.clone();
             tauri::async_runtime::spawn(async move {
-                cleanup_old_test_cases(&pool).await;
+                cleanup_old_test_cases(&cleanup_pool).await;
             });
+
+            // 1.0.5：启动 Localhost HTTP Bridge（默认开启，token 写 bridge.json）
+            if bridge::read_bridge_enabled(app) {
+                let bridge_app = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = start_bridge(bridge_app, pool).await {
+                        eprintln!("[ApiCat] Bridge 启动失败: {e}");
+                    }
+                });
+            }
 
             Ok(())
         })
@@ -84,6 +98,7 @@ pub fn run() {
             list_cookies, create_cookie, update_cookie, delete_cookie, get_cookies_for_domain,
             list_test_cases, create_test_case, update_test_case, delete_test_case,
             list_test_case_history, add_test_case_history, delete_test_cases,
+            run_test_case,
             list_dictionaries, create_dictionary, update_dictionary, delete_dictionary,
             list_dictionary_items, create_dictionary_item, update_dictionary_item, delete_dictionary_item,
             create_dictionary_with_items, replace_dictionary_items,
@@ -98,8 +113,50 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
+/// 启动 Localhost HTTP Bridge
+/// 固定端口 17320 起，占用则顺延；token 写 bridge.json 供技能发现
+async fn start_bridge(
+    app: tauri::AppHandle,
+    pool: sqlx::SqlitePool,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use bridge::token::{generate_token, read_bridge_info, write_bridge_info};
+
+    let app_data_dir = app.path().app_data_dir()?;
+    let bridge_path = app_data_dir.join("bridge.json");
+
+    // 已有 bridge.json 则复用 token（重启不换 token，技能无需重新读文件）
+    let token = read_bridge_info(&bridge_path)
+        .map(|info| info.token)
+        .unwrap_or_else(generate_token);
+
+    // 固定端口 17320 起，占用则顺延最多 20 个
+    const BASE_PORT: u16 = 17320;
+    let mut port = BASE_PORT;
+    let listener = loop {
+        match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+            Ok(l) => break l,
+            Err(_) if port < BASE_PORT + 20 => port += 1,
+            Err(e) => return Err(format!("无法绑定 127.0.0.1:{BASE_PORT}~{port}: {e}").into()),
+        }
+    };
+
+    let info = bridge::BridgeInfo { port, token: token.clone(), enabled: true };
+    write_bridge_info(&bridge_path, &info)?;
+    println!("[ApiCat] Bridge listening on http://127.0.0.1:{port}");
+
+    let state = std::sync::Arc::new(bridge::server::BridgeState {
+        pool,
+        http: reqwest::Client::new(),
+        token,
+        app,
+    });
+
+    let router = bridge::server::build_router(state);
+    axum::serve(listener, router).await?;
+    Ok(())
+}
+
 /// 定时清理：删除 30 天前未收藏的测试用例
-/// 设计文档 4.2.2 节：两步清理逻辑
 async fn cleanup_old_test_cases(pool: &sqlx::SqlitePool) {
     // Step 1 + 2 合并：只删「有收藏用例的接口」中 30 天前的未收藏用例
     // 「没有任何收藏用例」的接口不受影响，其最新用例天然保留

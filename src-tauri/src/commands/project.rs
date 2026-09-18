@@ -5,7 +5,7 @@ use tauri::State;
 #[tauri::command]
 pub async fn list_projects(db: State<'_, AppDb>) -> CmdResult<Vec<Project>> {
     let rows = sqlx::query_as::<_, Project>(
-        "SELECT id, name, description, created_at, updated_at FROM projects ORDER BY created_at DESC"
+        "SELECT id, name, description, docs_output_dir, created_at, updated_at FROM projects ORDER BY created_at DESC"
     )
     .fetch_all(&db.0)
     .await?;
@@ -20,7 +20,8 @@ pub async fn create_project(
     description: Option<String>,
 ) -> CmdResult<Project> {
     let row = sqlx::query_as::<_, Project>(
-        "INSERT INTO projects (name, description) VALUES (?, ?) RETURNING id, name, description, created_at, updated_at"
+        "INSERT INTO projects (name, description) VALUES (?, ?) \
+         RETURNING id, name, description, docs_output_dir, created_at, updated_at"
     )
     .bind(&name)
     .bind(&description)
@@ -29,19 +30,22 @@ pub async fn create_project(
     Ok(row)
 }
 
-/// 更新项目名称/描述
+/// 更新项目名称/描述/文档输出目录
 #[tauri::command]
 pub async fn update_project(
     db: State<'_, AppDb>,
     id: i64,
     name: String,
     description: Option<String>,
+    docs_output_dir: Option<String>,
 ) -> CmdResult<Project> {
     let row = sqlx::query_as::<_, Project>(
-        "UPDATE projects SET name=?, description=?, updated_at=datetime('now') WHERE id=? RETURNING id, name, description, created_at, updated_at"
+        "UPDATE projects SET name=?, description=?, docs_output_dir=?, updated_at=datetime('now') \
+         WHERE id=? RETURNING id, name, description, docs_output_dir, created_at, updated_at"
     )
     .bind(&name)
     .bind(&description)
+    .bind(&docs_output_dir)
     .bind(id)
     .fetch_one(&db.0)
     .await?;

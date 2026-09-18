@@ -28,14 +28,28 @@ export const useDictionaryStore = defineStore('dictionary', () => {
     selectedDictId.value = id
   }
 
+  // loadSeq 防竞态：启动时 currentProjectId 会被连续改两次（loadProjects → restoreLastProject），
+  // 两个常驻组件的 watch 各触发一次加载，后完成者胜 —— 过期响应必须丢弃，
+  // 否则旧项目的 rules 残留内存，dictIdForField 会把新项目同名字段误判为已绑定。
+  let dictionariesSeq = 0
+  let fieldBindingSeq = 0
+  // fieldRules/fieldOverrides 实际所属的 project_id（dictIdForField 兜底校验用）
+  const fieldBindingsProjectId = ref<number | null>(null)
+
   async function loadDictionaries(projectId: number | null = null) {
-    dictionaries.value = await invoke<DataDictionary[]>('list_dictionaries', { projectId })
+    const seq = ++dictionariesSeq
+    const list = await invoke<DataDictionary[]>('list_dictionaries', { projectId })
     // 预加载所有可视字典的 items（字典量小，全量拉取简单）
-    for (const d of dictionaries.value) {
-      itemsMap.value[d.id] = await invoke<DictionaryItem[]>('list_dictionary_items', {
+    const items: Record<number, DictionaryItem[]> = {}
+    for (const d of list) {
+      items[d.id] = await invoke<DictionaryItem[]>('list_dictionary_items', {
         dictionaryId: d.id,
       })
     }
+    if (seq !== dictionariesSeq) return
+    dictionaries.value = list
+    // 整表替换而非累加，避免切项目后旧字典 items 残留
+    itemsMap.value = items
   }
 
   /** 新建数据字典（全局共享，project 维度留待后续） */
@@ -139,13 +153,19 @@ export const useDictionaryStore = defineStore('dictionary', () => {
   // ── 1.0.4「字段名绑定」：规则 / 例外 / 复制 ────────────────────
 
   async function loadFieldBindings(projectId: number | null) {
+    const seq = ++fieldBindingSeq
     if (projectId == null) {
       fieldRules.value = []
       fieldOverrides.value = []
+      fieldBindingsProjectId.value = null
       return
     }
-    fieldRules.value = await invoke<FieldDictionaryRule[]>('list_field_rules', { projectId })
-    fieldOverrides.value = await invoke<FieldDictionaryOverride[]>('list_field_overrides', { projectId })
+    const rules = await invoke<FieldDictionaryRule[]>('list_field_rules', { projectId })
+    const overrides = await invoke<FieldDictionaryOverride[]>('list_field_overrides', { projectId })
+    if (seq !== fieldBindingSeq) return
+    fieldRules.value = rules
+    fieldOverrides.value = overrides
+    fieldBindingsProjectId.value = projectId
   }
 
   async function setFieldRule(projectId: number, fieldName: string, dictionaryId: number) {
@@ -208,7 +228,14 @@ export const useDictionaryStore = defineStore('dictionary', () => {
       const ov = fieldOverrides.value.find(o => o.request_id === activeRequestId && o.field_name === fieldName)
       if (ov) return ov.dictionary_id
     }
-    const rule = fieldRules.value.find(r => r.field_name === fieldName)
+    return ruleDictIdForField(fieldName)
+  }
+
+  /** 仅查项目级规则（带 project_id 校验，防 fieldRules 残留他项目数据） */
+  function ruleDictIdForField(fieldName: string): number | null {
+    const rule = fieldRules.value.find(
+      r => r.field_name === fieldName && r.project_id === fieldBindingsProjectId.value,
+    )
     return rule ? rule.dictionary_id : null
   }
 
@@ -241,6 +268,7 @@ export const useDictionaryStore = defineStore('dictionary', () => {
     removeFieldOverride,
     copyDictionaryToProject,
     dictIdForField,
+    ruleDictIdForField,
     dictById,
     createDictionary,
     createDictionaryWithItems,

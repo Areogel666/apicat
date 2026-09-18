@@ -102,6 +102,30 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Err
         .await?;
     }
 
+    // 1.0.5：test_cases.case_type 幂等加列（AI 技能用例类型分类）
+    let tc_cols: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM pragma_table_info('test_cases')")
+            .fetch_all(pool)
+            .await?;
+    if !tc_cols.iter().any(|c| c == "case_type") {
+        sqlx::query(
+            "ALTER TABLE test_cases ADD COLUMN case_type TEXT NOT NULL DEFAULT 'happy_path'",
+        )
+        .execute(pool)
+        .await?;
+    }
+
+    // 1.0.5：projects.docs_output_dir 幂等加列（doc-gen 技能的文档输出目录）
+    let proj_cols: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM pragma_table_info('projects')")
+            .fetch_all(pool)
+            .await?;
+    if !proj_cols.iter().any(|c| c == "docs_output_dir") {
+        sqlx::query("ALTER TABLE projects ADD COLUMN docs_output_dir TEXT")
+            .execute(pool)
+            .await?;
+    }
+
     // M3-C 触发器：trg_tch_keep_10
     // 复合 BEGIN/END 块内部含 ';'，不能写在 0001_init.sql 里（会被 split(';') 拆坏）。
     // 单独以一条 query 执行；CREATE TRIGGER IF NOT EXISTS 幂等。

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import type { TestCase, TestCaseHistory } from '../types'
+import type { CaseType, RunCaseResult, TestCase, TestCaseHistory } from '../types'
 
 export const useTestCaseStore = defineStore('testCase', () => {
   // requestId → TestCase[]
@@ -38,6 +38,7 @@ export const useTestCaseStore = defineStore('testCase', () => {
     params_?: string
     bodyType?: string | null
     body?: string | null
+    caseType?: CaseType
   }): Promise<TestCase> {
     const tc = await invoke<TestCase>('create_test_case', {
       requestId: params.requestId,
@@ -49,6 +50,7 @@ export const useTestCaseStore = defineStore('testCase', () => {
       params: params.params_ ?? '[]',
       bodyType: params.bodyType ?? null,
       body: params.body ?? null,
+      caseType: params.caseType ?? 'happy_path',
     })
     const list = testCaseMap.value[params.requestId] ?? []
     testCaseMap.value[params.requestId] = [...list, tc]
@@ -56,7 +58,7 @@ export const useTestCaseStore = defineStore('testCase', () => {
   }
 
   async function updateTestCase(id: number, data: Partial<Pick<TestCase,
-    'name' | 'starred' | 'method' | 'url' | 'headers' | 'params' | 'body_type' | 'body'
+    'name' | 'starred' | 'method' | 'url' | 'headers' | 'params' | 'body_type' | 'body' | 'case_type' | 'assertions'
   >>): Promise<TestCase> {
     // 先取当前值做 fallback
     let current: TestCase | undefined
@@ -76,6 +78,8 @@ export const useTestCaseStore = defineStore('testCase', () => {
       params: data.params ?? current.params,
       bodyType: data.body_type !== undefined ? data.body_type : current.body_type,
       body: data.body !== undefined ? data.body : current.body,
+      caseType: data.case_type !== undefined ? data.case_type : current.case_type,
+      assertions: data.assertions !== undefined ? data.assertions : current.assertions,
     })
 
     const requestId = current.request_id
@@ -171,6 +175,36 @@ export const useTestCaseStore = defineStore('testCase', () => {
     return affected
   }
 
+  // ── 1.0.5：跑用例（断言求值）───────────────────────────────
+
+  /**
+   * 跑单个用例：发请求 → 断言求值 → 后端回写 last_status/last_response。
+   * 返回完整结果（含每条断言的期望/实际），调用方负责展示。
+   */
+  async function runTestCase(testCaseId: number, envId?: number | null): Promise<RunCaseResult> {
+    const result = await invoke<RunCaseResult>('run_test_case', {
+      testCaseId,
+      envId: envId ?? null,
+    })
+    // 同步本地镜像：用例的执行状态字段
+    for (const list of Object.values(testCaseMap.value)) {
+      const idx = list.findIndex(c => c.id === testCaseId)
+      if (idx !== -1) {
+        list[idx] = {
+          ...list[idx],
+          last_status: result.status,
+          last_run_at: new Date().toISOString(),
+          last_duration_ms: result.elapsed_ms,
+          last_response: result.response_body.slice(0, 1024),
+        }
+        break
+      }
+    }
+    // 刷新历史镜像（后端已插入一条）
+    await loadHistory(testCaseId)
+    return result
+  }
+
   return {
     testCaseMap,
     activeTestCaseId,
@@ -185,5 +219,6 @@ export const useTestCaseStore = defineStore('testCase', () => {
     getHistory,
     loadHistory,
     recordHistory,
+    runTestCase,
   }
 })

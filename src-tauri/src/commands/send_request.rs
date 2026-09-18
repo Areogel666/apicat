@@ -2,44 +2,42 @@ use crate::{
     db::AppDb,
     error::CmdResult,
     http::{
-        client::{send, SendRequestParams},
+        client::{send, ParamItem, SendRequestParams},
         variable::replace_variables,
         HttpClient,
     },
     types::{Cookie, EnvVariable, Environment, HistoryRecord, HttpResponse},
 };
+use sqlx::SqlitePool;
 use std::collections::HashSet;
 use tauri::State;
 
-/// 发送 HTTP 请求，写入 request_history，返回响应结果
-#[tauri::command]
-pub async fn send_request(
-    db: State<'_, AppDb>,
-    http: State<'_, HttpClient>,
-    request_id: i64,
+/// 核心逻辑（供 Tauri command 和 HTTP bridge 共用）
+pub async fn send_request_impl(
+    pool: &SqlitePool,
+    http: &reqwest::Client,
+    request_id: Option<i64>,
     test_case_id: Option<i64>,
     params: SendRequestParams,
     env_id: Option<i64>,
     project_id: Option<i64>,
-) -> CmdResult<HttpResponse> {
+) -> Result<HttpResponse, crate::error::AppError> {
     // 0. 复制参数并按需做变量替换
     let mut resolved_params = params.clone();
 
     if let Some(env_id) = env_id {
-        // 加载环境信息（用于 base_url）
         let env = sqlx::query_as::<_, Environment>(
             "SELECT id, project_id, name, base_url, is_active, created_at FROM environments WHERE id=?",
         )
         .bind(env_id)
-        .fetch_one(&db.0)
+        .fetch_one(pool)
         .await?;
 
-        // 加载启用状态的环境变量
         let env_vars = sqlx::query_as::<_, EnvVariable>(
             "SELECT id, env_id, key, value, description, enabled FROM env_variables WHERE env_id=? AND enabled=1",
         )
         .bind(env_id)
-        .fetch_all(&db.0)
+        .fetch_all(pool)
         .await?;
 
         let mut variables = std::collections::HashMap::new();
@@ -50,7 +48,6 @@ pub async fn send_request(
             variables.insert(item.key, item.value);
         }
 
-        // URL / Body / Header 值都做替换
         resolved_params.url = replace_variables(&resolved_params.url, &variables, false);
         let is_json_body = resolved_params.body_type == "raw_json";
         resolved_params.body = replace_variables(&resolved_params.body, &variables, is_json_body);
@@ -59,7 +56,7 @@ pub async fn send_request(
         }
     }
 
-    // 0.1 注入域名 Cookie（项目级优先覆盖全局同名+同 path）
+    // 0.1 注入域名 Cookie
     if let Ok(parsed_url) = reqwest::Url::parse(&resolved_params.url) {
         if let Some(domain) = parsed_url.host_str() {
             let cookie_rows = sqlx::query_as::<_, Cookie>(
@@ -67,7 +64,7 @@ pub async fn send_request(
             )
             .bind(domain)
             .bind(project_id)
-            .fetch_all(&db.0)
+            .fetch_all(pool)
             .await?;
 
             let mut seen = HashSet::new();
@@ -81,19 +78,18 @@ pub async fn send_request(
 
             if !cookie_pairs.is_empty() {
                 let cookie_value = cookie_pairs.join("; ");
-                if let Some(existing_cookie_header) = resolved_params
+                if let Some(existing) = resolved_params
                     .headers
                     .iter_mut()
                     .find(|h| h.enabled && h.key.eq_ignore_ascii_case("cookie"))
                 {
-                    if existing_cookie_header.value.is_empty() {
-                        existing_cookie_header.value = cookie_value;
+                    if existing.value.is_empty() {
+                        existing.value = cookie_value;
                     } else {
-                        existing_cookie_header.value =
-                            format!("{}; {}", existing_cookie_header.value, cookie_value);
+                        existing.value = format!("{}; {}", existing.value, cookie_value);
                     }
                 } else {
-                    resolved_params.headers.push(crate::http::client::ParamItem {
+                    resolved_params.headers.push(ParamItem {
                         key: "Cookie".to_string(),
                         value: cookie_value,
                         enabled: true,
@@ -103,20 +99,21 @@ pub async fn send_request(
         }
     }
 
-    // 1. 发送请求（复用全局 Client 的连接池）
-    let mut resp = send(&http.0, &resolved_params)
+    // 1. 发送请求
+    let mut resp = send(http, &resolved_params)
         .await
         .map_err(crate::error::AppError::Custom)?;
 
-    // 2. 构造请求快照（JSON 文本，用于历史回填）
+    // 2. 构造请求快照
     let snapshot = serde_json::to_string(&resolved_params)
         .unwrap_or_else(|_| "{}".to_string());
 
-    // 3. 响应头序列化为 JSON 数组 [["Header-Name","value"], ...]（保留顺序和重复 Header）
+    // 3. 响应头序列化
     let resp_headers_json = serde_json::to_string(&resp.headers)
         .unwrap_or_else(|_| "[]".to_string());
 
-    // 4. 写入 request_history（test_case_id 允许 null = 原始参数调试）
+    // 4. 写入 request_history
+    let rid = request_id.unwrap_or(0);
     let history_id: i64 = sqlx::query_scalar(
         r#"
         INSERT INTO request_history
@@ -126,7 +123,7 @@ pub async fn send_request(
         RETURNING id
         "#,
     )
-    .bind(request_id)
+    .bind(rid)
     .bind(test_case_id)
     .bind(resp.status_code as i64)
     .bind(resp.elapsed_ms as i64)
@@ -134,15 +131,30 @@ pub async fn send_request(
     .bind(&resp.body)
     .bind(if resp.is_truncated { 1i64 } else { 0i64 })
     .bind(&resp_headers_json)
-    .fetch_one(&db.0)
+    .fetch_one(pool)
     .await?;
 
     resp.history_id = history_id;
     Ok(resp)
 }
 
+/// 发送 HTTP 请求，写入 request_history，返回响应结果
+#[tauri::command]
+pub async fn send_request(
+    db: State<'_, AppDb>,
+    http: State<'_, HttpClient>,
+    request_id: i64,
+    test_case_id: Option<i64>,
+    params: SendRequestParams,
+    env_id: Option<i64>,
+    project_id: Option<i64>,
+) -> CmdResult<HttpResponse> {
+    Ok(send_request_impl(
+        &db.0, &http.0, Some(request_id), test_case_id, params, env_id, project_id,
+    ).await?)
+}
+
 /// 获取接口最近 20 条历史记录
-/// test_case_id 传 null/缺省 → 全部历史；传具体值 → 仅该用例的历史
 #[tauri::command]
 pub async fn list_history(
     db: State<'_, AppDb>,
