@@ -6,14 +6,12 @@ allowed-tools: Bash, Read, Glob, Grep, AskUserQuestion
 
 # ApiCat 测试用例生成
 
-为 ApiCat 本地库接口生成 7 种类型用例，写入后可跑断言、可压测。先按 `apicat-lib` 定位 Bridge。
+为 ApiCat 本地库接口生成 7 种类型用例，写入后可跑断言、可压测。
+先按 `apicat-lib` 的 Step 1 定位 Bridge。**参数格式、选项目方式等公共约定见 `apicat-lib` 的「共享约束」，本文不重复。**
 
 ## Step 1：选项目
 
-`AskUserQuestion` 选项卡让用户选（禁止打印列表让用户回复数字）：
-```bash
-curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_projects"
-```
+用 `AskUserQuestion` 选项卡让用户选项目。
 
 ## Step 2：选接口
 
@@ -27,7 +25,7 @@ for cid in $(curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_collections?p
 done
 ```
 
-匹配不到 → 先问「要不要新建接口」再建。
+匹配不到 → 先问「要不要新建接口」再建（建接口见 `apicat-edit`）。
 
 ## Step 3：选用例类型
 
@@ -49,20 +47,13 @@ done
 
 ## Step 4：读接口已有参数
 
-用例参数以接口定义为基础。读接口详情：
-```bash
-curl -s -H "Authorization: Bearer $TOKEN" "$BASE/get_request?id=$RID"
-```
+用例参数以接口定义为基础。读接口详情：`GET /get_request?id=$RID`。
 
-**参数格式**（沿用接口的 `params` JSON 字符串）：
-```jsonc
-// GET params —— 拼 URL query
-[{"key": "gpId", "value": "test-gaid", "enabled": true}]
-// POST body_type="raw_json", body 是 JSON 字符串
-"{\"channel\": \"home\", \"count\": 20}"
-```
+参数形状沿用接口的 `params` JSON 字符串，例如 `[{"key": "gpId", "value": "test-gaid", "enabled": true}]`；POST 则 `body_type="raw_json"` + body 为 JSON 字符串。
 
 **核心原则「参数要全」**：Happy Path 须含全部 optional 业务参数（设备信息 lo/la/sdk 等），不只 required。
+
+**参数只能从接口定义推断不出时**，再去读源码/文档补（这也是本技能保留 Grep 工具的原因）；仍推断不出就别编，留空并在汇报里标注。
 
 ## Step 5：生成用例 JSON
 
@@ -86,12 +77,21 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/get_request?id=$RID"
 
 ## Step 6：写入（幂等）
 
-同名检查：先查已有用例，同 `name` 则跳过。
+同名检查：先查已有用例（`GET /list_test_cases?request_id=$RID`），同 `name` 则跳过。
+
 ```bash
-curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_test_cases?request_id=$RID"
-# 写入
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d @case.json "$BASE/create_test_case"
+```
+
+**用例多时改用脚本**（`apicat-lib/scripts/bridge_client.py`），省掉逐条拼 curl 与结果校验：
+
+```python
+import sys; sys.path.insert(0, "<skills>/apicat-lib/scripts")
+from bridge_client import ApiCatBridge
+b = ApiCatBridge()
+existing = {c["name"] for c in b.get("/list_test_cases", {"request_id": rid})}
+# 逐条 b.post("/create_test_case", case)，失败会抛异常
 ```
 
 ## Step 7：断言规则
@@ -100,7 +100,7 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 - 业务码从接口描述/文档/样例推断；推断不出则**不写业务码断言**（避免模板假定的 `$.code eq 0` 落库误导）
 - 断言格式见 `apicat-lib/references/apicat_schema.md`
 
-## Step 8：压测（需求 5）
+## Step 8：压测
 
 用户要求压测时：
 
@@ -109,25 +109,26 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 3. 汇总 N 份报告
 
 ```bash
-# 用例参数 → SendRequestParams（注意：params 内部字段用 snake_case，url 必须完整地址）
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d "{\"requestId\": $RID, \"params\": {\"method\": \"GET\", \"url\": \"$FULL_URL\", \"query_params\": $PARAMS, \"headers\": $HEADERS, \"body_type\": \"$BT\", \"body\": \"$BODY\", \"path_params\": [], \"auth_type\": \"none\", \"auth_config\": \"{}\"}, \"concurrent\": 10, \"mode\": \"count\", \"value\": 100}" \
   "$BASE/start_stress"
 ```
 
-**⚠️ 压测引擎不做 `{{base_url}}` 替换**：如果用例 URL 是 `{{base_url}}/api/x`，必须先查环境拿 base_url 拼成完整地址再传。
+**⚠️ 压测的两个特殊点**（与普通写接口不同，容易踩）：
+- `params` 内部字段必须 **snake_case**（`query_params`/`body_type`/`path_params`/`auth_type`/`auth_config`），camelCase 会 400
+- **压测引擎不做 `{{base_url}}` 替换**：用例 URL 是 `{{base_url}}/api/x` 时必须先查环境拿 base_url 拼成完整地址再传
 
 参数：`concurrent 1~500`、`mode: count|duration`、`value`（count=总请求数≤10000，duration=秒数）。
+压测阻塞到结束，返回 `StressStats`（total/success/failed/success_rate/biz_success_rate/avg_ms/p50/p90/p95/p99/max_ms/tps/...）。
 
-压测阻塞到结束，返回 `StressStats`（total/success/failed/success_rate/avg_ms/p50/p90/p95/p99/max_ms/tps/...）。
+> `success_rate` 是**响应率**，`biz_success_rate` 才是**业务成功率**——两者含义不同，别混。详见 `apicat-lib/references/bridge-api.md`。
 
 ## Step 9：输出摘要
 
 报告：项目名、新建/复用接口数、写入/跳过用例数、各类型用例列表。压测时追加各用例的统计摘要。
 
-## 已知坑（必须遵守）
+## 本技能特有约束
 
-- params 必须 `{key, value, enabled}` 形状，**禁止** OpenAPI 的 `{name, in}`（前端按 `p.key` 读，会静默丢参）
-- GET 参数进 `params`；POST/PUT 必须写 `body_type` + `body`
-- 用例 `headers`/`params`/`assertions` 都是 **JSON 字符串**（不是数组对象）
 - `collection_id` 必填（用例必须挂在某目录下）
+
+（`params` 形状、GET/POST 参数位置、JSON 字符串等公共约定见 `apicat-lib` 共享约束）

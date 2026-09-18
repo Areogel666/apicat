@@ -7,12 +7,13 @@ allowed-tools: Bash, Read, Write, Glob, AskUserQuestion
 # ApiCat 接口文档生成
 
 从 ApiCat 读接口定义和用例，生成标准 Markdown 接口文档。
+先按 `apicat-lib` 的 Step 1 定位 Bridge。**选项目方式等公共约定见 `apicat-lib` 的「共享约束」。**
 
-**格式规范已内嵌在本技能的 Step 5 里，不需要读外部模板项目。**
+**格式规范已内嵌在本技能 Step 5，不需要读任何外部模板项目。**
 
-## Step 1：定位 Bridge + 选项目
+## Step 1：选项目
 
-按 `apicat-lib` 定位。`AskUserQuestion` 选项目。
+用 `AskUserQuestion` 选项卡让用户选项目。
 
 ## Step 2：确定范围
 
@@ -21,26 +22,28 @@ allowed-tools: Bash, Read, Write, Glob, AskUserQuestion
 
 ## Step 3：读数据
 
-```bash
-# 接口详情
-curl -s -H "Authorization: Bearer $TOKEN" "$BASE/get_request?id=$RID"
-# 用例（用于生成多场景 Response 示例）
-curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_test_cases?request_id=$RID"
-# 字段绑定（已绑定字典的字段引用字典文件）
-curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_field_rules?project_id=$PID"
-# 字典详情
-curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_dictionaries?project_id=$PID"
-curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_dictionary_items?dictionary_id=$DID"
+要连读 5 个端点，用 `apicat-lib/scripts/bridge_client.py` 比手写 curl 省事：
+
+```python
+import sys; sys.path.insert(0, "<skills>/apicat-lib/scripts")
+from bridge_client import ApiCatBridge
+b = ApiCatBridge()
+req    = b.get("/get_request", {"id": rid})                      # 接口详情
+cases  = b.get("/list_test_cases", {"request_id": rid})          # 用例 → 多场景 Response
+rules  = b.get("/list_field_rules", {"project_id": pid})         # 字段绑定
+dicts  = b.get("/list_dictionaries", {"project_id": pid})        # 字典列表
+items  = b.get("/list_dictionary_items", {"dictionary_id": did}) # 字典项
 ```
+
+`get` 的第二个参数是 query 参数字典，返回的已是 `data` 字段（外壳已剥）。
 
 ## Step 4：确定输出目录
 
-按优先级：
-1. 读项目 `docs_output_dir`（从 `list_projects` 返回）→ 有值就用它
-2. 无值 → 默认 `~/.apicat/apidoc/{project_name}/`
-3. 用户指定其他路径 → 用用户指定的
+**用户显式指定的路径优先于项目配置**：
 
-**不需要读任何外部模板项目**，格式规范在 Step 5 里。
+1. 用户指定了路径 → 用它
+2. 否则读项目 `docs_output_dir`（`list_projects` 返回的 snake_case 字段）→ 有值就用它
+3. 都没有 → 默认 `~/.apicat/apidoc/{project_name}/`
 
 目录结构（对齐 ias-api-doc 约定）：
 ```

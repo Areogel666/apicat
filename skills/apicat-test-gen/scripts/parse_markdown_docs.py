@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
 解析 ias-api-doc 风格的 Markdown 接口文档，提取接口定义 + 枚举候选。
-输出 JSON，供 bridge_client 写入 ApiCat。
+
+位于 apicat-edit（数据编辑技能）。**只解析，不写库** —— 输出 JSON 后，
+由调用方按 apicat-edit/SKILL.md「从文档批量导入接口」的流程逐步落库。
 
 用法：
     python parse_markdown_docs.py <markdown_file> [--project-id N]
@@ -109,6 +111,12 @@ def parse_markdown(filepath: str) -> list[dict]:
 
 
 def main():
+    # Windows 下 Python 默认按 locale(GBK) 写 stdout/stderr，会把中文接口名/描述输出成乱码，
+    # 强制 UTF-8 保证调用方（AI/终端）能正确读取
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, "reconfigure"):
+            _stream.reconfigure(encoding="utf-8")
+
     parser = argparse.ArgumentParser(description='解析 Markdown 接口文档')
     parser.add_argument('filepath', help='Markdown 文件路径')
     parser.add_argument('--project-id', type=int, help='目标项目 ID')

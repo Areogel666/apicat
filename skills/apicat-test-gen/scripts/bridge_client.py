@@ -2,13 +2,18 @@
 """
 ApiCat Bridge HTTP 客户端
 读 bridge.json 获取 port + token，提供基础 HTTP 封装。
-供 apicat-test-gen 等技能的脚本调用。
+
+位于 apicat-lib（底座技能），供 apicat-edit / apicat-test-gen / apicat-doc-gen 共用。
 
 用法：
+    import sys; sys.path.insert(0, "<skills>/apicat-lib/scripts")
     from bridge_client import ApiCatBridge
-    bridge = ApiCatBridge()
-    projects = bridge.get("/list_projects")
-    bridge.post("/create_test_case", {...})
+    bridge = ApiCatBridge()                    # 未启动 ApiCat 会抛异常
+    projects = bridge.get("/list_projects")    # 返回 data 字段（外壳已剥）
+    bridge.post("/create_test_case", {...})    # 失败抛 RuntimeError
+
+命令行自检：
+    python bridge_client.py     # 连通则列出所有项目
 """
 import json
 import os
@@ -75,6 +80,10 @@ class ApiCatBridge:
 
 if __name__ == "__main__":
     # 自检：列出项目
+    # Windows 下 Python 默认按 locale(GBK) 写 stdout/stderr，中文会乱码
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, "reconfigure"):
+            _stream.reconfigure(encoding="utf-8")
     try:
         b = ApiCatBridge()
         projects = b.get("/list_projects")
