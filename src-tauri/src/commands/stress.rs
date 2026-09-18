@@ -5,7 +5,11 @@
 //!   - reqwest 连接池大小不超过 max_concurrent（§10.2）
 //!   - Windows 跳过 fd 检测；macOS/Linux 检测 getrlimit
 
-use crate::{error::CmdResult, http::client::{send, SendRequestParams}, types::StressRun};
+use crate::{
+    error::CmdResult,
+    http::client::{send, SendRequestParams},
+    types::{ApiRequest, StressRun},
+};
 use serde::Serialize;
 use std::{
     sync::{Arc, Mutex},
@@ -28,7 +32,6 @@ const LATENCY_BUCKETS: [f64; 9] = [1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0
 const LATENCY_BUCKET_COUNT: usize = 10;
 
 /// 耗时直方图的区间标签，与 LATENCY_BUCKETS 一一对应（10 桶）
-#[allow(dead_code)] // 1.0.5：报告的「耗时分布」表用，Task 4 接入
 pub const LATENCY_LABELS: [&str; 10] = [
     "<1", "1-2", "2-5", "5-10", "10-20", "20-50", "50-100", "100-200", "200-500", ">500",
 ];
@@ -228,6 +231,240 @@ fn check_fd_limit(max_concurrent: u32) -> Result<(), String> {
 #[cfg(not(unix))]
 fn check_fd_limit(_max_concurrent: u32) -> Result<(), String> {
     Ok(()) // Windows 无此限制，直接通过
+}
+
+// ── 压测报告生成（1.0.5）────────────────────────────────────
+//
+// 报告内容（说什么）的唯一真源：App 的预览/导出与 bridge 技能调用共用这一份。
+// HTML 的「渲染」——把 Markdown 变成带样式的页面——由各消费方自己做
+// （App 用 markdown-it，技能自带工具），那是渲染而非内容，不构成第二份真源。
+
+/// 报告生成时对 `stats_json` 的宽松解析视图。
+/// 旧记录缺字段一律 None，报告里显示「未采集」，不编造数值。
+#[derive(Default, serde::Deserialize)]
+struct ReportStats {
+    #[serde(default)] total: u64,
+    #[serde(default)] success: u64,
+    #[serde(default)] failed: u64,
+    #[serde(default)] success_rate: f64,
+    #[serde(default)] avg_ms: f64,
+    #[serde(default)] min_ms: u64,
+    #[serde(default)] p50_ms: u64,
+    #[serde(default)] p90_ms: u64,
+    #[serde(default)] p95_ms: u64,
+    #[serde(default)] p99_ms: u64,
+    #[serde(default)] max_ms: u64,
+    #[serde(default)] tps: f64,
+    #[serde(default)] elapsed_sec: f64,
+    // 1.0.5 新增字段：1.0.4 及以前的记录没有 → None → 报告标「未采集」
+    #[serde(default)] biz_success: Option<u64>,
+    #[serde(default)] biz_success_rate: Option<f64>,
+    #[serde(default)] expect_status: Option<String>,
+    #[serde(default)] latency_hist: Option<Vec<u64>>,
+    #[serde(default)] status_counts: Option<Vec<(u16, u64)>>,
+}
+
+/// 报告生成时对 `config_json` 的宽松解析视图。
+/// 期望状态码不在这里取——统一走 `ReportStats.expect_status`，
+/// 因为只有它能区分「旧记录没采集」和「采集到了」。
+#[derive(Default, serde::Deserialize)]
+struct ReportConfig {
+    #[serde(default)] concurrent: Option<u32>,
+    #[serde(default)] mode: Option<String>,
+    #[serde(default)] value: Option<u64>,
+}
+
+const NA_UNCOLLECTED: &str = "—（旧版本未采集）";
+
+/// 状态码语义说明（报告的「说明」列）。
+/// 注意：前端 `stressReport.ts` 有一份同名的 TS 实现，仅供 App 状态码分布条使用；
+/// 报告里的这一列由本函数生成。两处都是 5 个分支的稳定映射，刻意不强行统一。
+fn status_hint(code: u16) -> &'static str {
+    match code {
+        0 => "网络错误（未拿到响应）",
+        200..=299 => "成功",
+        300..=399 => "重定向",
+        400..=499 => "客户端错误",
+        500..=599 => "服务端错误",
+        _ => "未知",
+    }
+}
+
+/// 结论摘要。按固定顺序产出，保证同一份数据每次生成结果一致。
+fn conclusions(st: &ReportStats) -> Vec<String> {
+    let mut out = Vec::new();
+
+    if st.failed > 0 {
+        out.push(format!(
+            "⚠️ **{}** 次请求未拿到响应（超时 / 连接失败 / DNS 失败），响应率 **{:.1}%**",
+            st.failed, st.success_rate
+        ));
+    }
+
+    match st.biz_success_rate {
+        None => out.push("ℹ️ 该记录由旧版本产生，未采集「业务成功率」与「期望状态码」".to_string()),
+        Some(rate) if rate < 100.0 => {
+            let bad = st.total.saturating_sub(st.biz_success.unwrap_or(0));
+            let spec = st.expect_status.as_deref().unwrap_or(DEFAULT_EXPECT_STATUS);
+            out.push(format!(
+                "⚠️ **{}** 次响应的状态码不在期望范围（`{}`），业务成功率 **{:.1}%**",
+                bad, spec, rate
+            ));
+        }
+        Some(_) => {}
+    }
+
+    if st.p95_ms > 500 {
+        out.push(format!("⚠️ P95 耗时 **{}ms**，超过 500ms 参考线", st.p95_ms));
+    }
+    if st.p99_ms > 1000 {
+        out.push(format!("❌ P99 耗时 **{}ms**，超过 1000ms，长尾明显", st.p99_ms));
+    }
+
+    if out.is_empty() {
+        out.push("✅ 全部请求均拿到响应，状态码全部符合预期，P95 在 500ms 以内".to_string());
+    }
+    out
+}
+
+/// 生成一张 Markdown 表格（含表头分隔行），末尾补一个空行
+fn md_table(headers: &[&str], rows: &[Vec<String>]) -> String {
+    let mut s = String::new();
+    s.push_str(&format!("| {} |\n", headers.join(" | ")));
+    let sep: Vec<&str> = headers.iter().map(|_| "---").collect();
+    s.push_str(&format!("| {} |\n", sep.join(" | ")));
+    for r in rows {
+        s.push_str(&format!("| {} |\n", r.join(" | ")));
+    }
+    s.push('\n');
+    s
+}
+
+/// 生成压测报告的 Markdown。App 预览/导出与 bridge 技能共用这一份内容。
+pub fn build_stress_report_markdown(run: &StressRun, request: Option<&ApiRequest>) -> String {
+    let cfg: ReportConfig = serde_json::from_str(&run.config_json).unwrap_or_default();
+    let st: Option<ReportStats> = serde_json::from_str(&run.stats_json).ok();
+
+    let mut out = String::new();
+    out.push_str("# ApiCat 压测报告\n\n");
+
+    match request {
+        Some(r) => {
+            let name = if r.name.is_empty() { "(未命名)" } else { r.name.as_str() };
+            out.push_str(&format!("> **接口**：`{}` {}\n", r.method, name));
+            out.push_str(&format!("> **URL**：`{}`\n", r.url));
+        }
+        None => out.push_str(&format!("> **接口**：request_id = {}\n", run.request_id)),
+    }
+    out.push_str(&format!("> **压测时间**：{}\n\n", run.created_at));
+
+    let Some(st) = st else {
+        out.push_str("（无统计数据）\n");
+        return out;
+    };
+
+    let has_biz = st.biz_success_rate.is_some();
+    let expect_shown = if has_biz {
+        st.expect_status.as_deref().unwrap_or(DEFAULT_EXPECT_STATUS).to_string()
+    } else {
+        NA_UNCOLLECTED.to_string()
+    };
+
+    // ── 一、结论摘要 ──
+    out.push_str("## 一、结论摘要\n\n");
+    for c in conclusions(&st) {
+        out.push_str(&format!("- {c}\n"));
+    }
+    out.push('\n');
+
+    // ── 二、核心指标 ──
+    out.push_str("## 二、核心指标\n\n");
+    let biz_cell = if has_biz {
+        format!(
+            "{:.1}%（{} / {}）",
+            st.biz_success_rate.unwrap_or(0.0),
+            st.biz_success.unwrap_or(0),
+            st.total
+        )
+    } else {
+        NA_UNCOLLECTED.to_string()
+    };
+    out.push_str(&md_table(&["指标", "值"], &[
+        vec!["总请求数".into(), st.total.to_string()],
+        vec!["响应率".into(), format!("{:.1}%（{} / {}）", st.success_rate, st.success, st.total)],
+        vec!["业务成功率".into(), biz_cell],
+        vec!["期望状态码".into(), expect_shown.clone()],
+        vec!["传输失败".into(), st.failed.to_string()],
+        vec!["TPS".into(), format!("{:.1}", st.tps)],
+        vec!["平均耗时".into(), format!("{:.1} ms", st.avg_ms)],
+        vec!["最小耗时".into(), format!("{} ms", st.min_ms)],
+        vec!["P50".into(), format!("{} ms", st.p50_ms)],
+        vec!["P90".into(), format!("{} ms", st.p90_ms)],
+        vec!["P95".into(), format!("{} ms", st.p95_ms)],
+        vec!["P99".into(), format!("{} ms", st.p99_ms)],
+        vec!["最大耗时".into(), format!("{} ms", st.max_ms)],
+        vec!["压测时长".into(), format!("{:.2} s", st.elapsed_sec)],
+    ]));
+
+    // ── 三、耗时分布 ──
+    out.push_str("## 三、耗时分布\n\n");
+    match &st.latency_hist {
+        None => out.push_str(&format!("{NA_UNCOLLECTED}\n\n")),
+        Some(hist) => {
+            let total: u64 = hist.iter().sum::<u64>().max(1);
+            let rows: Vec<Vec<String>> = LATENCY_LABELS
+                .iter()
+                .enumerate()
+                .map(|(i, label)| {
+                    let n = hist.get(i).copied().unwrap_or(0);
+                    vec![
+                        label.to_string(),
+                        n.to_string(),
+                        format!("{:.1}%", n as f64 / total as f64 * 100.0),
+                    ]
+                })
+                .collect();
+            out.push_str(&md_table(&["区间(ms)", "次数", "占比"], &rows));
+        }
+    }
+
+    // ── 四、状态码分布 ──
+    out.push_str("## 四、状态码分布\n\n");
+    match &st.status_counts {
+        None => out.push_str(&format!("{NA_UNCOLLECTED}\n\n")),
+        Some(sc) => {
+            let total: u64 = sc.iter().map(|(_, n)| n).sum::<u64>().max(1);
+            let rows: Vec<Vec<String>> = sc
+                .iter()
+                .map(|(code, n)| {
+                    vec![
+                        if *code == 0 { "网络错误".to_string() } else { code.to_string() },
+                        n.to_string(),
+                        format!("{:.0}%", *n as f64 / total as f64 * 100.0),
+                        status_hint(*code).to_string(),
+                    ]
+                })
+                .collect();
+            out.push_str(&md_table(&["状态码", "次数", "占比", "说明"], &rows));
+        }
+    }
+
+    // ── 五、压测配置 ──
+    out.push_str("## 五、压测配置\n\n");
+    let mode_cell = match cfg.mode.as_deref() {
+        Some("count") => "总请求数".to_string(),
+        Some("duration") => "持续时间".to_string(),
+        Some(other) => other.to_string(),
+        None => "—".to_string(),
+    };
+    out.push_str(&md_table(&["项", "值"], &[
+        vec!["并发数".into(), cfg.concurrent.map(|v| v.to_string()).unwrap_or_else(|| "—".into())],
+        vec!["模式".into(), mode_cell],
+        vec!["请求数 / 持续秒数".into(), cfg.value.map(|v| v.to_string()).unwrap_or_else(|| "—".into())],
+        vec!["期望状态码".into(), expect_shown],
+    ]));
+
+    out
 }
 
 // ── 主压测 Command ─────────────────────────────────────────
@@ -554,5 +791,105 @@ mod tests {
         let mut s = RawStats { expect_status: "200".to_string(), ..Default::default() };
         s.record(true, true, 5, Some(200));
         assert_eq!(s.snapshot(1.0, true).expect_status, "200");
+    }
+
+    // ── 报告生成器 ────────────────────────────────────────
+
+    /// 测试夹具：只填报告生成器真正读到的字段
+    fn sample_run(stats_json: &str, config_json: &str) -> StressRun {
+        StressRun {
+            id: 1,
+            request_id: 7,
+            config_json: config_json.to_string(),
+            stats_json: stats_json.to_string(),
+            created_at: "2026-09-18 14:03:22".to_string(),
+        }
+    }
+
+    /// 新记录：100 次请求全部拿到响应，但期望 2xx、实际全是 500
+    #[test]
+    fn test_report_flags_business_failure() {
+        let run = sample_run(
+            r#"{"total":100,"success":100,"failed":0,"success_rate":100.0,"avg_ms":12.5,
+                "min_ms":1,"p50_ms":10,"p90_ms":20,"p95_ms":30,"p99_ms":40,"max_ms":50,
+                "tps":50.0,"elapsed_sec":2.0,"biz_success":0,"biz_success_rate":0.0,
+                "expect_status":"2xx","latency_hist":[0,0,0,0,0,0,0,0,0,100],
+                "status_counts":[[500,100]]}"#,
+            r#"{"concurrent":10,"mode":"count","value":100,"expect_status":"2xx"}"#,
+        );
+        let md = build_stress_report_markdown(&run, None);
+        // 传输没问题，所以不该出现「未拿到响应」的告警
+        assert!(!md.contains("次请求未拿到响应"), "不该报传输失败:\n{md}");
+        // 但业务全错，必须报出来
+        assert!(md.contains("业务成功率 **0.0%**"), "缺业务失败告警:\n{md}");
+        assert!(md.contains("| 500 | 100 |"), "缺状态码明细:\n{md}");
+        assert!(md.contains("服务端错误"), "缺状态码语义说明:\n{md}");
+    }
+
+    /// 旧记录：没有 biz_success_rate / latency_hist / status_counts，
+    /// 必须显示「未采集」而不是编造 0%
+    #[test]
+    fn test_report_marks_legacy_record_as_uncollected() {
+        let run = sample_run(
+            r#"{"total":10,"success":10,"failed":0,"success_rate":100.0,"avg_ms":1.0,
+                "min_ms":1,"p50_ms":1,"p90_ms":1,"p95_ms":1,"p99_ms":1,"max_ms":1,
+                "tps":5.0,"elapsed_sec":2.0}"#,
+            r#"{"concurrent":5,"mode":"count","value":10}"#,
+        );
+        let md = build_stress_report_markdown(&run, None);
+        assert!(md.contains("旧版本未采集"), "旧记录应标未采集:\n{md}");
+        assert!(md.contains("旧版本产生"), "旧记录应有说明行:\n{md}");
+        assert!(!md.contains("业务成功率 **0.0%**"), "不该给旧记录编造 0%:\n{md}");
+    }
+
+    /// 健康记录：全绿，结论是 ✅
+    #[test]
+    fn test_report_healthy_record_concludes_ok() {
+        let run = sample_run(
+            r#"{"total":100,"success":100,"failed":0,"success_rate":100.0,"avg_ms":12.5,
+                "min_ms":1,"p50_ms":10,"p90_ms":20,"p95_ms":30,"p99_ms":40,"max_ms":50,
+                "tps":50.0,"elapsed_sec":2.0,"biz_success":100,"biz_success_rate":100.0,
+                "expect_status":"2xx","latency_hist":[0,0,0,0,0,0,0,0,0,100],
+                "status_counts":[[200,100]]}"#,
+            r#"{"concurrent":10,"mode":"count","value":100,"expect_status":"2xx"}"#,
+        );
+        let md = build_stress_report_markdown(&run, None);
+        assert!(md.contains('✅'), "健康记录应给出通过结论:\n{md}");
+        assert!(!md.contains('⚠'));
+        assert!(!md.contains('❌'));
+    }
+
+    /// 带接口信息时，报告头部应显示 method / name / url
+    #[test]
+    fn test_report_uses_request_brief_when_present() {
+        let run = sample_run(
+            r#"{"total":1,"success":1,"failed":0,"success_rate":100.0,"avg_ms":1.0,
+                "min_ms":1,"p50_ms":1,"p90_ms":1,"p95_ms":1,"p99_ms":1,"max_ms":1,
+                "tps":1.0,"elapsed_sec":1.0,"biz_success":1,"biz_success_rate":100.0,
+                "expect_status":"2xx","latency_hist":[1,0,0,0,0,0,0,0,0,0],
+                "status_counts":[[200,1]]}"#,
+            r#"{"concurrent":1,"mode":"count","value":1,"expect_status":"2xx"}"#,
+        );
+        let req = ApiRequest {
+            id: 7, collection_id: 1,
+            name: "登录".to_string(), method: "POST".to_string(),
+            url: "https://example.com/api/login".to_string(),
+            params: "[]".to_string(), headers: "[]".to_string(),
+            body_type: "json".to_string(), body: "{}".to_string(),
+            auth_type: "none".to_string(), auth_config: "{}".to_string(),
+            description: String::new(), sort_order: 0,
+            created_at: String::new(), updated_at: String::new(),
+        };
+        let md = build_stress_report_markdown(&run, Some(&req));
+        assert!(md.contains("`POST` 登录"), "缺接口名:\n{md}");
+        assert!(md.contains("https://example.com/api/login"), "缺 URL:\n{md}");
+    }
+
+    /// stats_json 是坏的时候不能 panic
+    #[test]
+    fn test_report_survives_garbage_stats() {
+        let run = sample_run("not json at all", "{}");
+        let md = build_stress_report_markdown(&run, None);
+        assert!(md.contains("（无统计数据）"), "坏数据应优雅降级:\n{md}");
     }
 }
