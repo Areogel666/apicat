@@ -3,25 +3,9 @@
 use super::BridgeInfo;
 use std::path::Path;
 
-/// 生成随机 token（32 字节 → 64 hex 字符）
+/// 生成随机 token（UUID v4，去掉连字符 → 32 hex 字符）
 pub fn generate_token() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    // 轻量随机：时间戳 + 地址熵 + 简单 xorshift，避免引入 rand 依赖
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let addr = &nanos as *const u128 as u64;
-    let mut state = nanos as u64 ^ addr ^ (nanos >> 64) as u64;
-    let mut out = String::with_capacity(64);
-    for _ in 0..4 {
-        // xorshift64
-        state ^= state << 13;
-        state ^= state >> 7;
-        state ^= state << 17;
-        out.push_str(&format!("{:016x}", state));
-    }
-    out
+    uuid::Uuid::new_v4().simple().to_string()
 }
 
 /// 读 bridge.json；不存在或损坏则返回 None

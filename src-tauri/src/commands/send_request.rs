@@ -112,29 +112,29 @@ pub async fn send_request_impl(
     let resp_headers_json = serde_json::to_string(&resp.headers)
         .unwrap_or_else(|_| "[]".to_string());
 
-    // 4. 写入 request_history
-    let rid = request_id.unwrap_or(0);
-    let history_id: i64 = sqlx::query_scalar(
-        r#"
-        INSERT INTO request_history
-            (request_id, test_case_id, status_code, response_time_ms, request_snapshot,
-             response_body, is_truncated, response_headers)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        RETURNING id
-        "#,
-    )
-    .bind(rid)
-    .bind(test_case_id)
-    .bind(resp.status_code as i64)
-    .bind(resp.elapsed_ms as i64)
-    .bind(&snapshot)
-    .bind(&resp.body)
-    .bind(if resp.is_truncated { 1i64 } else { 0i64 })
-    .bind(&resp_headers_json)
-    .fetch_one(pool)
-    .await?;
-
-    resp.history_id = history_id;
+    // 4. 写入 request_history（request_id 为空时跳过，避免写 id=0 的孤儿行）
+    if let Some(rid) = request_id {
+        let history_id: i64 = sqlx::query_scalar(
+            r#"
+            INSERT INTO request_history
+                (request_id, test_case_id, status_code, response_time_ms, request_snapshot,
+                 response_body, is_truncated, response_headers)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING id
+            "#,
+        )
+        .bind(rid)
+        .bind(test_case_id)
+        .bind(resp.status_code as i64)
+        .bind(resp.elapsed_ms as i64)
+        .bind(&snapshot)
+        .bind(&resp.body)
+        .bind(if resp.is_truncated { 1i64 } else { 0i64 })
+        .bind(&resp_headers_json)
+        .fetch_one(pool)
+        .await?;
+        resp.history_id = history_id;
+    }
     Ok(resp)
 }
 

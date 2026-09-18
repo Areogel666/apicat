@@ -18,12 +18,14 @@ import { useThemeStore } from './stores/theme'
 import { useCollectionStore } from './stores/collection'
 import { useRequestStore } from './stores/request'
 import { useDictionaryStore } from './stores/dictionary'
+import { useTestCaseStore } from './stores/testCase'
 
 const projectStore = useProjectStore()
 const themeStore = useThemeStore()
 const collectionStore = useCollectionStore()
 const requestStore = useRequestStore()
 const dictionaryStore = useDictionaryStore()
+const testCaseStore = useTestCaseStore()
 
 let bridgeUnlisten: UnlistenFn | null = null
 
@@ -54,8 +56,14 @@ onMounted(async () => {
     } else if (kind === 'dictionaries' || kind === 'field_bindings') {
       await dictionaryStore.loadDictionaries(pid)
       await dictionaryStore.loadFieldBindings(pid)
+    } else if (kind === 'test_cases') {
+      // 技能通过 bridge 写用例后，刷新当前激活接口的用例列表
+      const rid = requestStore.activeRequestId
+      if (rid != null) {
+        await testCaseStore.loadTestCases(rid)
+      }
     }
-    // test_cases / stress 由各面板自行监听或用户手动刷新
+    // stress 由压测面板自行处理
   })
 })
 

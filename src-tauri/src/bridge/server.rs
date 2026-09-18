@@ -47,11 +47,19 @@ async fn auth_middleware(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
+    // /health 免鉴权（供探活）
+    if request.uri().path().ends_with("/health") {
+        return next.run(request).await;
+    }
     let auth = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    let token = auth.strip_prefix("Bearer ").unwrap_or("");
+    // RFC 7235: scheme 大小写不敏感
+    let token = auth
+        .strip_prefix("Bearer ")
+        .or_else(|| auth.strip_prefix("bearer "))
+        .unwrap_or("");
     if token != state.token {
         return err(StatusCode::UNAUTHORIZED, "invalid or missing token").into_response();
     }
@@ -153,10 +161,11 @@ pub fn build_router(state: BState) -> Router {
         // 环境
         .route("/list_environments", get(list_environments))
         .route("/list_env_variables", get(list_env_variables))
-        // 健康检查（无需鉴权，在 middleware 之前）
+        // 健康检查（auth_middleware 内部放行 /health）
         .route("/health", get(|| async { ok(json!({"status": "up"})) }));
 
-    api.layer(axum::middleware::from_fn_with_state(state.clone(), auth_middleware))
+    Router::new()
+        .nest("/api/v1", api.layer(axum::middleware::from_fn_with_state(state.clone(), auth_middleware)))
         .with_state(state)
 }
 
@@ -197,11 +206,13 @@ async fn create_project(State(s): State<BState>, Json(body): Json<Value>) -> axu
 
 async fn update_project(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
     let Some(id) = body["id"].as_i64() else { return err(StatusCode::BAD_REQUEST, "id required") };
+    // COALESCE：传了才更新，未传保留原值
     match sqlx::query_as::<_, Project>(
-        "UPDATE projects SET name=?, description=?, docs_output_dir=?, updated_at=datetime('now') \
+        "UPDATE projects SET name=COALESCE(?, name), description=COALESCE(?, description), \
+         docs_output_dir=COALESCE(?, docs_output_dir), updated_at=datetime('now') \
          WHERE id=? RETURNING id, name, description, docs_output_dir, created_at, updated_at",
     )
-    .bind(body["name"].as_str().unwrap_or(""))
+    .bind(body["name"].as_str())
     .bind(body["description"].as_str())
     .bind(body["docsOutputDir"].as_str().or(body["docs_output_dir"].as_str()))
     .bind(id)
@@ -329,22 +340,26 @@ async fn create_request(State(s): State<BState>, Json(body): Json<Value>) -> axu
 
 async fn update_request(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
     let Some(id) = body["id"].as_i64() else { return err(StatusCode::BAD_REQUEST, "id required") };
+    // COALESCE：传了才更新，未传保留原值（与 update_test_case 语义一致）
     let sql = format!(
-        "UPDATE api_requests SET name=?, method=?, url=?, params=?, headers=?, \
-         body_type=?, body=?, auth_type=?, auth_config=?, description=?, updated_at=datetime('now') \
+        "UPDATE api_requests SET name=COALESCE(?, name), method=COALESCE(?, method), \
+         url=COALESCE(?, url), params=COALESCE(?, params), headers=COALESCE(?, headers), \
+         body_type=COALESCE(?, body_type), body=COALESCE(?, body), \
+         auth_type=COALESCE(?, auth_type), auth_config=COALESCE(?, auth_config), \
+         description=COALESCE(?, description), updated_at=datetime('now') \
          WHERE id=? RETURNING {REQ_COLS}"
     );
     match sqlx::query_as::<_, ApiRequest>(&sql)
-        .bind(body["name"].as_str().unwrap_or(""))
-        .bind(body["method"].as_str().unwrap_or("GET"))
-        .bind(body["url"].as_str().unwrap_or(""))
-        .bind(body["params"].as_str().unwrap_or("[]"))
-        .bind(body["headers"].as_str().unwrap_or("[]"))
-        .bind(body["bodyType"].as_str().or(body["body_type"].as_str()).unwrap_or("none"))
-        .bind(body["body"].as_str().unwrap_or(""))
-        .bind(body["authType"].as_str().or(body["auth_type"].as_str()).unwrap_or("none"))
-        .bind(body["authConfig"].as_str().or(body["auth_config"].as_str()).unwrap_or("{}"))
-        .bind(body["description"].as_str().unwrap_or(""))
+        .bind(body["name"].as_str())
+        .bind(body["method"].as_str())
+        .bind(body["url"].as_str())
+        .bind(body["params"].as_str())
+        .bind(body["headers"].as_str())
+        .bind(body["bodyType"].as_str().or(body["body_type"].as_str()))
+        .bind(body["body"].as_str())
+        .bind(body["authType"].as_str().or(body["auth_type"].as_str()))
+        .bind(body["authConfig"].as_str().or(body["auth_config"].as_str()))
+        .bind(body["description"].as_str())
         .bind(id)
         .fetch_one(&s.pool)
         .await

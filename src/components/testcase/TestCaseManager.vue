@@ -462,11 +462,18 @@ async function handleContextMenuSelect(key: string) {
   }
 }
 
-// ── 跨接口切换：重置选中和高亮 ─────────────────────────────────
+// ── 跨接口切换：重置选中、高亮、类型筛选 ──────────────────────
 
 watch(() => props.requestId, () => {
   focusedId.value = null
   checkedIds.value = []
+  typeFilter.value = null
+})
+
+// 筛选变化时，清掉已隐藏行的勾选（防止批量删除误删不可见行）
+watch(typeFilter, () => {
+  const visible = new Set(filteredCases.value.map(c => c.id))
+  checkedIds.value = checkedIds.value.filter(id => visible.has(Number(id)))
 })
 </script>
 

@@ -1,7 +1,7 @@
 # ApiCat Bridge API 端点速查
 
 前缀：`http://127.0.0.1:{port}/api/v1/`
-鉴权：所有端点（除 `/health`）需 `Authorization: Bearer {token}` 头。
+鉴权：所有端点需 `Authorization: Bearer {token}` 头（`/api/v1/health` 免鉴权，供探活）。
 
 ## 定位
 

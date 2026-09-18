@@ -101,8 +101,31 @@ pub async fn run_test_case_impl(
         auth_config: String::new(),
     };
 
-    // 3. 环境变量替换
-    if let Some(eid) = env_id {
+    // 3. 环境变量替换（env_id=None 时回落到该项目 is_active=1 的环境）
+    let effective_env_id = match env_id {
+        Some(eid) => Some(eid),
+        None => {
+            // 通过 collection → project 找激活环境
+            let pid: Option<i64> = sqlx::query_scalar(
+                "SELECT c.project_id FROM test_cases tc \
+                 JOIN collections c ON tc.collection_id = c.id WHERE tc.id = ?",
+            )
+            .bind(test_case_id)
+            .fetch_optional(pool)
+            .await?
+            .flatten();
+            match pid {
+                Some(pid) => sqlx::query_scalar(
+                    "SELECT id FROM environments WHERE project_id = ? AND is_active = 1 LIMIT 1",
+                )
+                .bind(pid)
+                .fetch_optional(pool)
+                .await?,
+                None => None,
+            }
+        }
+    };
+    if let Some(eid) = effective_env_id {
         let env = sqlx::query_as::<_, Environment>(
             "SELECT id, project_id, name, base_url, is_active, created_at FROM environments WHERE id=?",
         )
