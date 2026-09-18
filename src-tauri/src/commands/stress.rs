@@ -241,6 +241,7 @@ pub async fn start_stress_impl(
     concurrent: u32,
     mode: &str,
     value: u64,
+    expect_status: &str,
 ) -> Result<StressStats, crate::error::AppError> {
     let app = app.clone();
     let mode = mode.to_string();
@@ -275,7 +276,7 @@ pub async fn start_stress_impl(
 
     // ── 共享统计（Arc<Mutex<RawStats>>）──────────────────
     let raw_stats = Arc::new(Mutex::new(RawStats {
-        expect_status: DEFAULT_EXPECT_STATUS.to_string(),
+        expect_status: expect_status.to_string(),
         ..Default::default()
     }));
 
@@ -433,6 +434,7 @@ pub async fn start_stress_impl(
         "concurrent": concurrent,
         "mode": mode,
         "value": value,
+        "expect_status": expect_status,
     }).to_string();
     let _ = sqlx::query(
         "INSERT INTO stress_runs (request_id, config_json, stats_json) VALUES (?1, ?2, ?3)",
@@ -456,8 +458,10 @@ pub async fn start_stress(
     concurrent: u32,
     mode: String,
     value: u64,
+    expect_status: Option<String>,
 ) -> CmdResult<()> {
-    start_stress_impl(&app, &db.0, request_id, params, concurrent, &mode, value).await?;
+    let expect = expect_status.unwrap_or_else(|| DEFAULT_EXPECT_STATUS.to_string());
+    start_stress_impl(&app, &db.0, request_id, params, concurrent, &mode, value, &expect).await?;
     Ok(())
 }
 

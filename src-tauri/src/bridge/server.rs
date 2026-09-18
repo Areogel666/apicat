@@ -868,9 +868,15 @@ async fn start_stress(State(s): State<BState>, Json(body): Json<Value>) -> axum:
     let concurrent = body["concurrent"].as_u64().unwrap_or(10) as u32;
     let mode = body["mode"].as_str().unwrap_or("count").to_string();
     let value = body["value"].as_u64().unwrap_or(100);
+    // 兼容两种写法，与 requestId / request_id 的处理保持一致
+    let expect_status = body["expectStatus"]
+        .as_str()
+        .or(body["expect_status"].as_str())
+        .unwrap_or(crate::commands::stress::DEFAULT_EXPECT_STATUS)
+        .to_string();
 
     match crate::commands::stress::start_stress_impl(
-        &s.app, &s.pool, request_id, params, concurrent, &mode, value,
+        &s.app, &s.pool, request_id, params, concurrent, &mode, value, &expect_status,
     ).await {
         Ok(stats) => { broadcast(&s, "stress"); ok(stats) }
         Err(e) => server_err(e),
