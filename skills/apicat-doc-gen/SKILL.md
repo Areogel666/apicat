@@ -22,7 +22,7 @@ allowed-tools: Bash, Read, Write, Glob, AskUserQuestion
 
 ## Step 3：读数据
 
-要连读 5 个端点，用 `apicat-lib/scripts/bridge_client.py` 比手写 curl 省事：
+要连读 5 个端点，用底座技能里的 `<skills>/apicat-lib/scripts/bridge_client.py` 比手写 curl 省事（`<skills>` = 技能安装目录）：
 
 ```python
 import sys; sys.path.insert(0, "<skills>/apicat-lib/scripts")

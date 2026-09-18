@@ -19,11 +19,13 @@ allowed-tools: Bash, Read, Glob, Grep, AskUserQuestion
 - 没点名 → 列接口让用户多选
 
 ```bash
-# 遍历项目下所有接口
-for cid in $(curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_collections?project_id=$PID" | jq -r '.data[].id'); do
-  curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_requests?collection_id=$cid"
-done
+# 先取目录列表，从返回里读出各目录 id
+curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_collections?project_id=$PID"
+# 再逐个目录取接口
+curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_requests?collection_id=$CID"
 ```
+
+目录多、要连续读十几条时，改用 `apicat-lib/scripts/bridge_client.py` 循环（见 Step 6），比手工拼 shell 稳。
 
 匹配不到 → 先问「要不要新建接口」再建（建接口见 `apicat-edit`）。
 
@@ -84,7 +86,7 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
   -d @case.json "$BASE/create_test_case"
 ```
 
-**用例多时改用脚本**（`apicat-lib/scripts/bridge_client.py`），省掉逐条拼 curl 与结果校验：
+**用例多时改用脚本**（`<skills>/apicat-lib/scripts/bridge_client.py`，`<skills>` = 技能安装目录），省掉逐条拼 curl 与结果校验：
 
 ```python
 import sys; sys.path.insert(0, "<skills>/apicat-lib/scripts")

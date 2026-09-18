@@ -13,7 +13,7 @@ ApiCat 是桌面 API 调试工具（Tauri 2 + SQLite）。1.0.5 起内置 localh
 - ❌ 不要去读 `migrations/*.sql` 来查表结构——用 API
 - ❌ 不要先搜磁盘找数据库文件——先读 `bridge.json`
 - 直写 DB 会绕过 UI 刷新、业务校验、断言引擎
-- `bridge.json` 不存在或 `enabled: false` → **报错退出**，提示用户启动 ApiCat 并确认 Bridge 已开启，**不要回退到 SQLite**
+- `bridge.json` 不存在、`enabled: false`、**或文件在却连不上**（ApiCat 已退出，留下的是上次的残留文件）→ **报错退出**，提示用户启动 ApiCat 并确认 Bridge 已开启，**不要回退到 SQLite**
 
 ## Step 1：定位 Bridge
 
@@ -30,16 +30,20 @@ cat ~/Library/Application\ Support/com.apicat.app/bridge.json
 { "port": 17320, "token": "abc123...", "enabled": true }
 ```
 
-拿到后**立刻固化成变量**，后续所有调用复用（`$TOKEN` 不是环境变量，必须自己赋值）：
+把上面输出里的值填进变量，后续所有调用复用（`$TOKEN` 不是环境变量，必须自己赋值）：
 
 ```bash
-BRIDGE=$(cat "$APPDATA/com.apicat.app/bridge.json")
-PORT=$(echo "$BRIDGE" | jq -r .port)
-TOKEN=$(echo "$BRIDGE" | jq -r .token)
+PORT=<填入你刚读到的 port>
+TOKEN=<填入你刚读到的 token>
 BASE="http://127.0.0.1:$PORT/api/v1"
 ```
 
+**刻意不用 `jq`／`python` 去解析**：`jq` 不是 Windows 自带（实测多数机器没装），而「从 JSON 里取两个字段」这件事你自己读一眼就会 —— 少一个安装门槛，纯 curl 就能跑通全链路。
+选完项目后同理固化：`PID=<用户选中的项目 id>`；目录/接口 id 用 `CID`/`RID`。
+
 探活 + 验证（`/health` 免鉴权，`list_projects` 验 token）：
+
+**⚠️ `curl` 连不上（exit 7 / connection refused）＝ ApiCat 没在运行。** 此时 `bridge.json` 往往**还在**（上次退出时没清），别被它骗了以为服务正常 —— 直接提示用户启动 ApiCat。
 
 ```bash
 curl -s "$BASE/health"
@@ -67,7 +71,7 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 
 响应统一格式：成功 `{"ok": true, "data": ...}`；失败 `{"ok": false, "error": "..."}`。
 
-**多步调用 → 用脚本**：`scripts/bridge_client.py`（本技能目录下）已封装 bridge.json 定位、鉴权、超时与错误处理，省掉每步拼 curl，也让 5+ 次连续读写的任务不用手撸 jq：
+**多步调用 → 用脚本**：`scripts/bridge_client.py`（本技能目录下）已封装 bridge.json 定位、鉴权、超时与错误处理，省掉逐步拼 curl，也让 5+ 次连续读写不用手工拆 JSON：
 
 ```bash
 python "<skills>/apicat-lib/scripts/bridge_client.py"   # 自检：连通则列出所有项目

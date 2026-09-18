@@ -234,8 +234,8 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 取某条压测历史的报告，**返回 Markdown 全文**（字符串）。与 App 里「📄 报告」看到的内容**完全同源**（同一个 Rust 函数）。
 
 ```bash
-curl -s -H "Authorization: Bearer $TOKEN" "$BASE/stress_report?run_id=6" \
-  | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).data))"
+curl -s -H "Authorization: Bearer $TOKEN" "$BASE/stress_report?run_id=6"
+# → {"ok":true,"data":"<Markdown 报告全文>"}   data 字段即报告全文，直接取用
 ```
 
 报告含五节：结论摘要 / 核心指标 / 耗时分布 / 状态码分布 / 压测配置。
