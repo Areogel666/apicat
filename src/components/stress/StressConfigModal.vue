@@ -67,6 +67,18 @@
         </span>
       </div>
 
+      <!-- 期望状态码（1.0.5：业务成功率判定口径） -->
+      <div class="config-row">
+        <span class="config-label">期望状态码</span>
+        <n-input
+          v-model:value="config.expect_status"
+          size="small"
+          style="width: 120px"
+          placeholder="2xx"
+        />
+        <span class="config-hint">响应命中才算业务成功</span>
+      </div>
+
       <!-- 预估提示 -->
       <div class="config-tip" v-if="config.mode === 'count'">
         💡 {{ config.concurrent }} 并发 × {{ config.value }} 请求
@@ -80,8 +92,9 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue'
-import { NModal, NInputNumber, NRadioGroup, NRadio, NSelect } from 'naive-ui'
+import { NModal, NInputNumber, NRadioGroup, NRadio, NSelect, NInput } from 'naive-ui'
 import type { StressConfig, TestCase } from '../../types'
+import { DEFAULT_EXPECT_STATUS } from './stressUtils'
 
 const show = defineModel<boolean>('show', { required: true })
 
@@ -97,6 +110,7 @@ const config = reactive<StressConfig>({
   concurrent: 10,
   mode: 'count',
   value: 100,
+  expect_status: DEFAULT_EXPECT_STATUS,
 })
 
 const paramSource = ref<'current' | 'testcase'>('current')

@@ -4,6 +4,8 @@ import type { StressStats, StressChartPoint } from '../../types'
 
 // 1.0.4：耗时直方图桶标签（与 Rust LATENCY_BUCKETS 一致：10 桶）
 export const LATENCY_LABELS = ['<1', '1-2', '2-5', '5-10', '10-20', '20-50', '50-100', '100-200', '200-500', '>500']
+/** 期望状态码默认值，与 Rust DEFAULT_EXPECT_STATUS 保持一致 */
+export const DEFAULT_EXPECT_STATUS = '2xx'
 /** 耗时直方图最大柱高（px） */
 export const MAX_HIST_BAR_HEIGHT = 40
 

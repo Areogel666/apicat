@@ -77,6 +77,7 @@ export const useStressStore = defineStore('stress', () => {
         concurrent: config.concurrent,
         mode: config.mode,
         value: config.value,
+        expectStatus: config.expect_status,
       })
     } catch (e) {
       error.value = String(e)

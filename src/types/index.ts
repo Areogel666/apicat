@@ -24,7 +24,7 @@ export interface StressStats {
   total: number
   success: number
   failed: number
-  success_rate: number   // 0.0 ~ 100.0
+  success_rate: number   // 0.0 ~ 100.0（响应率：拿到响应的比例）
   avg_ms: number
   min_ms: number
   p50_ms: number
@@ -38,12 +38,18 @@ export interface StressStats {
   // 1.0.4 新增：耗时直方图（10 桶累计计数）+ 状态码分布 [status, count][]（0=网络错误）
   latency_hist?: number[]
   status_counts?: Array<[number, number]>
+  // 1.0.5 新增：业务成功率（按期望状态码判定）。1.0.4 及以前的记录没有这几项
+  biz_success?: number
+  biz_success_rate?: number
+  expect_status?: string
 }
 
 export interface StressConfig {
   concurrent: number     // 1 ~ 500
   mode: 'count' | 'duration'
   value: number          // 总请求数 或 持续秒数
+  /** 期望状态码表达式，如 `2xx` / `200` / `2xx,3xx`（1.0.5） */
+  expect_status: string
 }
 
 // 折线图数据点（每次 stress://progress 推送时追加一条）

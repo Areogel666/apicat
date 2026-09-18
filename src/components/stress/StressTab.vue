@@ -51,8 +51,12 @@
         <span class="stat-value">{{ stressStore.stats.total }}</span>
       </div>
       <div class="stat-cell">
-        <span class="stat-label">成功率</span>
+        <span class="stat-label">响应率</span>
         <span class="stat-value">{{ stressStore.stats.success_rate.toFixed(1) }}%</span>
+      </div>
+      <div class="stat-cell">
+        <span class="stat-label">业务成功率</span>
+        <span class="stat-value">{{ bizRateText }}</span>
       </div>
       <div class="stat-cell">
         <span class="stat-label">TPS</span>
@@ -138,7 +142,7 @@ import { useTestCaseStore } from '../../stores/testCase'
 import type { StressConfig, StressRun } from '../../types'
 import {
   buildReport, saveReportToFile, formatTime, summarizeStats,
-  drawStressChart, drawCompareChart, readToken,
+  drawStressChart, drawCompareChart, readToken, DEFAULT_EXPECT_STATUS,
 } from './stressUtils'
 
 const emit = defineEmits<{
@@ -151,7 +155,12 @@ const requestStore = useRequestStore()
 const testCaseStore = useTestCaseStore()
 const message = useMessage()
 
-const config = reactive<StressConfig>({ concurrent: 10, mode: 'count', value: 100 })
+const config = reactive<StressConfig>({
+  concurrent: 10,
+  mode: 'count',
+  value: 100,
+  expect_status: DEFAULT_EXPECT_STATUS,
+})
 const paramSource = ref<'current' | 'testcase'>('current')
 const selectedTestCaseId = ref<number | null>(null)
 
@@ -164,6 +173,12 @@ const compareColors = [readToken('--color-success', '#18a058'), readToken('--col
 
 const activeRequestId = computed(() => requestStore.activeRequestId)
 const canStart = computed(() => requestStore.activeRequest != null && !stressStore.isRunning)
+
+/** 业务成功率：旧记录（1.0.4 及以前）未采集，显示 — 而不是编造 0% */
+const bizRateText = computed(() => {
+  const r = stressStore.stats?.biz_success_rate
+  return r == null ? '—' : `${r.toFixed(1)}%`
+})
 
 const testCaseOptions = computed(() =>
   testCaseStore.getByRequestId(activeRequestId.value ?? 0).map(tc => ({
