@@ -186,3 +186,35 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 
 ### GET /list_environments?project_id=N
 ### GET /list_env_variables?id=N（注意：参数是 `id` = env_id）
+### POST /create_environment
+```bash
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"projectId": 1, "name": "测试环境", "baseUrl": "https://staging.example.com"}' \
+  "$BASE/create_environment"
+```
+
+### POST /update_environment
+### POST /delete_environment
+### POST /activate_environment
+```bash
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"projectId": 1, "envId": 3}' "$BASE/activate_environment"
+```
+
+### POST /deactivate_environment
+### POST /create_env_variable
+### POST /update_env_variable
+### POST /delete_env_variable
+
+## Cookie
+
+### GET /list_cookies?scope_type=global|project&project_id=N
+### POST /create_cookie
+```bash
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"scopeType": "project", "projectId": 1, "domain": "example.com", "name": "session", "value": "abc", "path": "/"}' \
+  "$BASE/create_cookie"
+```
+
+### POST /update_cookie
+### POST /delete_cookie

@@ -161,6 +161,19 @@ pub fn build_router(state: BState) -> Router {
         // 环境
         .route("/list_environments", get(list_environments))
         .route("/list_env_variables", get(list_env_variables))
+        .route("/create_environment", post(create_environment))
+        .route("/update_environment", post(update_environment))
+        .route("/delete_environment", post(delete_environment))
+        .route("/activate_environment", post(activate_environment))
+        .route("/deactivate_environment", post(deactivate_environment))
+        .route("/create_env_variable", post(create_env_variable))
+        .route("/update_env_variable", post(update_env_variable))
+        .route("/delete_env_variable", post(delete_env_variable))
+        // Cookie
+        .route("/list_cookies", get(list_cookies))
+        .route("/create_cookie", post(create_cookie))
+        .route("/update_cookie", post(update_cookie))
+        .route("/delete_cookie", post(delete_cookie))
         // 健康检查（auth_middleware 内部放行 /health）
         .route("/health", get(|| async { ok(json!({"status": "up"})) }));
 
@@ -909,6 +922,201 @@ async fn list_env_variables(State(s): State<BState>, Query(q): Query<IdQuery>) -
     .await
     {
         Ok(rows) => ok(rows),
+        Err(e) => server_err(e),
+    }
+}
+
+const ENV_COLS: &str = "id, project_id, name, base_url, is_active, created_at";
+const ENV_VAR_COLS: &str = "id, env_id, key, value, description, enabled";
+const COOKIE_COLS: &str = "id, scope_type, project_id, domain, name, value, path, expires_at, http_only, secure, enabled";
+
+// ── 环境写操作 ──────────────────────────────────────────────
+
+async fn create_environment(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
+    let Some(pid) = body["projectId"].as_i64().or(body["project_id"].as_i64()) else {
+        return err(StatusCode::BAD_REQUEST, "projectId required");
+    };
+    let sql = format!("INSERT INTO environments (project_id, name, base_url) VALUES (?, ?, ?) RETURNING {ENV_COLS}");
+    match sqlx::query_as::<_, Environment>(&sql)
+        .bind(pid)
+        .bind(body["name"].as_str().unwrap_or("未命名环境"))
+        .bind(body["baseUrl"].as_str().or(body["base_url"].as_str()))
+        .fetch_one(&s.pool)
+        .await
+    {
+        Ok(row) => { broadcast(&s, "environments"); ok(row) }
+        Err(e) => server_err(e),
+    }
+}
+
+async fn update_environment(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
+    let Some(id) = body["id"].as_i64() else { return err(StatusCode::BAD_REQUEST, "id required") };
+    let sql = format!(
+        "UPDATE environments SET name=COALESCE(?, name), base_url=COALESCE(?, base_url) \
+         WHERE id=? RETURNING {ENV_COLS}"
+    );
+    match sqlx::query_as::<_, Environment>(&sql)
+        .bind(body["name"].as_str())
+        .bind(body["baseUrl"].as_str().or(body["base_url"].as_str()))
+        .bind(id)
+        .fetch_one(&s.pool)
+        .await
+    {
+        Ok(row) => { broadcast(&s, "environments"); ok(row) }
+        Err(e) => server_err(e),
+    }
+}
+
+async fn delete_environment(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
+    let Some(id) = body["id"].as_i64() else { return err(StatusCode::BAD_REQUEST, "id required") };
+    match sqlx::query("DELETE FROM environments WHERE id=?").bind(id).execute(&s.pool).await {
+        Ok(_) => { broadcast(&s, "environments"); ok(json!({"deleted": id})) }
+        Err(e) => server_err(e),
+    }
+}
+
+async fn activate_environment(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
+    let Some(pid) = body["projectId"].as_i64().or(body["project_id"].as_i64()) else {
+        return err(StatusCode::BAD_REQUEST, "projectId required");
+    };
+    let Some(eid) = body["envId"].as_i64().or(body["env_id"].as_i64()) else {
+        return err(StatusCode::BAD_REQUEST, "envId required");
+    };
+    let mut tx = match s.pool.begin().await { Ok(t) => t, Err(e) => return server_err(e) };
+    if let Err(e) = sqlx::query("UPDATE environments SET is_active=0 WHERE project_id=?").bind(pid).execute(&mut *tx).await {
+        return server_err(e);
+    }
+    if let Err(e) = sqlx::query("UPDATE environments SET is_active=1 WHERE id=? AND project_id=?").bind(eid).bind(pid).execute(&mut *tx).await {
+        return server_err(e);
+    }
+    match tx.commit().await {
+        Ok(_) => { broadcast(&s, "environments"); ok(json!({"activated": eid})) }
+        Err(e) => server_err(e),
+    }
+}
+
+async fn deactivate_environment(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
+    let Some(pid) = body["projectId"].as_i64().or(body["project_id"].as_i64()) else {
+        return err(StatusCode::BAD_REQUEST, "projectId required");
+    };
+    match sqlx::query("UPDATE environments SET is_active=0 WHERE project_id=?").bind(pid).execute(&s.pool).await {
+        Ok(_) => { broadcast(&s, "environments"); ok(json!({"ok": true})) }
+        Err(e) => server_err(e),
+    }
+}
+
+// ── 环境变量写操作 ──────────────────────────────────────────
+
+async fn create_env_variable(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
+    let Some(eid) = body["envId"].as_i64().or(body["env_id"].as_i64()) else {
+        return err(StatusCode::BAD_REQUEST, "envId required");
+    };
+    let sql = format!("INSERT INTO env_variables (env_id, key, value, description) VALUES (?, ?, ?, ?) RETURNING {ENV_VAR_COLS}");
+    match sqlx::query_as::<_, EnvVariable>(&sql)
+        .bind(eid)
+        .bind(body["key"].as_str().unwrap_or(""))
+        .bind(body["value"].as_str().unwrap_or(""))
+        .bind(body["description"].as_str())
+        .fetch_one(&s.pool)
+        .await
+    {
+        Ok(row) => { broadcast(&s, "environments"); ok(row) }
+        Err(e) => server_err(e),
+    }
+}
+
+async fn update_env_variable(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
+    let Some(id) = body["id"].as_i64() else { return err(StatusCode::BAD_REQUEST, "id required") };
+    let sql = format!(
+        "UPDATE env_variables SET key=COALESCE(?, key), value=COALESCE(?, value), \
+         description=COALESCE(?, description), enabled=COALESCE(?, enabled) \
+         WHERE id=? RETURNING {ENV_VAR_COLS}"
+    );
+    match sqlx::query_as::<_, EnvVariable>(&sql)
+        .bind(body["key"].as_str())
+        .bind(body["value"].as_str())
+        .bind(body["description"].as_str())
+        .bind(body["enabled"].as_i64())
+        .bind(id)
+        .fetch_one(&s.pool)
+        .await
+    {
+        Ok(row) => { broadcast(&s, "environments"); ok(row) }
+        Err(e) => server_err(e),
+    }
+}
+
+async fn delete_env_variable(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
+    let Some(id) = body["id"].as_i64() else { return err(StatusCode::BAD_REQUEST, "id required") };
+    match sqlx::query("DELETE FROM env_variables WHERE id=?").bind(id).execute(&s.pool).await {
+        Ok(_) => { broadcast(&s, "environments"); ok(json!({"deleted": id})) }
+        Err(e) => server_err(e),
+    }
+}
+
+// ── Cookie ──────────────────────────────────────────────────
+
+async fn list_cookies(State(s): State<BState>, Query(q): Query<serde_json::Value>) -> axum::response::Response {
+    let scope = q.get("scope_type").and_then(|v| v.as_str()).unwrap_or("global");
+    let pid = q.get("project_id").and_then(|v| v.as_str()).and_then(|v| v.parse::<i64>().ok());
+    let sql = if scope == "global" {
+        format!("SELECT {COOKIE_COLS} FROM cookies WHERE scope_type='global' ORDER BY id DESC")
+    } else {
+        format!("SELECT {COOKIE_COLS} FROM cookies WHERE scope_type='project' AND project_id=? ORDER BY id DESC")
+    };
+    let mut query = sqlx::query_as::<_, Cookie>(&sql);
+    if scope != "global" {
+        query = query.bind(pid.unwrap_or(0));
+    }
+    match query.fetch_all(&s.pool).await {
+        Ok(rows) => ok(rows),
+        Err(e) => server_err(e),
+    }
+}
+
+async fn create_cookie(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
+    let sql = format!(
+        "INSERT INTO cookies (scope_type, project_id, domain, name, value, path) \
+         VALUES (?, ?, ?, ?, ?, ?) RETURNING {COOKIE_COLS}"
+    );
+    match sqlx::query_as::<_, Cookie>(&sql)
+        .bind(body["scopeType"].as_str().or(body["scope_type"].as_str()).unwrap_or("global"))
+        .bind(body["projectId"].as_i64().or(body["project_id"].as_i64()))
+        .bind(body["domain"].as_str().unwrap_or(""))
+        .bind(body["name"].as_str().unwrap_or(""))
+        .bind(body["value"].as_str().unwrap_or(""))
+        .bind(body["path"].as_str().unwrap_or("/"))
+        .fetch_one(&s.pool)
+        .await
+    {
+        Ok(row) => { broadcast(&s, "cookies"); ok(row) }
+        Err(e) => server_err(e),
+    }
+}
+
+async fn update_cookie(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
+    let Some(id) = body["id"].as_i64() else { return err(StatusCode::BAD_REQUEST, "id required") };
+    let sql = format!(
+        "UPDATE cookies SET value=COALESCE(?, value), path=COALESCE(?, path), \
+         enabled=COALESCE(?, enabled) WHERE id=? RETURNING {COOKIE_COLS}"
+    );
+    match sqlx::query_as::<_, Cookie>(&sql)
+        .bind(body["value"].as_str())
+        .bind(body["path"].as_str())
+        .bind(body["enabled"].as_i64())
+        .bind(id)
+        .fetch_one(&s.pool)
+        .await
+    {
+        Ok(row) => { broadcast(&s, "cookies"); ok(row) }
+        Err(e) => server_err(e),
+    }
+}
+
+async fn delete_cookie(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
+    let Some(id) = body["id"].as_i64() else { return err(StatusCode::BAD_REQUEST, "id required") };
+    match sqlx::query("DELETE FROM cookies WHERE id=?").bind(id).execute(&s.pool).await {
+        Ok(_) => { broadcast(&s, "cookies"); ok(json!({"deleted": id})) }
         Err(e) => server_err(e),
     }
 }

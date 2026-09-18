@@ -72,8 +72,19 @@
   <ThemeStudioModal ref="themeStudioModalRef" />
 
   <!-- 重命名项目弹窗 -->
-  <n-modal v-model:show="showRenameModal" preset="dialog" title="重命名项目">
-    <n-input v-model:value="renameInput" placeholder="输入新的项目名称" @keyup.enter="confirmRenameProject" />
+  <n-modal v-model:show="showRenameModal" preset="dialog" title="项目设置">
+    <div style="display: flex; flex-direction: column; gap: 12px">
+      <div>
+        <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px">项目名称</div>
+        <n-input v-model:value="renameInput" placeholder="输入项目名称" @keyup.enter="confirmRenameProject" />
+      </div>
+      <div>
+        <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px">
+          文档输出目录（apicat-doc-gen 技能使用，留空则默认 ~/.apicat/apidoc/{项目名}）
+        </div>
+        <n-input v-model:value="docsDirInput" placeholder="如 D:\Projects\ias-api-doc\ias-home-api" />
+      </div>
+    </div>
     <template #action>
       <n-button @click="showRenameModal = false">取消</n-button>
       <n-button type="primary" @click="confirmRenameProject">确定</n-button>
@@ -82,13 +93,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { NSelect, NButton, NDropdown, NModal, NInput, useDialog, useMessage } from 'naive-ui'
 import { check } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { useProjectStore } from '../../stores/project'
 import { useEnvironmentStore } from '../../stores/environment'
 import { useThemeStore, type ThemeMode } from '../../stores/theme'
+import { readSetting, writeSetting } from '../../stores/_persistedSettings'
 import EnvManager from '../env/EnvManager.vue'
 import CookieManager from '../cookie/CookieManager.vue'
 import ImportDialog from '../io/ImportDialog.vue'
@@ -107,6 +119,13 @@ const showCookieManager = ref(false)
 const showImportDialog = ref(false)
 const showExportDialog = ref(false)
 const showHeaderTemplateModal = ref(false)
+
+// 1.0.5：Bridge 开关（默认开；Rust 侧启动时读同一 key）
+const bridgeEnabled = ref(true)
+onMounted(async () => {
+  const v = await readSetting<boolean>('bridgeEnabled')
+  bridgeEnabled.value = v ?? true
+})
 const themeStudioModalRef = ref<InstanceType<typeof ThemeStudioModal> | null>(null)
 
 const showRenameModal = ref(false)
@@ -133,6 +152,7 @@ const settingsMenuOptions = computed(() => [
   { label: '🎨 主题', key: 'theme', children: themeChildren.value },
   { label: '🎨 主题工作室…', key: 'themeStudio' },
   { type: 'divider', key: 'd3' },
+  { label: `${bridgeEnabled.value ? '🟢' : '⚪'} HTTP Bridge（${bridgeEnabled.value ? '开' : '关'}）`, key: 'bridgeToggle' },
   { label: '🔄 检查更新...', key: 'checkUpdate' },
 ])
 
@@ -148,6 +168,15 @@ async function handleSettingsMenu(key: string) {
   else if (key === 'headerTemplate') showHeaderTemplateModal.value = true
   else if (key === 'themeStudio') themeStudioModalRef.value?.open()
   else if (key === 'checkUpdate') await checkForUpdate()
+  else if (key === 'bridgeToggle') {
+    bridgeEnabled.value = !bridgeEnabled.value
+    await writeSetting('bridgeEnabled', bridgeEnabled.value)
+    message.info(
+      bridgeEnabled.value
+        ? 'Bridge 已开启（重启应用后生效）'
+        : 'Bridge 已关闭（重启应用后生效）',
+    )
+  }
   else if (key.startsWith('theme:')) {
     const mode = key.slice('theme:'.length) as ThemeMode
     await themeStore.setMode(mode)
@@ -200,11 +229,14 @@ async function checkForUpdate() {
   }
 }
 
+const docsDirInput = ref('')
+
 async function handleRenameProject() {
   const pid = projectStore.currentProjectId
   if (!pid) return
   const current = projectStore.projects.find(p => p.id === pid)
   renameInput.value = current?.name ?? ''
+  docsDirInput.value = current?.docs_output_dir ?? ''
   showRenameModal.value = true
 }
 
@@ -214,7 +246,8 @@ async function confirmRenameProject() {
   const current = projectStore.projects.find(p => p.id === pid)
   const name = renameInput.value.trim()
   if (!name) return
-  await projectStore.updateProject(pid, name, current?.description ?? undefined)
+  const dir = docsDirInput.value.trim()
+  await projectStore.updateProject(pid, name, current?.description ?? undefined, dir || null)
   showRenameModal.value = false
 }
 
@@ -256,7 +289,7 @@ const projectOptions = computed(() => {
       label: '项目操作',
       key: 'proj-actions',
       children: [
-        { label: '✏️ 重命名当前项目...', value: RENAME_PROJ_SENTINEL, disabled: !projectStore.currentProjectId },
+        { label: '⚙️ 项目设置...', value: RENAME_PROJ_SENTINEL, disabled: !projectStore.currentProjectId },
         { label: '🗑️ 删除当前项目...', value: DELETE_PROJ_SENTINEL, disabled: !projectStore.currentProjectId },
         { label: '➕ 新建项目...', value: CREATE_PROJ_SENTINEL },
       ],
