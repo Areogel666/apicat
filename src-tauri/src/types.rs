@@ -64,10 +64,12 @@ pub struct HistoryRecord {
     pub test_case_id: Option<i64>, // 1.0.4：所属用例（null = 原始参数调试）
     pub status_code: Option<i64>,
     pub response_time_ms: Option<i64>,
-    pub request_snapshot: String, // JSON
-    pub response_body: String,
+    // 三个大字段：列表查询不取（避免每次切 Tab 传输 20 条完整响应体），
+    // 为 NULL；diff / 回填时由 get_history_record 单条补拉。
+    pub request_snapshot: Option<String>, // JSON
+    pub response_body: Option<String>,
     pub is_truncated: i64,
-    pub response_headers: String, // JSON
+    pub response_headers: Option<String>, // JSON
     pub created_at: String,
 }
 

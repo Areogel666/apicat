@@ -137,10 +137,11 @@ export interface HistoryRecord {
   test_case_id: number | null   // 1.0.4：所属用例（null = 原始参数调试）
   status_code: number | null
   response_time_ms: number | null
-  request_snapshot: string   // JSON
-  response_body: string
+  // 三个大字段：list_history 不返回（为 null），diff / 回填时用 get_history_record 补拉
+  request_snapshot: string | null   // JSON
+  response_body: string | null
   is_truncated: number       // 0 | 1
-  response_headers: string   // JSON
+  response_headers: string | null   // JSON
   created_at: string
 }
 

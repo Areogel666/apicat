@@ -43,7 +43,8 @@
         <n-button
           size="small"
           :disabled="selectedIds.size !== 2"
-          @click="showDiff = true"
+          :loading="diffLoading"
+          @click="openDiff"
         >
           Diff 选中两条 ({{ selectedIds.size }}/2)
         </n-button>
@@ -73,9 +74,10 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { NEmpty, NCheckbox, NTag, NButton, NModal } from 'naive-ui'
+import { invoke } from '@tauri-apps/api/core'
 import type { HistoryRecord } from '../../types'
 
-const props = defineProps<{
+defineProps<{
   records: HistoryRecord[]
 }>()
 
@@ -85,14 +87,39 @@ const emit = defineEmits<{
 
 const selectedIds = ref<Set<number>>(new Set())
 const showDiff = ref(false)
+const diffLoading = ref(false)
+// list_history 不带 response_body / request_snapshot（避免每次切 Tab 传 20 条完整响应体），
+// diff 与回填时按 id 单条补拉并缓存
+const fullRecords = ref<Map<number, HistoryRecord>>(new Map())
 
 const diffPair = computed<(HistoryRecord | undefined)[]>(() => {
   const ids = Array.from(selectedIds.value)
   return [
-    props.records.find(r => r.id === ids[0]),
-    props.records.find(r => r.id === ids[1]),
+    fullRecords.value.get(ids[0]),
+    fullRecords.value.get(ids[1]),
   ]
 })
+
+async function ensureFullRecord(id: number): Promise<HistoryRecord> {
+  const cached = fullRecords.value.get(id)
+  if (cached && cached.response_body != null) return cached
+  const full = await invoke<HistoryRecord>('get_history_record', { id })
+  const m = new Map(fullRecords.value)
+  m.set(id, full)
+  fullRecords.value = m
+  return full
+}
+
+async function openDiff() {
+  if (selectedIds.value.size !== 2) return
+  diffLoading.value = true
+  try {
+    await Promise.all(Array.from(selectedIds.value).map(ensureFullRecord))
+    showDiff.value = true
+  } finally {
+    diffLoading.value = false
+  }
+}
 
 function toggleSelect(rec: HistoryRecord) {
   const s = new Set(selectedIds.value)
@@ -108,8 +135,9 @@ function toggleSelect(rec: HistoryRecord) {
   selectedIds.value = s
 }
 
-function refill(rec: HistoryRecord) {
-  emit('refill', rec.request_snapshot)
+async function refill(rec: HistoryRecord) {
+  const full = await ensureFullRecord(rec.id)
+  if (full.request_snapshot != null) emit('refill', full.request_snapshot)
 }
 
 function formatTime(iso: string): string {
@@ -132,7 +160,7 @@ function statusTagType(code: number | null): 'success' | 'error' | 'warning' | '
   return 'error'
 }
 
-function prettyBody(body?: string): string {
+function prettyBody(body?: string | null): string {
   if (!body) return ''
   try {
     return JSON.stringify(JSON.parse(body), null, 2)

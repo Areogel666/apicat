@@ -39,16 +39,18 @@ export const useDictionaryStore = defineStore('dictionary', () => {
   async function loadDictionaries(projectId: number | null = null) {
     const seq = ++dictionariesSeq
     const list = await invoke<DataDictionary[]>('list_dictionaries', { projectId })
-    // 预加载所有可视字典的 items（字典量小，全量拉取简单）
-    const items: Record<number, DictionaryItem[]> = {}
-    for (const d of list) {
-      items[d.id] = await invoke<DictionaryItem[]>('list_dictionary_items', {
-        dictionaryId: d.id,
-      })
-    }
+    // 预加载所有可视字典的 items（字典量小，全量拉取简单）。
+    // 并发拉取：N 个字典一次往返 N 条 IPC，而非串行 N 次。
+    const itemsList = await Promise.all(
+      list.map(d =>
+        invoke<DictionaryItem[]>('list_dictionary_items', { dictionaryId: d.id })
+      )
+    )
     if (seq !== dictionariesSeq) return
     dictionaries.value = list
     // 整表替换而非累加，避免切项目后旧字典 items 残留
+    const items: Record<number, DictionaryItem[]> = {}
+    list.forEach((d, i) => { items[d.id] = itemsList[i] })
     itemsMap.value = items
   }
 
@@ -151,8 +153,10 @@ export const useDictionaryStore = defineStore('dictionary', () => {
       fieldBindingsProjectId.value = null
       return
     }
-    const rules = await invoke<FieldDictionaryRule[]>('list_field_rules', { projectId })
-    const overrides = await invoke<FieldDictionaryOverride[]>('list_field_overrides', { projectId })
+    const [rules, overrides] = await Promise.all([
+      invoke<FieldDictionaryRule[]>('list_field_rules', { projectId }),
+      invoke<FieldDictionaryOverride[]>('list_field_overrides', { projectId }),
+    ])
     if (seq !== fieldBindingSeq) return
     fieldRules.value = rules
     fieldOverrides.value = overrides

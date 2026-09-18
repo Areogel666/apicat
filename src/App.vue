@@ -50,12 +50,14 @@ onMounted(async () => {
       await projectStore.loadProjects()
     } else if (kind === 'collections' || kind === 'requests') {
       await collectionStore.loadCollections(pid)
-      for (const c of collectionStore.getCollections(pid)) {
-        await requestStore.loadRequests(c.id)
-      }
+      await Promise.all(
+        collectionStore.getCollections(pid).map(c => requestStore.loadRequests(c.id))
+      )
     } else if (kind === 'dictionaries' || kind === 'field_bindings') {
-      await dictionaryStore.loadDictionaries(pid)
-      await dictionaryStore.loadFieldBindings(pid)
+      await Promise.all([
+        dictionaryStore.loadDictionaries(pid),
+        dictionaryStore.loadFieldBindings(pid),
+      ])
     } else if (kind === 'test_cases') {
       // 技能通过 bridge 写用例后，刷新当前激活接口的用例列表
       const rid = requestStore.activeRequestId

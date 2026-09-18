@@ -27,7 +27,7 @@ use commands::{
     },
     project::{create_project, delete_project, list_projects, update_project},
     request::{create_request, delete_request, duplicate_request, list_requests, update_request, update_request_sort, move_request},
-    send_request::{list_history, send_request},
+    send_request::{get_history_record, list_history, send_request},
     test_case::{
         create_test_case, delete_test_case, list_test_cases, update_test_case,
         list_test_case_history, add_test_case_history, delete_test_cases,
@@ -90,7 +90,7 @@ pub fn run() {
             list_projects, create_project, update_project, delete_project,
             list_collections, create_collection, rename_collection, delete_collection, update_collection_sort, move_collection,
             list_requests, create_request, update_request, delete_request, duplicate_request, update_request_sort, move_request,
-            send_request, list_history,
+            send_request, list_history, get_history_record,
             list_environments, create_environment, update_environment, delete_environment,
             activate_environment, deactivate_environment,
             list_env_variables, create_env_variable, update_env_variable, delete_env_variable,

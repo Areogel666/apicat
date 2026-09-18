@@ -155,7 +155,8 @@ pub async fn send_request(
     ).await?)
 }
 
-/// 获取接口最近 20 条历史记录
+/// 获取接口最近 20 条历史记录（轻量：不含 response_body / request_snapshot /
+/// response_headers，列表 UI 只用 status/time；diff 与回填走 get_history_record 单条补拉）
 #[tauri::command]
 pub async fn list_history(
     db: State<'_, AppDb>,
@@ -165,8 +166,8 @@ pub async fn list_history(
     let rows = sqlx::query_as::<_, HistoryRecord>(
         r#"
         SELECT id, request_id, test_case_id, status_code, response_time_ms,
-               request_snapshot, response_body, is_truncated,
-               response_headers, created_at
+               NULL AS request_snapshot, NULL AS response_body, is_truncated,
+               NULL AS response_headers, created_at
         FROM request_history
         WHERE request_id = ? AND (?2 IS NULL OR test_case_id = ?2)
         ORDER BY created_at DESC
@@ -178,4 +179,24 @@ pub async fn list_history(
     .fetch_all(&db.0)
     .await?;
     Ok(rows)
+}
+
+/// 按 id 取单条完整历史记录（含 response_body / request_snapshot / response_headers）
+#[tauri::command]
+pub async fn get_history_record(
+    db: State<'_, AppDb>,
+    id: i64,
+) -> CmdResult<HistoryRecord> {
+    let row = sqlx::query_as::<_, HistoryRecord>(
+        r#"
+        SELECT id, request_id, test_case_id, status_code, response_time_ms,
+               request_snapshot, response_body, is_truncated,
+               response_headers, created_at
+        FROM request_history WHERE id = ?
+        "#,
+    )
+    .bind(id)
+    .fetch_one(&db.0)
+    .await?;
+    Ok(row)
 }
