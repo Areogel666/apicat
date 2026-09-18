@@ -728,6 +728,39 @@ pub async fn delete_stress_run(db: State<'_, AppDb>, id: i64) -> CmdResult<()> {
     Ok(())
 }
 
+/// 按记录 id 生成报告（Markdown）。IPC 与 bridge 共用。
+pub async fn build_stress_report_by_id(
+    pool: &sqlx::SqlitePool,
+    run_id: i64,
+) -> Result<String, crate::error::AppError> {
+    let run = sqlx::query_as::<Sqlite, StressRun>(
+        "SELECT id, request_id, config_json, stats_json, created_at
+         FROM stress_runs WHERE id = ?1",
+    )
+    .bind(run_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| crate::error::AppError::Custom(format!("压测记录 {run_id} 不存在")))?;
+
+    // 接口可能已取不到，那就降级成只显示 request_id，不报错
+    let request = sqlx::query_as::<Sqlite, ApiRequest>(
+        "SELECT id, collection_id, name, method, url, params, headers, body_type, body,
+                auth_type, auth_config, description, sort_order, created_at, updated_at
+         FROM api_requests WHERE id = ?1",
+    )
+    .bind(run.request_id)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(build_stress_report_markdown(&run, request.as_ref()))
+}
+
+/// 生成某条压测历史的报告（Markdown）
+#[tauri::command]
+pub async fn get_stress_report(db: State<'_, AppDb>, run_id: i64) -> CmdResult<String> {
+    build_stress_report_by_id(&db.0, run_id).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

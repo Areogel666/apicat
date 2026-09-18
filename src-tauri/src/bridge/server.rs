@@ -95,6 +95,10 @@ struct RequestQuery {
     last_status: Option<String>,
 }
 #[derive(Deserialize)]
+struct StressReportQuery {
+    run_id: i64,
+}
+#[derive(Deserialize)]
 struct DictQuery {
     dictionary_id: i64,
 }
@@ -153,6 +157,7 @@ pub fn build_router(state: BState) -> Router {
         // 压测
         .route("/start_stress", post(start_stress))
         .route("/list_stress_runs", get(list_stress_runs))
+        .route("/stress_report", get(stress_report))
         // 环境
         .route("/list_environments", get(list_environments))
         .route("/list_env_variables", get(list_env_variables))
@@ -893,6 +898,15 @@ async fn list_stress_runs(State(s): State<BState>, Query(q): Query<RequestQuery>
     .await
     {
         Ok(rows) => ok(rows),
+        Err(e) => server_err(e),
+    }
+}
+
+/// GET /stress_report?run_id=N —— 取某条压测历史的报告（Markdown）。
+/// 与 App 预览走的是同一个 `build_stress_report_by_id`，内容完全同源。
+async fn stress_report(State(s): State<BState>, Query(q): Query<StressReportQuery>) -> axum::response::Response {
+    match crate::commands::stress::build_stress_report_by_id(&s.pool, q.run_id).await {
+        Ok(md) => ok(md),
         Err(e) => server_err(e),
     }
 }

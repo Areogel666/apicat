@@ -32,7 +32,7 @@ use commands::{
         list_test_case_history, add_test_case_history, delete_test_cases,
     },
     test_case_run::run_test_case,
-    stress::{start_stress, list_stress_runs, delete_stress_run},
+    stress::{start_stress, list_stress_runs, delete_stress_run, get_stress_report},
     io::{export_apicat, export_postman, import_apicat, import_postman, import_openapi},
 };
 use db::{init_db, AppDb};
@@ -106,7 +106,7 @@ pub fn run() {
             list_field_overrides, set_field_override, delete_field_override,
             copy_dictionary_to_project,
             start_stress,
-            list_stress_runs, delete_stress_run,
+            list_stress_runs, delete_stress_run, get_stress_report,
             export_apicat, export_postman, import_apicat, import_postman, import_openapi,
         ])
         .run(tauri::generate_context!())

@@ -226,8 +226,31 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 ```
 - `concurrent`: 1~500
 - `mode`: `"count"`（value=总请求数，≤10000）| `"duration"`（value=秒数）
+- `expectStatus`（可选，默认 `"2xx"`）：**业务成功率**的判定口径。逗号分隔，支持 `2xx` 这类百位通配与 `200` 这类精确码，如 `"2xx,3xx"`。
 
 ### GET /list_stress_runs?request_id=N
+
+### GET /stress_report?run_id=N
+取某条压测历史的报告，**返回 Markdown 全文**（字符串）。与 App 里「📄 报告」看到的内容**完全同源**（同一个 Rust 函数）。
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" "$BASE/stress_report?run_id=6" \
+  | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).data))"
+```
+
+报告含五节：结论摘要 / 核心指标 / 耗时分布 / 状态码分布 / 压测配置。
+可直接交给用户，或自己转成 HTML 分享。
+
+### 两个成功率的区别（⚠️ 别混）
+压测结果里有两个独立指标，**含义不同**：
+
+| 字段 | 含义 | 判定依据 |
+|---|---|---|
+| `success_rate` | **响应率** | 只要拿到 HTTP 响应（哪怕 500）就算成功；只有超时/连接失败/DNS 失败才计失败 |
+| `biz_success_rate` | **业务成功率** | 响应状态码命中 `expectStatus` 才算成功 |
+
+所以 `success_rate=100` 而 `biz_success_rate=0` 是**正常结果**，表示接口全返回了非期望状态码（如全是 500）。
+`status_counts` 是 `[状态码, 次数]` 数组，`0` 表示网络错误。**1.0.4 及以前的记录没有 `biz_success_rate` / `expect_status` / `latency_hist` / `status_counts` 字段**，不要当 0 处理。
 
 ## 环境
 
