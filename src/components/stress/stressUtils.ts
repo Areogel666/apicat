@@ -42,49 +42,16 @@ export function formatTime(iso: string): string {
   }
 }
 
-export function buildReport(run: { config_json: string; stats_json: string; created_at: string }): string {
-  let cfg: { concurrent?: number; mode?: string; value?: number } = {}
-  let st: StressStats | null = null
-  try { cfg = JSON.parse(run.config_json) } catch {}
-  try { st = JSON.parse(run.stats_json) } catch {}
-  if (!st) return '（无统计数据）'
-  const hist = (st.latency_hist ?? []).map((n, i) => `${LATENCY_LABELS[i]}ms:${n}`).join(' / ')
-  const status = (st.status_counts ?? []).map(([c, n]) => `${c === 0 ? '网络错误' : c}:${n}`).join(' / ')
-  return [
-    `# ApiCat 压测报告`,
-    `- 时间：${run.created_at}`,
-    `- 并发=${cfg.concurrent} 模式=${cfg.mode} 值=${cfg.value}`,
-    `- 总请求 ${st.total} 成功 ${st.success} 失败 ${st.failed} 成功率 ${st.success_rate.toFixed(1)}%`,
-    `- 耗时 min ${st.min_ms ?? 0}ms / avg ${(st.avg_ms ?? 0).toFixed(1)}ms / P50 ${st.p50_ms ?? 0} / P90 ${st.p90_ms ?? 0} / P95 ${st.p95_ms ?? 0} / P99 ${st.p99_ms ?? 0} / max ${st.max_ms ?? 0}ms`,
-    `- TPS ${st.tps.toFixed(1)}`,
-    `## 耗时分布`,
-    hist,
-    `## 状态码分布`,
-    status || '（无）',
-  ].join('\n')
-}
+// 报告生成已下沉到 Rust（commands::stress::build_stress_report_markdown），
+// 前端只做取回/渲染/存盘，见 ./stressReport.ts
 
-/** 报告存本地（Tauri dialog + fs） */
-export async function saveReportToFile(text: string) {
-  try {
-    const { save } = await import('@tauri-apps/plugin-dialog')
-    const { writeTextFile } = await import('@tauri-apps/plugin-fs')
-    const path = await save({
-      title: '保存压测报告',
-      defaultPath: `stress-report-${Date.now()}.md`,
-      filters: [{ name: 'Markdown', extensions: ['md'] }],
-    })
-    if (path) await writeTextFile(path, text)
-  } catch (e) {
-    console.warn('[stress] 保存报告失败:', e)
-  }
-}
-
+/** 历史条目的一行摘要。区分响应率与业务成功率，旧记录不显示业务口径 */
 export function summarizeStats(run: { config_json: string; stats_json: string }): string {
   let st: StressStats | null = null
   try { st = JSON.parse(run.stats_json) } catch {}
   if (!st) return ''
-  return `总${st.total} 成功率${st.success_rate.toFixed(1)}% TPS${st.tps.toFixed(1)} P95${st.p95_ms}ms`
+  const biz = st.biz_success_rate == null ? '' : ` 业务${st.biz_success_rate.toFixed(1)}%`
+  return `总${st.total} 响应${st.success_rate.toFixed(1)}%${biz} TPS${st.tps.toFixed(1)} P95${st.p95_ms}ms`
 }
 
 /** 实时折线图：TPS / avg / p95 三线（Y 轴归一化） */
