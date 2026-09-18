@@ -25,10 +25,12 @@ python "<skills>/apicat-edit/scripts/parse_markdown_docs.py" <doc.md> --project-
 **导入流程**：
 1. 跑脚本拿 JSON，**先把解析结果给用户过一眼**（字段名/路径常需人工修正）
 2. 按 `url` 路径匹配已有目录（`GET /list_collections?project_id=N`）；匹配不到问用户是否 `POST /create_collection` 新建
-3. 逐条 `POST /create_request`（只传 `collectionId`/`name`/`method`/`url`）
-4. 紧接 `POST /update_request` 补 `params` —— 脚本输出的 `{key,value,enabled,type,description}` 形状可直接用
-5. `enum_candidates` 非空 → 问用户是否建字典并绑定（见第三章）
-6. 汇报：新建/复用目录、导入接口数、跳过项
+3. **查重按 `method + url`，不能只按 `name`**。库里接口名不统一 —— 有的存中文名（如 `获取用户信息`），有的存路径（如 `/api/user/info`）；而文档里提的通常是中文名。只比 `name` 会把同一个接口误判成新的，**导入出重复项**。
+   取 `GET /list_requests?collection_id=$CID`，`method + url` 完全一致即视为同一接口，问用户：**更新它 / 跳过 / 新建**。
+4. 逐条 `POST /create_request`（只传 `collectionId`/`name`/`method`/`url`）
+5. 紧接 `POST /update_request` 补 `params` —— 脚本输出的 `{key,value,enabled,type,description}` 形状可直接用
+6. `enum_candidates` 非空 → 问用户是否建字典并绑定（见第三章）
+7. 汇报：新建/复用目录、导入接口数、跳过项
 
 脚本只解析不写库，落库动作全部由你按上述流程执行。
 
@@ -37,9 +39,9 @@ python "<skills>/apicat-edit/scripts/parse_markdown_docs.py" <doc.md> --project-
 ### 1. 选目录
 `GET /list_collections?project_id=$PID`，按用户描述或文档模块结构匹配同名目录；找不到就 `POST /create_collection` 新建。**建完显式报告**：「已在 {目录名} 下新建接口」。
 
-### 2. 同名检查
-目标 collection 下已有同名接口（`UNIQUE(collection_id, name)` 约束）时，**必须问用户**：
-> 同名接口「{name}」已存在。**更新它** / **跳过** / **换个名字新建**？
+### 2. 查重
+目标 collection 下先按 **`method + url`** 比对（接口名不统一，同一接口可能一个存中文名、一个存路径），再按 `name` 比对（`UNIQUE(collection_id, name)` 约束）。任一命中都**必须问用户**：
+> 已存在同 URL / 同名的接口「{name}」。**更新它** / **跳过** / **换个名字新建**？
 
 ### 3. 创建
 `POST /create_request` —— **只支持 `collectionId`/`name`/`method`/`url` 四个字段，传 params/headers/body 会被静默忽略**，建完必须再调 `update_request` 补参数。
