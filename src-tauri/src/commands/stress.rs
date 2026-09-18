@@ -27,12 +27,47 @@ const DURATION_WINDOW: usize = 10_000;
 const LATENCY_BUCKETS: [f64; 9] = [1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0];
 const LATENCY_BUCKET_COUNT: usize = 10;
 
+/// 耗时直方图的区间标签，与 LATENCY_BUCKETS 一一对应（10 桶）
+#[allow(dead_code)] // 1.0.5：报告的「耗时分布」表用，Task 4 接入
+pub const LATENCY_LABELS: [&str; 10] = [
+    "<1", "1-2", "2-5", "5-10", "10-20", "20-50", "50-100", "100-200", "200-500", ">500",
+];
+
+/// 期望状态码默认值：2xx 视为业务成功
+pub const DEFAULT_EXPECT_STATUS: &str = "2xx";
+
+/// 判断状态码是否命中「期望状态码」表达式。
+///
+/// 表达式为逗号分隔的片段，每段可以是 `2xx` 这类百位通配，或 `200` 这类精确码。
+/// 空表达式（含纯空白）按 `2xx` 处理，与前端默认值一致。
+/// 无法解析的片段被忽略；全部片段都无法解析时不匹配任何状态码。
+pub fn matches_expect(status: u16, spec: &str) -> bool {
+    let spec = spec.trim();
+    let spec = if spec.is_empty() { DEFAULT_EXPECT_STATUS } else { spec };
+    spec.split(',')
+        .map(str::trim)
+        .filter(|seg| !seg.is_empty())
+        .any(|seg| {
+            let lower = seg.to_ascii_lowercase();
+            if lower.len() == 3 && lower.ends_with("xx") {
+                return lower[..1]
+                    .parse::<u16>()
+                    .map(|n| status / 100 == n)
+                    .unwrap_or(false);
+            }
+            lower.parse::<u16>().map(|n| n == status).unwrap_or(false)
+        })
+}
+
 #[derive(Debug, Default, Clone, Serialize)]
 pub struct StressStats {
     pub total: u64,
     pub success: u64,
     pub failed: u64,
-    pub success_rate: f64,    // 0.0 ~ 100.0
+    pub success_rate: f64,    // 0.0 ~ 100.0（响应率：拿到响应的比例）
+    // 1.0.5 新增：业务成功率（响应状态码命中 expect_status 的比例）
+    pub biz_success: u64,
+    pub biz_success_rate: f64, // 0.0 ~ 100.0
     pub avg_ms: f64,
     pub min_ms: u64,
     pub p50_ms: u64,
@@ -46,14 +81,22 @@ pub struct StressStats {
     // 1.0.4 新增：耗时直方图（10 桶累计计数）+ 状态码分布（含 0 = 网络错误）
     pub latency_hist: Vec<u64>,
     pub status_counts: Vec<(u16, u64)>,
+    /// 本轮使用的期望状态码表达式，写入快照供报告展示
+    pub expect_status: String,
 }
 
 /// 内部可变统计（由 worker tasks 写入）
 #[derive(Default)]
 struct RawStats {
     total: u64,
+    /// 拿到 HTTP 响应的请求数（对外称「响应率」的分子）
     success: u64,
+    /// 传输失败数：超时 / 连接失败 / DNS 失败
     failed: u64,
+    /// 1.0.5 新增：响应状态码命中 expect_status 的请求数
+    biz_success: u64,
+    /// 本轮的期望状态码表达式，原样写入快照供报告展示
+    expect_status: String,
     /// 滑动窗口：只保留最近 DURATION_WINDOW 条耗时，防止 OOM。
     /// 百分位计算基于此窗口，count/avg 基于全量计数器。
     durations_window: Vec<u64>,
@@ -65,9 +108,10 @@ struct RawStats {
 }
 
 impl RawStats {
-    fn record(&mut self, ok: bool, duration_ms: u64, status: Option<u16>) {
+    fn record(&mut self, responded: bool, biz_ok: bool, duration_ms: u64, status: Option<u16>) {
         self.total += 1;
-        if ok { self.success += 1; } else { self.failed += 1; }
+        if responded { self.success += 1; } else { self.failed += 1; }
+        if biz_ok { self.biz_success += 1; }
         self.duration_sum = self.duration_sum.saturating_add(duration_ms);
 
         // 直方图分桶：定位 [0,1)..[500+)
@@ -116,6 +160,12 @@ impl RawStats {
             self.success as f64 / self.total as f64 * 100.0
         };
 
+        let biz_success_rate = if self.total == 0 {
+            0.0
+        } else {
+            self.biz_success as f64 / self.total as f64 * 100.0
+        };
+
         let tps = if elapsed_sec > 0.0 {
             self.total as f64 / elapsed_sec
         } else {
@@ -132,6 +182,8 @@ impl RawStats {
             success: self.success,
             failed: self.failed,
             success_rate,
+            biz_success: self.biz_success,
+            biz_success_rate,
             avg_ms,
             min_ms,
             p50_ms: percentile(50.0),
@@ -144,6 +196,7 @@ impl RawStats {
             done,
             latency_hist: self.latency_hist.to_vec(),
             status_counts: status_vec,
+            expect_status: self.expect_status.clone(),
         }
     }
 }
@@ -221,7 +274,10 @@ pub async fn start_stress_impl(
         .map_err(|e| crate::error::AppError::Custom(format!("构建 HTTP 客户端失败: {e}")))?;
 
     // ── 共享统计（Arc<Mutex<RawStats>>）──────────────────
-    let raw_stats = Arc::new(Mutex::new(RawStats::default()));
+    let raw_stats = Arc::new(Mutex::new(RawStats {
+        expect_status: DEFAULT_EXPECT_STATUS.to_string(),
+        ..Default::default()
+    }));
 
     // ── 停止信号（broadcast channel）──────────────────────
     // 容量 1 足够，所有 worker 都会监听
@@ -289,11 +345,14 @@ pub async fn start_stress_impl(
                     match send(&client_clone, &params_clone).await {
                         Ok(resp) => {
                             let dur = t.elapsed().as_millis() as u64;
-                            raw_clone.lock().unwrap().record(true, dur, Some(resp.status_code));
+                            // 先取出期望表达式再释放锁，避免在已持锁时二次取锁导致死锁
+                            let spec = raw_clone.lock().unwrap().expect_status.clone();
+                            let biz_ok = matches_expect(resp.status_code, &spec);
+                            raw_clone.lock().unwrap().record(true, biz_ok, dur, Some(resp.status_code));
                         }
                         Err(_) => {
                             let dur = t.elapsed().as_millis() as u64;
-                            raw_clone.lock().unwrap().record(false, dur, None);
+                            raw_clone.lock().unwrap().record(false, false, dur, None);
                         }
                     }
                     drop(permit);
@@ -337,11 +396,14 @@ pub async fn start_stress_impl(
                     match send(&client_clone, &params_clone).await {
                         Ok(resp) => {
                             let dur = t.elapsed().as_millis() as u64;
-                            raw_clone.lock().unwrap().record(true, dur, Some(resp.status_code));
+                            // 先取出期望表达式再释放锁，避免在已持锁时二次取锁导致死锁
+                            let spec = raw_clone.lock().unwrap().expect_status.clone();
+                            let biz_ok = matches_expect(resp.status_code, &spec);
+                            raw_clone.lock().unwrap().record(true, biz_ok, dur, Some(resp.status_code));
                         }
                         Err(_) => {
                             let dur = t.elapsed().as_millis() as u64;
-                            raw_clone.lock().unwrap().record(false, dur, None);
+                            raw_clone.lock().unwrap().record(false, false, dur, None);
                         }
                     }
                     drop(permit);
@@ -423,4 +485,70 @@ pub async fn delete_stress_run(db: State<'_, AppDb>, id: i64) -> CmdResult<()> {
         .execute(&db.0)
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_matches_expect_class_wildcard() {
+        assert!(matches_expect(200, "2xx"));
+        assert!(matches_expect(204, "2xx"));
+        assert!(!matches_expect(301, "2xx"));
+        assert!(!matches_expect(404, "2xx"));
+        assert!(!matches_expect(500, "2xx"));
+    }
+
+    #[test]
+    fn test_matches_expect_explicit_code() {
+        assert!(matches_expect(200, "200"));
+        assert!(!matches_expect(201, "200"));
+    }
+
+    #[test]
+    fn test_matches_expect_multi_segment() {
+        assert!(matches_expect(201, "200,201"));
+        assert!(matches_expect(404, "2xx,404"));
+        assert!(matches_expect(302, "3xx"));
+        assert!(!matches_expect(500, "2xx,404"));
+    }
+
+    #[test]
+    fn test_matches_expect_blank_defaults_to_2xx() {
+        assert!(matches_expect(200, ""));
+        assert!(matches_expect(200, "   "));
+        assert!(!matches_expect(500, ""));
+    }
+
+    #[test]
+    fn test_matches_expect_garbage_never_matches() {
+        assert!(!matches_expect(200, "abc"));
+        assert!(!matches_expect(200, "2x"));
+        assert!(!matches_expect(200, ",,,"));
+    }
+
+    #[test]
+    fn test_record_keeps_respond_and_business_apart() {
+        let mut s = RawStats::default();
+        s.record(true, true, 10, Some(200));   // 拿到响应 + 命中期望
+        s.record(true, false, 20, Some(500));  // 拿到响应但业务失败
+        s.record(false, false, 30, None);      // 传输失败
+
+        assert_eq!(s.total, 3);
+        assert_eq!(s.success, 2);      // 响应 2 次
+        assert_eq!(s.failed, 1);       // 传输失败 1 次
+        assert_eq!(s.biz_success, 1);  // 业务成功 1 次
+
+        let snap = s.snapshot(1.0, true);
+        assert!((snap.success_rate - 200.0 / 3.0).abs() < 1e-9);
+        assert!((snap.biz_success_rate - 100.0 / 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_snapshot_carries_expect_status() {
+        let mut s = RawStats { expect_status: "200".to_string(), ..Default::default() };
+        s.record(true, true, 5, Some(200));
+        assert_eq!(s.snapshot(1.0, true).expect_status, "200");
+    }
 }
