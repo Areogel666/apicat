@@ -25,6 +25,7 @@
       :data="treeData"
       :selected-keys="selectedKey ? [selectedKey] : []"
       :render-label="renderLabel"
+      :node-props="nodeProps"
       block-line
       class="docs-tree"
       @update:selected-keys="onSelect"
@@ -99,35 +100,70 @@ interface TreeNode {
 
 /** 把扁平文件列表转成目录树 */
 const treeData = computed<TreeNode[]>(() => {
-  const root: Record<string, TreeNode> = {}
-  const dirs: Record<string, TreeNode> = {}
+  const topNodes: TreeNode[] = []
+  // dir path → 该目录节点的 children 数组引用
+  const dirChildren: Record<string, TreeNode[]> = {}
+  // dir path → 该目录节点本身（去重用）
+  const dirNodes: Record<string, TreeNode> = {}
+
+  function getOrCreateDir(dirPath: string, label: string): TreeNode {
+    if (dirNodes[dirPath]) return dirNodes[dirPath]
+    const node: TreeNode = { key: `dir:${dirPath}`, label, children: [] }
+    dirNodes[dirPath] = node
+    dirChildren[dirPath] = node.children!
+    // 挂到父目录或顶层
+    const parentSlash = dirPath.lastIndexOf('/')
+    if (parentSlash === -1) {
+      topNodes.push(node)
+    } else {
+      const parentPath = dirPath.slice(0, parentSlash)
+      const parentArr = dirChildren[parentPath]
+      if (parentArr) parentArr.push(node)
+      else topNodes.push(node) // 父目录还没创建（乱序兜底）
+    }
+    return node
+  }
 
   for (const f of filteredFiles.value) {
     const parts = f.relative_path.split('/')
     const fileName = parts.pop()!
+    // 逐级创建目录
     let currentPath = ''
-    let parent: Record<string, TreeNode> = root
-
     for (const part of parts) {
       currentPath = currentPath ? `${currentPath}/${part}` : part
-      if (!dirs[currentPath]) {
-        const node: TreeNode = { key: `dir:${currentPath}`, label: part, children: [] }
-        dirs[currentPath] = node
-        parent[part] = node
-      }
-      parent = dirs[currentPath].children! as unknown as Record<string, TreeNode>
+      getOrCreateDir(currentPath, part)
     }
-
-    parent[fileName] = {
+    // 叶子节点
+    const fileNode: TreeNode = {
       key: `file:${f.relative_path}`,
       label: fileName,
       isLeaf: true,
       file: f,
     }
+    if (currentPath) {
+      dirChildren[currentPath]?.push(fileNode)
+    } else {
+      topNodes.push(fileNode)
+    }
   }
 
-  return Object.values(root)
+  return topNodes
 })
+
+/** 双击文件节点 → 用系统默认程序打开 */
+function nodeProps(info: { option: Record<string, unknown> }) {
+  const opt = info.option as unknown as TreeNode
+  if (!opt.isLeaf || !opt.file) return {}
+  const file = opt.file
+  return {
+    onDblclick: (e: MouseEvent) => {
+      e.stopPropagation()
+      invoke('open_file_with_default', { path: file.absolute_path }).catch(err => {
+        message.error(`打开文件失败：${err}`)
+      })
+    },
+  }
+}
 
 function renderLabel({ option }: { option: { key?: unknown; label?: unknown; isLeaf?: unknown; [k: string]: unknown } }) {
   if (option.isLeaf) {
