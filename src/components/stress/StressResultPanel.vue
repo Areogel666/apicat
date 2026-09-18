@@ -23,7 +23,11 @@
       </div>
       <div class="stat-card">
         <div class="stat-value">{{ stressStore.stats.success_rate.toFixed(1) }}%</div>
-        <div class="stat-label">成功率</div>
+        <div class="stat-label">响应率</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">{{ bizRateText }}</div>
+        <div class="stat-label">业务成功率</div>
       </div>
       <div class="stat-card">
         <div class="stat-value">{{ stressStore.stats.tps.toFixed(1) }}</div>
@@ -91,11 +95,12 @@
           </span>
           <div class="status-track">
             <div class="status-fill" :style="{
-              width: pct(cnt) + '%',
+              width: pct(cnt, stressStore.stats?.status_counts) + '%',
               background: statusColor(code),
             }"></div>
           </div>
           <span class="status-count">{{ cnt }}</span>
+          <span class="status-hint">{{ statusHint(code) }}</span>
         </div>
       </div>
     </div>
@@ -128,7 +133,7 @@
           <span class="history-item__meta">{{ summarizeStats(run) }}</span>
         </div>
         <div class="history-item__actions">
-          <n-button size="tiny" quaternary @click.stop="onExportReport(run)">📄 报告</n-button>
+          <n-button size="tiny" quaternary @click.stop="openReport(run)">📄 报告</n-button>
           <n-button size="tiny" quaternary title="删除" @click.stop="stressStore.removeRun(run.id)">✕</n-button>
         </div>
       </div>
@@ -152,26 +157,36 @@
       <n-button @click="handleClose" :disabled="stressStore.isRunning">关闭</n-button>
     </template>
   </n-modal>
+
+  <StressReportModal v-model:show="showReport" :run="reportRun" />
 </template>
 
 <script setup lang="ts">
-import { ref, h, computed, watch, onUnmounted, nextTick } from 'vue'
-import { NModal, NButton, NSpin, useDialog } from 'naive-ui'
+import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
+import { NModal, NButton, NSpin } from 'naive-ui'
 import { useStressStore } from '../../stores/stress'
 import { useThemeStore } from '../../stores/theme'
 import { useRequestStore } from '../../stores/request'
-import type { StressStats } from '../../types'
+import StressReportModal from './StressReportModal.vue'
+// Task 9 会再加：drawCompareChart / computeCompareMetrics / formatMetric / deltaClass
+// 以及类型 CompareMetric / CompareRun
+import {
+  LATENCY_LABELS,
+  histHeight,
+  statusColor,
+  pct,
+  summarizeStats,
+  formatTime,
+} from './stressUtils'
+import { statusHint } from './stressReport'
+// StressStats 仅剩 drawCompare 在用，Task 9 重写对比图后移除
+import type { StressStats, StressRun } from '../../types'
 
 const show = defineModel<boolean>('show', { required: true })
 const stressStore = useStressStore()
 const themeStore = useThemeStore()
 const requestStore = useRequestStore()
-const dialog = useDialog()
 const canvasRef = ref<HTMLCanvasElement | null>(null)
-
-// 1.0.4：耗时直方图桶标签（与 Rust LATENCY_BUCKETS 一致：10 桶）
-const LATENCY_LABELS = ['<1', '1-2', '2-5', '5-10', '10-20', '20-50', '50-100', '100-200', '200-500', '>500']
-const histMaxBucket = 40
 
 const latencyBuckets = computed(() => {
   const hist = stressStore.stats?.latency_hist ?? []
@@ -183,24 +198,11 @@ const latencyBuckets = computed(() => {
   }))
 })
 
-function histHeight(bucket: { pct: number }): number {
-  return Math.max(2, Math.round(bucket.pct / 100 * histMaxBucket))
-}
-
-/** 状态码 → 颜色 token */
-function statusColor(code: number): string {
-  if (code === 0) return readToken('--status-network', '#909399')
-  if (code >= 200 && code < 300) return readToken('--status-2xx', '#18a058')
-  if (code >= 300 && code < 400) return readToken('--status-3xx', '#2080f0')
-  if (code >= 400 && code < 500) return readToken('--status-4xx', '#f0a020')
-  return readToken('--status-5xx', '#d03050')
-}
-
-function pct(cnt: number): number {
-  const total = (stressStore.stats?.status_counts ?? []).reduce((s, [_, c]) => s + c, 0)
-  if (!total) return 0
-  return Math.round(cnt / total * 100)
-}
+/** 业务成功率：旧记录未采集，显示 — 而不是编造 0% */
+const bizRateText = computed(() => {
+  const r = stressStore.stats?.biz_success_rate
+  return r == null ? '—' : `${r.toFixed(1)}%`
+})
 
 // 1.0.4：历史记录状态 —— 对比集（最多 2 条）
 const compareSelection = ref<number[]>([])
@@ -220,58 +222,13 @@ function toggleCompare(id: number) {
   }
 }
 
-function buildReport(run: { config_json: string; stats_json: string; created_at: string }): string {
-  let cfg: { concurrent?: number; mode?: string; value?: number } = {}
-  let st: StressStats | null = null
-  try { cfg = JSON.parse(run.config_json) } catch {}
-  try { st = JSON.parse(run.stats_json) } catch {}
-  if (!st) return '（无统计数据）'
-  const hist = (st.latency_hist ?? []).map((n, i) => `${LATENCY_LABELS[i]}ms:${n}`).join(' / ')
-  const status = (st.status_counts ?? []).map(([c, n]) => `${c === 0 ? '网络错误' : c}:${n}`).join(' / ')
-  return [
-    `# ApiCat 压测报告`,
-    `- 时间：${run.created_at}`,
-    `- 并发=${cfg.concurrent} 模式=${cfg.mode} 值=${cfg.value}`,
-    `- 总请求 ${st.total} 成功 ${st.success} 失败 ${st.failed} 成功率 ${st.success_rate.toFixed(1)}%`,
-    `- 耗时 min ${st.min_ms ?? 0}ms / avg ${(st.avg_ms ?? 0).toFixed(1)}ms / P50 ${st.p50_ms ?? 0} / P90 ${st.p90_ms ?? 0} / P95 ${st.p95_ms ?? 0} / P99 ${st.p99_ms ?? 0} / max ${st.max_ms ?? 0}ms`,
-    `- TPS ${st.tps.toFixed(1)}`,
-    `## 耗时分布`,
-    hist,
-    `## 状态码分布`,
-    status || '（无）',
-  ].join('\n')
-}
+// ── 报告预览（1.0.5：内容由 Rust 生成，与技能走 bridge 拿到的完全同源） ──
+const showReport = ref(false)
+const reportRun = ref<StressRun | null>(null)
 
-function onExportReport(run: { config_json: string; stats_json: string; created_at: string }) {
-  const text = buildReport(run)
-  dialog.success({
-    title: '压测报告（Markdown）',
-    style: 'width: 560px',
-    content: () => h('pre', {
-      style: 'max-height:360px;overflow:auto;font-family:monospace;font-size:12px;white-space:pre-wrap;color:var(--text-primary)',
-    }, text),
-    action: () => {
-      void navigator.clipboard.writeText(text).catch(() => {})
-      void saveReportToFile(text)
-      return '已复制'
-    },
-  })
-}
-
-/** 1.0.4：报告存本地（Tauri dialog + fs，与 ExportDialog 同模式） */
-async function saveReportToFile(text: string) {
-  try {
-    const { save } = await import('@tauri-apps/plugin-dialog')
-    const { writeTextFile } = await import('@tauri-apps/plugin-fs')
-    const path = await save({
-      title: '保存压测报告',
-      defaultPath: `stress-report-${Date.now()}.md`,
-      filters: [{ name: 'Markdown', extensions: ['md'] }],
-    })
-    if (path) await writeTextFile(path, text)
-  } catch (e) {
-    console.warn('[stress] 保存报告失败:', e)
-  }
+function openReport(run: StressRun) {
+  reportRun.value = run
+  showReport.value = true
 }
 
 /** 1.0.4：叠绘两条历史折线（TPS/耗时 归一化双系列） */
@@ -328,21 +285,6 @@ function drawCompare() {
     ctx.fillText(v1.toFixed(0) + 'ms', x1, H - PAD.bottom - barH1 - 4)
     ctx.fillText('轮2', x1 + bw1 / 2 - 8, H - 4)
   }
-}
-
-function formatTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString()
-  } catch {
-    return iso
-  }
-}
-
-function summarizeStats(run: { config_json: string; stats_json: string }): string {
-  let st: StressStats | null = null
-  try { st = JSON.parse(run.stats_json) } catch {}
-  if (!st) return ''
-  return `总${st.total} 成功率${st.success_rate.toFixed(1)}% TPS${st.tps.toFixed(1)} P95${st.p95_ms}ms`
 }
 
 /** 从 :root CSS 变量读取色值，用于 canvas 绘制时跟随主题 */
@@ -581,6 +523,7 @@ onUnmounted(() => {
 }
 .status-fill { height: 100%; }
 .status-count { width: 48px; text-align: right; font-size: var(--font-size-sm); color: var(--text-secondary); }
+.status-hint { width: 132px; font-size: var(--font-size-sm); color: var(--text-tertiary); flex-shrink: 0; }
 
 /* 1.0.4：压测历史 */
 .history-list {

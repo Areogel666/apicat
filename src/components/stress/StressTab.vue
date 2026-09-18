@@ -130,18 +130,21 @@
         </div>
       </div>
     </div>
+
+    <StressReportModal v-model:show="showReport" :run="reportRun" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { NButton, NInputNumber, NRadioGroup, NRadioButton, NSelect, NSpin, NEmpty, useMessage } from 'naive-ui'
+import { NButton, NInputNumber, NRadioGroup, NRadioButton, NSelect, NSpin, NEmpty } from 'naive-ui'
 import { useStressStore } from '../../stores/stress'
 import { useRequestStore } from '../../stores/request'
 import { useTestCaseStore } from '../../stores/testCase'
+import StressReportModal from './StressReportModal.vue'
 import type { StressConfig, StressRun } from '../../types'
 import {
-  buildReport, saveReportToFile, formatTime, summarizeStats,
+  formatTime, summarizeStats,
   drawStressChart, drawCompareChart, readToken, DEFAULT_EXPECT_STATUS,
 } from './stressUtils'
 
@@ -153,7 +156,6 @@ const emit = defineEmits<{
 const stressStore = useStressStore()
 const requestStore = useRequestStore()
 const testCaseStore = useTestCaseStore()
-const message = useMessage()
 
 const config = reactive<StressConfig>({
   concurrent: 10,
@@ -233,12 +235,13 @@ async function doCompare() {
   }
 }
 
-// ── 报告导出 ─────────────────────────────────────────────────
-async function onExportReport(run: StressRun) {
-  const text = buildReport(run)
-  message.info(`已复制报告内容至剪贴板，正在保存到本地…`)
-  await saveReportToFile(text)
-  void navigator.clipboard.writeText(text).catch(() => {})
+// ── 报告预览（1.0.5：先预览再导出，不再直接弹系统保存框） ──
+const showReport = ref(false)
+const reportRun = ref<StressRun | null>(null)
+
+function onExportReport(run: StressRun) {
+  reportRun.value = run
+  showReport.value = true
 }
 </script>
 
