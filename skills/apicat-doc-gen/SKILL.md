@@ -80,7 +80,7 @@ items  = b.get("/list_dictionary_items", {"dictionary_id": did}) # 字典项
 
 | 参数 | 类型 | 必需 | 说明 |
 |---|---|---|---|
-| gpId | string | 是 | 设备 GAID |
+| userId | string | 是 | 用户 ID |
 
 - Response（成功）
 
@@ -102,7 +102,7 @@ items  = b.get("/list_dictionary_items", {"dictionary_id": did}) # 字典项
 
 | code | 含义 | 触发场景 |
 |---|---|---|
-| 20000 | 参数校验失败 | gpId 缺失 |
+| 20000 | 参数校验失败 | userId 缺失 |
 
 - 备注
     - 要点逐条列出

@@ -49,7 +49,7 @@ BASE="http://127.0.0.1:$PORT/api/v1"
 curl -s "$BASE/health"
 # → {"ok":true,"data":{"status":"up"}}
 curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_projects"
-# → {"ok":true,"data":[{"id":2,"name":"global.market.xiaomi.com",...}]}
+# → {"ok":true,"data":[{"id":2,"name":"demo-project",...}]}
 ```
 
 **⚠️ 所有端点都必须带 `/api/v1/` 前缀**（`$BASE` 里已含），不带会 404。

@@ -13,11 +13,11 @@
   "project_id": N,
   "requests": [
     {
-      "name": "获取推荐",
+      "name": "获取用户信息",
       "method": "GET",
-      "url": "/apm/intl/recommend/migration",
+      "url": "/api/user/info",
       "description": "...",
-      "params": [{"key":"gpId","value":"","enabled":true,"type":"string","description":"设备 GAID"}],
+      "params": [{"key":"userId","value":"","enabled":true,"type":"string","description":"用户 ID"}],
       "enum_candidates": {"status": [{"value":"0","label":"待支付"},{"value":"1","label":"已支付"}]}
     }
   ]
@@ -44,7 +44,7 @@ def parse_markdown(filepath: str) -> list[dict]:
         title_line = lines[0].strip()
 
         # 从标题提取名称和路径
-        # 形如 "获取换机迁移推荐" 或 "获取推荐 /apm/intl/recommend"
+        # 形如 "获取用户信息" 或 "获取用户信息 /api/user/info"
         path_match = re.search(r'(/[a-zA-Z0-9/_\-{}]+)', title_line)
         name = re.sub(r'\s*/[a-zA-Z0-9/_\-{}]+.*$', '', title_line).strip()
         url = path_match.group(1) if path_match else ''

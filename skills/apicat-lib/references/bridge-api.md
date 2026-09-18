@@ -42,7 +42,7 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_collections?project_id=1"
 ### POST /create_collection
 ```bash
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"projectId": 1, "parentId": null, "name": "Banner"}' "$BASE/create_collection"
+  -d '{"projectId": 1, "parentId": null, "name": "用户模块"}' "$BASE/create_collection"
 ```
 
 ### POST /rename_collection
@@ -62,12 +62,12 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 建完后必须再调 `update_request` 补参数。
 ```bash
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"collectionId": 1, "name": "获取推荐", "method": "GET", "url": "/apm/intl/recommend"}' \
+  -d '{"collectionId": 1, "name": "获取用户信息", "method": "GET", "url": "/api/user/info"}' \
   "$BASE/create_request"
 # 返回 {"ok":true,"data":{"id":14,...}}
 # 再补参数：
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"id": 14, "params": "[{\"key\":\"gpId\",\"value\":\"test\",\"enabled\":true}]"}' \
+  -d '{"id": 14, "params": "[{\"key\":\"userId\",\"value\":\"test\",\"enabled\":true}]"}' \
   "$BASE/update_request"
 ```
 
@@ -102,7 +102,7 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_test_cases?request_id=5&la
 ### POST /create_test_case
 ```bash
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"requestId": 5, "collectionId": 2, "name": "Happy Path", "method": "GET", "url": "{{base_url}}/api/x", "headers": "[]", "params": "[{\"key\":\"gpId\",\"value\":\"test\",\"enabled\":true}]", "bodyType": null, "body": null, "caseType": "happy_path", "assertions": "[{\"type\":\"status_code\",\"operator\":\"eq\",\"expected\":\"200\"}]"}' \
+  -d '{"requestId": 5, "collectionId": 2, "name": "Happy Path", "method": "GET", "url": "{{base_url}}/api/x", "headers": "[]", "params": "[{\"key\":\"userId\",\"value\":\"test\",\"enabled\":true}]", "bodyType": null, "body": null, "caseType": "happy_path", "assertions": "[{\"type\":\"status_code\",\"operator\":\"eq\",\"expected\":\"200\"}]"}' \
   "$BASE/create_test_case"
 ```
 

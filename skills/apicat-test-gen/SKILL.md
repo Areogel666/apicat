@@ -25,7 +25,7 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_collections?project_id=$PI
 curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_requests?collection_id=$CID"
 ```
 
-目录多、要连续读十几条时，改用 `apicat-lib/scripts/bridge_client.py` 循环（见 Step 6），比手工拼 shell 稳。
+目录多、要连续读十几条时，改用 `<skills>/apicat-lib/scripts/bridge_client.py` 循环（见 Step 6），比手工拼 shell 稳。
 
 匹配不到 → 先问「要不要新建接口」再建（建接口见 `apicat-edit`）。
 
@@ -51,9 +51,9 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_requests?collection_id=$CI
 
 用例参数以接口定义为基础。读接口详情：`GET /get_request?id=$RID`。
 
-参数形状沿用接口的 `params` JSON 字符串，例如 `[{"key": "gpId", "value": "test-gaid", "enabled": true}]`；POST 则 `body_type="raw_json"` + body 为 JSON 字符串。
+参数形状沿用接口的 `params` JSON 字符串，例如 `[{"key": "userId", "value": "test-user-001", "enabled": true}]`；POST 则 `body_type="raw_json"` + body 为 JSON 字符串。
 
-**核心原则「参数要全」**：Happy Path 须含全部 optional 业务参数（设备信息 lo/la/sdk 等），不只 required。
+**核心原则「参数要全」**：Happy Path 须含全部 optional 业务参数（用户与设备标识等），不只 required。
 
 **参数只能从接口定义推断不出时**，再去读源码/文档补（这也是本技能保留 Grep 工具的原因）；仍推断不出就别编，留空并在汇报里标注。
 
@@ -65,9 +65,9 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_requests?collection_id=$CI
 {
   "requestId": 5,
   "collectionId": 2,
-  "name": "[缺必填] 缺少 gpId",
+  "name": "[缺必填] 缺少 userId",
   "method": "GET",
-  "url": "{{base_url}}/apm/intl/recommend/migration",
+  "url": "{{base_url}}/api/user/info",
   "headers": "[{\"key\":\"Authorization\",\"value\":\"Bearer x\",\"enabled\":true}]",
   "params": "[{\"key\":\"page\",\"value\":\"1\",\"enabled\":true}]",
   "bodyType": null,
