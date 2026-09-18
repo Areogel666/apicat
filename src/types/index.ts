@@ -1,4 +1,9 @@
 // 与 Rust types.rs 保持一致的前端类型定义
+//
+// ⚠️ 无编译期机制防漂移，靠人工同步。改任一侧的字段（增/删/改名/改可空）
+// 必须同时改另一侧，否则前端会读到 undefined 或 Rust 序列化出多余字段。
+// 已发现的漂移史：Collection.updated_at（TS 多出，表里根本没有该列）、
+// ApiRequest.description（Rust 有、TS 曾缺失）。
 
 export interface Project {
   id: number
@@ -16,7 +21,6 @@ export interface Collection {
   name: string
   sort_order: number
   created_at: string
-  updated_at: string
 }
 
 // ── 压测类型 ──────────────────────────────────────────────
@@ -72,6 +76,7 @@ export interface ApiRequest {
   body: string
   auth_type: string
   auth_config: string
+  description: string  // 1.0.4 新增：与 types.rs 的 ApiRequest.description 对应
   sort_order: number
   created_at: string
   updated_at: string
