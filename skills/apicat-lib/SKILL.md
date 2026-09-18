@@ -52,6 +52,11 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 | 压测 | `POST /start_stress` |
 | 读历史 | `GET /list_history?request_id=N` |
 | 读用例执行历史 | `GET /list_test_case_history?id=N`（注意：参数是 `id`） |
+| 读环境 | `GET /list_environments?project_id=N`、`GET /list_env_variables?id=N`（注意：参数是 `id` = env_id） |
+| 激活环境 | `POST /activate_environment` |
+| 读 Cookie | `GET /list_cookies?scope_type=global&project_id=N` |
+
+**表格只列常用端点。** 写操作（create/update/delete）、环境与 Cookie 的其余端点共约 30 个不在表内 —— 调用前必须读 `references/bridge-api.md` 确认，**不要因为表里没有就断定 Bridge 不支持**。
 
 ## 关键约束
 
