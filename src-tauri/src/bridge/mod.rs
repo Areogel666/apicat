@@ -6,7 +6,6 @@
 pub mod server;
 pub mod token;
 
-use std::path::PathBuf;
 use tauri::Manager;
 
 /// bridge.json 的内容
@@ -15,11 +14,6 @@ pub struct BridgeInfo {
     pub port: u16,
     pub token: String,
     pub enabled: bool,
-}
-
-/// bridge.json 路径：%APPDATA%/com.apicat.app/bridge.json
-pub fn bridge_file_path(app: &tauri::App) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    Ok(app.path().app_data_dir()?.join("bridge.json"))
 }
 
 /// 从 app-settings.json 读 bridge 开关（默认 true）

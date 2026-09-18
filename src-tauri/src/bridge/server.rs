@@ -99,11 +99,6 @@ struct DictQuery {
     dictionary_id: i64,
 }
 #[derive(Deserialize)]
-struct FieldRuleQuery {
-    project_id: i64,
-    field_name: Option<String>,
-}
-#[derive(Deserialize)]
 struct FieldOverrideQuery {
     project_id: i64,
     request_id: Option<i64>,
