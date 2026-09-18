@@ -16,6 +16,10 @@ dist-ssr
 # Rust / Cargo
 src-tauri/target/
 
+# Python（技能脚本运行时产生）
+__pycache__/
+*.pyc
+
 # Editor directories and files
 .vscode/
 .idea/
