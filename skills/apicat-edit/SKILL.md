@@ -12,27 +12,33 @@ allowed-tools: Bash, Read, Glob, AskUserQuestion
 
 ## 一、从文档批量导入接口
 
-手上有 ias-api-doc 风格的 Markdown 接口文档、要导入**多条**接口时，不要一条条手搓 curl，先跑解析脚本：
+**直接读文档提取，不要找解析脚本。** 文档格式千变万化（不同人写的结构不同），写死的解析脚本只能吃一种格式、换个写法就错位；你读 Markdown 比它准得多，也能适应格式变化。
 
-```bash
-python "<skills>/apicat-edit/scripts/parse_markdown_docs.py" <doc.md> --project-id $PID
-```
+### 提取规范
 
-**⚠️ Windows(Git Bash) 传路径用相对路径或 `D:/...` 形式**，别用 `/tmp/x.md` 这类 POSIX 路径——MSYS 会把它改写成 Git 安装目录下的路径，导致「文件不存在」。
+逐条接口提取，字段对齐 Bridge：
 
-输出每条接口的 `name`/`method`/`url`/`params`（含 type/description/required），外加 `enum_candidates` —— 从 `` `0`=非广告 `` 这类字段描述里抽出的枚举候选，可直接拿去建字典。
+| 字段 | 从哪来 | 注意 |
+|---|---|---|
+| `name` | 接口标题 | 中文名；标题里只有路径时用路径 |
+| `method` | 请求方式行 | **以接口自身的请求方式为准**，别被参数描述里的 `GET`/`POST` 枚举示例带偏 |
+| `url` | 标题或域名行里的路径 | 以 `/` 开头 |
+| `params` | 参数表 | 每行 → `{key, value:"", enabled:true, type, description}`，`type`/`description` 取表格对应列 |
+| 枚举候选 | 描述列 | 形如 `` `0`=待支付 `` 的成对写法 → 可建字典 |
 
-**导入流程**：
-1. 跑脚本拿 JSON，**先把解析结果给用户过一眼**（字段名/路径常需人工修正）
-2. 按 `url` 路径匹配已有目录（`GET /list_collections?project_id=N`）；匹配不到问用户是否 `POST /create_collection` 新建
-3. **查重按 `method + url`，不能只按 `name`**。库里接口名不统一 —— 有的存中文名（如 `获取用户信息`），有的存路径（如 `/api/user/info`）；而文档里提的通常是中文名。只比 `name` 会把同一个接口误判成新的，**导入出重复项**。
+**先把提取结果给用户过一眼**（字段名/路径常需人工修正），再落库。
+
+### 落库流程
+
+1. 按 `url` 路径匹配已有目录（`GET /list_collections?project_id=N`）；匹配不到问用户是否 `POST /create_collection` 新建
+2. **查重按 `method + url`，不能只按 `name`**。库里接口名不统一 —— 有的存中文名（如 `获取用户信息`），有的存路径（如 `/api/user/info`）；而文档里提的通常是中文名。只比 `name` 会把同一个接口误判成新的，**导入出重复项**。
    取 `GET /list_requests?collection_id=$CID`，`method + url` 完全一致即视为同一接口，问用户：**更新它 / 跳过 / 新建**。
-4. 逐条 `POST /create_request`（只传 `collectionId`/`name`/`method`/`url`）
-5. 紧接 `POST /update_request` 补 `params` —— 脚本输出的 `{key,value,enabled,type,description}` 形状可直接用
-6. `enum_candidates` 非空 → 问用户是否建字典并绑定（见第三章）
-7. 汇报：新建/复用目录、导入接口数、跳过项
+3. 逐条 `POST /create_request`（只传 `collectionId`/`name`/`method`/`url`）
+4. 紧接 `POST /update_request` 补 `params`
+5. 抽到枚举 → 问用户是否建字典并绑定（见第三章）
+6. 汇报：新建/复用目录、导入接口数、跳过项
 
-脚本只解析不写库，落库动作全部由你按上述流程执行。
+接口多（>10 条）时，用 `<skills>/apicat-lib/scripts/bridge_client.py` 循环写入更稳（可选，需 Python）；少量直接 curl。
 
 ## 二、新建 / 更新单条接口
 

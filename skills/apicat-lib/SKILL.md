@@ -71,7 +71,9 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 
 响应统一格式：成功 `{"ok": true, "data": ...}`；失败 `{"ok": false, "error": "..."}`。
 
-**多步调用 → 用脚本**：`scripts/bridge_client.py`（本技能目录下）已封装 bridge.json 定位、鉴权、超时与错误处理，省掉逐步拼 curl，也让 5+ 次连续读写不用手工拆 JSON：
+**多步调用（5+ 次连续读写）→ 可选脚本**：`scripts/bridge_client.py`（本技能目录下）封装了 bridge.json 定位、鉴权、超时与错误处理。
+
+**⚠️ 它是可选的，别默认上它**：需要 Python，而 **Windows 不自带 Python** —— 用户没装时跑 `python` 会弹 Microsoft Store 或报「命令不存在」。**单次调用直接用上面的 curl**（零依赖）；只有要连续读写十几条时，用脚本才划算。
 
 ```bash
 python "<skills>/apicat-lib/scripts/bridge_client.py"   # 自检：连通则列出所有项目
