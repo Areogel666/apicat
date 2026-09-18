@@ -1,12 +1,14 @@
 ---
 name: apicat-doc-gen
-description: 根据 ApiCat 接口定义 + 用例生成格式化接口文档（对齐 ias-api-doc 规范）。触发词：生成接口文档、接口文档、出文档、apicat doc、apicat-doc-gen
+description: 根据 ApiCat 接口定义 + 用例生成格式化接口文档（Markdown，含富字段表 + 多场景 Response）。触发词：生成接口文档、接口文档、出文档、apicat doc、apicat-doc-gen
 allowed-tools: Bash, Read, Write, Glob, AskUserQuestion
 ---
 
 # ApiCat 接口文档生成
 
-从 ApiCat 读接口定义和用例，生成对齐 `ias-api-doc/API_SPECIFICATION.md` 规范的 Markdown 文档。
+从 ApiCat 读接口定义和用例，生成标准 Markdown 接口文档。
+
+**格式规范已内嵌在本技能的 Step 5 里，不需要读外部模板项目。**
 
 ## Step 1：定位 Bridge + 选项目
 
@@ -33,9 +35,12 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_dictionary_items?dictionar
 
 ## Step 4：确定输出目录
 
-1. 读项目 `docs_output_dir`（从 `list_projects` 返回）
-2. 有值 → 用它；无值 → 默认 `~/.apicat/apidoc/{project_name}/`
-3. 用户说「写 ias-api-doc」→ `D:\ProgramFiles\mi\ias-api-doc\{service}-api\{module}\`
+按优先级：
+1. 读项目 `docs_output_dir`（从 `list_projects` 返回）→ 有值就用它
+2. 无值 → 默认 `~/.apicat/apidoc/{project_name}/`
+3. 用户指定其他路径 → 用用户指定的
+
+**不需要读任何外部模板项目**，格式规范在 Step 5 里。
 
 目录结构（对齐 ias-api-doc 约定）：
 ```
@@ -118,7 +123,7 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_dictionary_items?dictionar
 
 每个场景给完整 JSON 报文（可精简示例值，保留结构）。
 
-**不生成「验收用例」表格**（现有 ias-api-doc 文档没人用这一节）。
+**不生成「验收用例」表格**（实际文档中没人用这一节，用例只用于生成 Response 示例）。
 
 ### 字典字段引用
 
