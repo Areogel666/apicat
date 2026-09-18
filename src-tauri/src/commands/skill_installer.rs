@@ -16,7 +16,11 @@ fn builtin_skills_dir(app: &tauri::AppHandle) -> Result<PathBuf, crate::error::A
     // 开发模式：源码目录下的 skills/
     let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../skills");
     if dev.exists() {
-        return Ok(dev.canonicalize().unwrap_or(dev));
+        // canonicalize 在 Windows 返回 UNC 路径（\\?\...），mklink /J 不认，去掉前缀
+        let canon = dev.canonicalize().unwrap_or(dev);
+        let s = canon.to_string_lossy();
+        let stripped = s.strip_prefix(r"\\?\").map(|x| x.to_string()).unwrap_or_else(|| s.to_string());
+        return Ok(PathBuf::from(stripped));
     }
     // 生产模式：Tauri 资源目录
     if let Ok(res_dir) = app.path().resource_dir() {
@@ -83,8 +87,8 @@ fn check_target(id: &str, name: &str, skills_dir: PathBuf) -> SkillTarget {
 pub async fn get_skill_targets() -> CmdResult<Vec<SkillTarget>> {
     let home = home_dir()?;
     let targets = vec![
-        check_target("claude", "Claude Code / OpenCode / mimocode", home.join(".claude/skills")),
-        check_target("codex", "Codex", home.join(".codex/skills")),
+        check_target("claude", "Claude Code / OpenCode / mimocode", home.join(".claude").join("skills")),
+        check_target("codex", "Codex", home.join(".codex").join("skills")),
     ];
     Ok(targets)
 }
@@ -105,14 +109,20 @@ fn create_link(src: &Path, dest: &Path) -> Result<String, crate::error::AppError
     // Windows: junction（mklink /J，无需管理员权限）
     #[cfg(target_os = "windows")]
     {
-        let src_str = src.to_string_lossy();
-        let dest_str = dest.to_string_lossy();
+        let src_str = src.to_string_lossy().to_string();
+        let dest_str = dest.to_string_lossy().to_string();
+        eprintln!("[skill_installer] mklink /J \"{dest_str}\" \"{src_str}\"");
         let output = std::process::Command::new("cmd")
             .args(["/C", "mklink", "/J", &dest_str, &src_str])
             .output();
         match output {
             Ok(o) if o.status.success() => return Ok("junction".to_string()),
-            _ => {} // 静默回退复制
+            Ok(o) => {
+                eprintln!("[skill_installer] mklink /J 失败: {}", String::from_utf8_lossy(&o.stderr));
+            }
+            Err(e) => {
+                eprintln!("[skill_installer] mklink 命令执行失败: {e}");
+            }
         }
     }
 
@@ -191,8 +201,8 @@ pub async fn install_skills(app: tauri::AppHandle, target_id: String) -> CmdResu
     let src = builtin_skills_dir(&app)?;
     let home = home_dir()?;
     let dest = match target_id.as_str() {
-        "claude" => home.join(".claude/skills"),
-        "codex" => home.join(".codex/skills"),
+        "claude" => home.join(".claude").join("skills"),
+        "codex" => home.join(".codex").join("skills"),
         _ => return Err(crate::error::AppError::Custom(format!("未知目标: {target_id}"))),
     };
 
@@ -216,8 +226,8 @@ pub async fn install_skills(app: tauri::AppHandle, target_id: String) -> CmdResu
 pub async fn uninstall_skills(target_id: String) -> CmdResult<()> {
     let home = home_dir()?;
     let dest = match target_id.as_str() {
-        "claude" => home.join(".claude/skills"),
-        "codex" => home.join(".codex/skills"),
+        "claude" => home.join(".claude").join("skills"),
+        "codex" => home.join(".codex").join("skills"),
         _ => return Err(crate::error::AppError::Custom(format!("未知目标: {target_id}"))),
     };
     for skill in SKILL_NAMES {
