@@ -21,6 +21,71 @@ pub async fn list_test_cases(
 
 /// 创建测试用例
 /// 若该接口当前没有任何用例，自动将新用例标记为收藏（starred=1）
+/// 创建测试用例。UI 与 Bridge 共用。
+///
+/// `description` / `source` / `assertions` 为可选：缺省时 description 落 NULL、
+/// source 落表默认 'manual'、assertions 落 '[]'。
+/// `case_type` 必填 —— 缺省兜底会把 7 种用例类型静默全标成 happy_path，
+/// 由调用方决定默认值（UI 侧传 happy_path，Bridge 侧缺失则报错）。
+pub async fn create_test_case_impl(
+    pool: &sqlx::SqlitePool,
+    request_id: i64,
+    collection_id: i64,
+    name: &str,
+    description: Option<&str>,
+    source: &str,
+    method: Option<&str>,
+    url: Option<&str>,
+    headers: Option<&str>,
+    params: Option<&str>,
+    body_type: Option<&str>,
+    body: Option<&str>,
+    case_type: &str,
+    assertions: Option<&str>,
+) -> Result<TestCase, crate::error::AppError> {
+    // 判断是否为该接口的第一个用例 → 自动收藏
+    let existing_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM test_cases WHERE request_id=?",
+    )
+    .bind(request_id)
+    .fetch_one(pool)
+    .await?;
+    let starred: i64 = if existing_count == 0 { 1 } else { 0 };
+
+    // 自动命名：「用例 N」（N = existing_count + 1）
+    let final_name = if name.is_empty() {
+        format!("用例 {}", existing_count + 1)
+    } else {
+        name.to_string()
+    };
+
+    let sql = format!(
+        "INSERT INTO test_cases \
+            (request_id, collection_id, name, description, source, method, url, headers, params, body_type, body, case_type, assertions, starred, sort_order) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+         RETURNING {SELECT_COLS}"
+    );
+    let row = sqlx::query_as::<_, TestCase>(&sql)
+        .bind(request_id)
+        .bind(collection_id)
+        .bind(&final_name)
+        .bind(description)
+        .bind(source)
+        .bind(method)
+        .bind(url)
+        .bind(headers.unwrap_or("[]"))
+        .bind(params.unwrap_or("[]"))
+        .bind(body_type)
+        .bind(body)
+        .bind(case_type)
+        .bind(assertions.unwrap_or("[]"))
+        .bind(starred)
+        .bind(existing_count)   // sort_order = 当前用例数（末尾插入）
+        .fetch_one(pool)
+        .await?;
+    Ok(row)
+}
+
 #[tauri::command]
 pub async fn create_test_case(
     db: State<'_, AppDb>,
@@ -35,44 +100,23 @@ pub async fn create_test_case(
     body: Option<String>,
     case_type: Option<String>,
 ) -> CmdResult<TestCase> {
-    // 判断是否为该接口的第一个用例 → 自动收藏
-    let existing_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM test_cases WHERE request_id=?",
+    create_test_case_impl(
+        &db.0,
+        request_id,
+        collection_id,
+        &name,
+        None,
+        "manual",
+        method.as_deref(),
+        url.as_deref(),
+        headers.as_deref(),
+        params.as_deref(),
+        body_type.as_deref(),
+        body.as_deref(),
+        case_type.as_deref().unwrap_or("happy_path"),
+        None,
     )
-    .bind(request_id)
-    .fetch_one(&db.0)
-    .await?;
-    let starred: i64 = if existing_count == 0 { 1 } else { 0 };
-
-    // 自动命名：「用例 N」（N = existing_count + 1）
-    let final_name = if name.is_empty() {
-        format!("用例 {}", existing_count + 1)
-    } else {
-        name
-    };
-
-    let sql = format!(
-        "INSERT INTO test_cases \
-            (request_id, collection_id, name, method, url, headers, params, body_type, body, case_type, starred, sort_order) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
-         RETURNING {SELECT_COLS}"
-    );
-    let row = sqlx::query_as::<_, TestCase>(&sql)
-        .bind(request_id)
-        .bind(collection_id)
-        .bind(&final_name)
-        .bind(&method)
-        .bind(&url)
-        .bind(headers.as_deref().unwrap_or("[]"))
-        .bind(params.as_deref().unwrap_or("[]"))
-        .bind(&body_type)
-        .bind(&body)
-        .bind(case_type.as_deref().unwrap_or("happy_path"))
-        .bind(starred)
-        .bind(existing_count)   // sort_order = 当前用例数（末尾插入）
-        .fetch_one(&db.0)
-        .await?;
-    Ok(row)
+    .await
 }
 
 /// 更新测试用例名称 / 收藏状态 / 请求参数 / 类型 / 断言
@@ -115,14 +159,17 @@ pub async fn update_test_case(
 }
 
 /// 删除测试用例
-/// 若为该接口最后一个收藏用例，返回错误（禁止删除）
-#[tauri::command]
-pub async fn delete_test_case(db: State<'_, AppDb>, id: i64) -> CmdResult<()> {
+/// 删除测试用例（含「最后一个收藏用例不可删」保护）。
+/// UI 与 Bridge 共用此实现，避免外部脚本绕过业务约束。
+pub async fn delete_test_case_impl(
+    pool: &sqlx::SqlitePool,
+    id: i64,
+) -> Result<(), crate::error::AppError> {
     // 查出该用例归属的 request_id 和 starred 状态
     let (request_id, starred): (Option<i64>, i64) =
         sqlx::query_as("SELECT request_id, starred FROM test_cases WHERE id=?")
             .bind(id)
-            .fetch_one(&db.0)
+            .fetch_one(pool)
             .await?;
 
     // 若为收藏用例，检查是否为最后一个
@@ -132,7 +179,7 @@ pub async fn delete_test_case(db: State<'_, AppDb>, id: i64) -> CmdResult<()> {
                 "SELECT COUNT(*) FROM test_cases WHERE request_id=? AND starred=1",
             )
             .bind(rid)
-            .fetch_one(&db.0)
+            .fetch_one(pool)
             .await?;
             if starred_count <= 1 {
                 return Err(crate::error::AppError::Custom(
@@ -144,9 +191,15 @@ pub async fn delete_test_case(db: State<'_, AppDb>, id: i64) -> CmdResult<()> {
 
     sqlx::query("DELETE FROM test_cases WHERE id=?")
         .bind(id)
-        .execute(&db.0)
+        .execute(pool)
         .await?;
     Ok(())
+}
+
+/// 若为该接口最后一个收藏用例，返回错误（禁止删除）
+#[tauri::command]
+pub async fn delete_test_case(db: State<'_, AppDb>, id: i64) -> CmdResult<()> {
+    delete_test_case_impl(&db.0, id).await
 }
 
 // ── M3-C：用例执行历史 ─────────────────────────────────────────

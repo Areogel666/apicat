@@ -20,6 +20,61 @@ pub async fn list_requests(
     Ok(rows)
 }
 
+/// 创建接口。UI 与 Bridge 共用。
+/// Collection 内名称唯一性由 DB UNIQUE 约束保证，冲突时翻译为友好文案。
+pub async fn create_request_impl(
+    pool: &sqlx::SqlitePool,
+    collection_id: i64,
+    name: &str,
+    method: &str,
+    url: &str,
+) -> Result<ApiRequest, crate::error::AppError> {
+    let row = sqlx::query_as::<_, ApiRequest>(&format!(
+        "INSERT INTO api_requests (collection_id, name, method, url) VALUES (?,?,?,?) RETURNING {REQUEST_COLS}"
+    ))
+    .bind(collection_id)
+    .bind(name)
+    .bind(method)
+    .bind(url)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| map_unique_name_error(e, name))?;
+    Ok(row)
+}
+
+/// 更新接口（全量覆写语义）。UI 与 Bridge 共用。
+///
+/// Bridge 需要「只传要改的字段」时，由其 handler 先 SELECT 合并再调本函数，
+/// 这样 COALESCE 的便利留在协议层，SQL 只有这一份。
+pub async fn update_request_impl(
+    pool: &sqlx::SqlitePool,
+    id: i64,
+    name: &str,
+    method: &str,
+    url: &str,
+    params: &str,
+    headers: &str,
+    body_type: &str,
+    body: &str,
+    auth_type: &str,
+    auth_config: &str,
+    description: &str,
+) -> Result<ApiRequest, crate::error::AppError> {
+    let row = sqlx::query_as::<_, ApiRequest>(&format!(
+        "UPDATE api_requests SET name=?,method=?,url=?,params=?,headers=?,body_type=?,body=?,auth_type=?,auth_config=?,description=?,updated_at=datetime('now') WHERE id=? RETURNING {REQUEST_COLS}"
+    ))
+    .bind(name).bind(method).bind(url)
+    .bind(params).bind(headers)
+    .bind(body_type).bind(body)
+    .bind(auth_type).bind(auth_config)
+    .bind(description)
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| map_unique_name_error(e, name))?;
+    Ok(row)
+}
+
 /// 创建接口（Collection 内名称唯一性由 DB UNIQUE 约束保证，原子操作无 TOCTOU）
 #[tauri::command]
 pub async fn create_request(
@@ -29,17 +84,7 @@ pub async fn create_request(
     method: String,
     url: String,
 ) -> CmdResult<ApiRequest> {
-    let row = sqlx::query_as::<_, ApiRequest>(
-        "INSERT INTO api_requests (collection_id, name, method, url) VALUES (?,?,?,?) RETURNING id, collection_id, name, method, url, params, headers, body_type, body, auth_type, auth_config, description, sort_order, created_at, updated_at"
-    )
-    .bind(collection_id)
-    .bind(&name)
-    .bind(&method)
-    .bind(&url)
-    .fetch_one(&db.0)
-    .await
-    .map_err(|e| map_unique_name_error(e, &name))?;
-    Ok(row)
+    create_request_impl(&db.0, collection_id, &name, &method, &url).await
 }
 
 /// 更新接口（全量保存，Collection 内名称唯一性由 DB UNIQUE 约束保证）
@@ -57,18 +102,18 @@ pub async fn update_request(
     auth_type: String,
     auth_config: String,
 ) -> CmdResult<ApiRequest> {
-    let row = sqlx::query_as::<_, ApiRequest>(
-        "UPDATE api_requests SET name=?,method=?,url=?,params=?,headers=?,body_type=?,body=?,auth_type=?,auth_config=?,updated_at=datetime('now') WHERE id=? RETURNING id, collection_id, name, method, url, params, headers, body_type, body, auth_type, auth_config, description, sort_order, created_at, updated_at"
-    )
-    .bind(&name).bind(&method).bind(&url)
-    .bind(&params).bind(&headers)
-    .bind(&body_type).bind(&body)
-    .bind(&auth_type).bind(&auth_config)
+    // UI 走全量覆写；description 不在 IPC 参数里，按原值保留
+    let cur = sqlx::query_as::<_, ApiRequest>(&format!(
+        "SELECT {REQUEST_COLS} FROM api_requests WHERE id=?"
+    ))
     .bind(id)
     .fetch_one(&db.0)
+    .await?;
+    update_request_impl(
+        &db.0, id, &name, &method, &url, &params, &headers,
+        &body_type, &body, &auth_type, &auth_config, &cur.description,
+    )
     .await
-    .map_err(|e| map_unique_name_error(e, &name))?;
-    Ok(row)
 }
 
 /// 删除接口
@@ -81,20 +126,24 @@ pub async fn delete_request(db: State<'_, AppDb>, id: i64) -> CmdResult<()> {
     Ok(())
 }
 
-/// 复制接口（克隆所有字段，名称自动追加「副本」）
-#[tauri::command]
-pub async fn duplicate_request(db: State<'_, AppDb>, id: i64) -> CmdResult<ApiRequest> {
+/// 复制接口（克隆所有字段，名称自动追加「副本」）。
+/// UI 与 Bridge 共用：副本保留 description 且 sort_order 紧跟原接口。
+pub async fn duplicate_request_impl(
+    pool: &sqlx::SqlitePool,
+    id: i64,
+) -> Result<ApiRequest, crate::error::AppError> {
     let src = sqlx::query_as::<_, ApiRequest>(&format!(
         "SELECT {REQUEST_COLS} FROM api_requests WHERE id=?"
     ))
     .bind(id)
-    .fetch_one(&db.0)
+    .fetch_one(pool)
     .await?;
 
     let new_name = format!("{} 副本", src.name);
-    let row = sqlx::query_as::<_, ApiRequest>(
-        "INSERT INTO api_requests (collection_id, name, method, url, params, headers, body_type, body, auth_type, auth_config, sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?) RETURNING id, collection_id, name, method, url, params, headers, body_type, body, auth_type, auth_config, description, sort_order, created_at, updated_at"
-    )
+    let row = sqlx::query_as::<_, ApiRequest>(&format!(
+        "INSERT INTO api_requests (collection_id, name, method, url, params, headers, body_type, body, auth_type, auth_config, description, sort_order) \
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?) RETURNING {REQUEST_COLS}"
+    ))
     .bind(src.collection_id)
     .bind(&new_name)
     .bind(&src.method)
@@ -105,11 +154,18 @@ pub async fn duplicate_request(db: State<'_, AppDb>, id: i64) -> CmdResult<ApiRe
     .bind(&src.body)
     .bind(&src.auth_type)
     .bind(&src.auth_config)
+    .bind(&src.description)
     .bind(src.sort_order + 1)
-    .fetch_one(&db.0)
+    .fetch_one(pool)
     .await
     .map_err(|e| map_unique_name_error(e, &new_name))?;
     Ok(row)
+}
+
+/// 复制接口（克隆所有字段，名称自动追加「副本」）
+#[tauri::command]
+pub async fn duplicate_request(db: State<'_, AppDb>, id: i64) -> CmdResult<ApiRequest> {
+    duplicate_request_impl(&db.0, id).await
 }
 
 /// 批量更新接口排序（拖拽后调用）

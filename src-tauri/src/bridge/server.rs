@@ -353,17 +353,15 @@ async fn create_request(State(s): State<BState>, Json(body): Json<Value>) -> axu
     let Some(cid) = get_i64(&body, "collectionId", "collection_id") else {
         return err(StatusCode::BAD_REQUEST, "collectionId required");
     };
-    let sql = format!(
-        "INSERT INTO api_requests (collection_id, name, method, url) VALUES (?, ?, ?, ?) \
-         RETURNING {REQ_COLS}"
-    );
-    match sqlx::query_as::<_, ApiRequest>(&sql)
-        .bind(cid)
-        .bind(body["name"].as_str().unwrap_or("未命名接口"))
-        .bind(body["method"].as_str().unwrap_or("GET"))
-        .bind(body["url"].as_str().unwrap_or(""))
-        .fetch_one(&s.pool)
-        .await
+    // 走与 UI 相同的 impl，UNIQUE 冲突返回友好文案而非原始 SQLite 错误
+    match crate::commands::request::create_request_impl(
+        &s.pool,
+        cid,
+        body["name"].as_str().unwrap_or("未命名接口"),
+        body["method"].as_str().unwrap_or("GET"),
+        body["url"].as_str().unwrap_or(""),
+    )
+    .await
     {
         Ok(row) => { broadcast(&s, "requests"); ok(row) }
         Err(e) => server_err(e),
@@ -372,29 +370,33 @@ async fn create_request(State(s): State<BState>, Json(body): Json<Value>) -> axu
 
 async fn update_request(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
     let Some(id) = body["id"].as_i64() else { return err(StatusCode::BAD_REQUEST, "id required") };
-    // COALESCE：传了才更新，未传保留原值（与 update_test_case 语义一致）
-    let sql = format!(
-        "UPDATE api_requests SET name=COALESCE(?, name), method=COALESCE(?, method), \
-         url=COALESCE(?, url), params=COALESCE(?, params), headers=COALESCE(?, headers), \
-         body_type=COALESCE(?, body_type), body=COALESCE(?, body), \
-         auth_type=COALESCE(?, auth_type), auth_config=COALESCE(?, auth_config), \
-         description=COALESCE(?, description), updated_at=datetime('now') \
-         WHERE id=? RETURNING {REQ_COLS}"
-    );
-    match sqlx::query_as::<_, ApiRequest>(&sql)
-        .bind(body["name"].as_str())
-        .bind(body["method"].as_str())
-        .bind(body["url"].as_str())
-        .bind(body["params"].as_str())
-        .bind(body["headers"].as_str())
-        .bind(get_str(&body, "bodyType", "body_type"))
-        .bind(body["body"].as_str())
-        .bind(get_str(&body, "authType", "auth_type"))
-        .bind(get_str(&body, "authConfig", "auth_config"))
-        .bind(body["description"].as_str())
-        .bind(id)
-        .fetch_one(&s.pool)
-        .await
+    // Bridge 侧保持「传了才更新」的 COALESCE 语义：先读旧值，未传字段用原值补齐，
+    // 再走与 UI 同一份全量覆写 SQL。这样 COALESCE 是协议层便利，SQL 只有一份。
+    let cur: ApiRequest = match sqlx::query_as::<_, ApiRequest>(&format!(
+        "SELECT {REQ_COLS} FROM api_requests WHERE id=?"
+    ))
+    .bind(id)
+    .fetch_one(&s.pool)
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => return server_err(e),
+    };
+    match crate::commands::request::update_request_impl(
+        &s.pool,
+        id,
+        body["name"].as_str().unwrap_or(&cur.name),
+        body["method"].as_str().unwrap_or(&cur.method),
+        body["url"].as_str().unwrap_or(&cur.url),
+        body["params"].as_str().unwrap_or(&cur.params),
+        body["headers"].as_str().unwrap_or(&cur.headers),
+        get_str(&body, "bodyType", "body_type").unwrap_or(&cur.body_type),
+        body["body"].as_str().unwrap_or(&cur.body),
+        get_str(&body, "authType", "auth_type").unwrap_or(&cur.auth_type),
+        get_str(&body, "authConfig", "auth_config").unwrap_or(&cur.auth_config),
+        body["description"].as_str().unwrap_or(&cur.description),
+    )
+    .await
     {
         Ok(row) => { broadcast(&s, "requests"); ok(row) }
         Err(e) => server_err(e),
@@ -411,12 +413,8 @@ async fn delete_request(State(s): State<BState>, Json(body): Json<Value>) -> axu
 
 async fn duplicate_request(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
     let Some(id) = body["id"].as_i64() else { return err(StatusCode::BAD_REQUEST, "id required") };
-    let sql = format!(
-        "INSERT INTO api_requests (collection_id, name, method, url, params, headers, body_type, body, auth_type, auth_config, description) \
-         SELECT collection_id, name || ' 副本', method, url, params, headers, body_type, body, auth_type, auth_config, description \
-         FROM api_requests WHERE id=? RETURNING {REQ_COLS}"
-    );
-    match sqlx::query_as::<_, ApiRequest>(&sql).bind(id).fetch_one(&s.pool).await {
+    // 走与 UI 相同的 impl：保留 description 且 sort_order 紧跟原接口
+    match crate::commands::request::duplicate_request_impl(&s.pool, id).await {
         Ok(row) => { broadcast(&s, "requests"); ok(row) }
         Err(e) => server_err(e),
     }
@@ -452,33 +450,27 @@ async fn create_test_case(State(s): State<BState>, Json(body): Json<Value>) -> a
     let Some(cid) = get_i64(&body, "collectionId", "collection_id") else {
         return err(StatusCode::BAD_REQUEST, "collectionId required");
     };
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM test_cases WHERE request_id=?")
-        .bind(rid).fetch_one(&s.pool).await.unwrap_or(0);
-    let starred: i64 = if count == 0 { 1 } else { 0 };
-    let name = body["name"].as_str().unwrap_or("");
-    let final_name = if name.is_empty() { format!("用例 {}", count + 1) } else { name.to_string() };
-
-    // description / source 为可选：缺省时 description 落 NULL、source 沿用表默认 'manual'
-    let sql = format!(
-        "INSERT INTO test_cases (request_id, collection_id, name, description, source, method, url, headers, params, body_type, body, case_type, assertions, starred, sort_order) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING {TC_COLS}"
-    );
-    match sqlx::query_as::<_, TestCase>(&sql)
-        .bind(rid).bind(cid).bind(&final_name)
-        .bind(body["description"].as_str())
-        .bind(body["source"].as_str().unwrap_or("manual"))
-        .bind(body["method"].as_str())
-        .bind(body["url"].as_str())
-        .bind(body["headers"].as_str().unwrap_or("[]"))
-        .bind(body["params"].as_str().unwrap_or("[]"))
-        .bind(get_str(&body, "bodyType", "body_type"))
-        .bind(body["body"].as_str())
-        .bind(get_str(&body, "caseType", "case_type").unwrap_or("happy_path"))
-        .bind(body["assertions"].as_str().unwrap_or("[]"))
-        .bind(starred)
-        .bind(count)
-        .fetch_one(&s.pool)
-        .await
+    // caseType 必填：缺省兜底会把 7 种用例类型静默全标成 happy_path，宁可报错
+    let Some(case_type) = get_str(&body, "caseType", "case_type") else {
+        return err(StatusCode::BAD_REQUEST, "caseType required (happy_path/missing_required/unauthorized/boundary/empty_list/type_error/invalid_chars)");
+    };
+    match crate::commands::test_case::create_test_case_impl(
+        &s.pool,
+        rid,
+        cid,
+        body["name"].as_str().unwrap_or(""),
+        body["description"].as_str(),
+        body["source"].as_str().unwrap_or("manual"),
+        body["method"].as_str(),
+        body["url"].as_str(),
+        body["headers"].as_str(),
+        body["params"].as_str(),
+        get_str(&body, "bodyType", "body_type"),
+        body["body"].as_str(),
+        case_type,
+        body["assertions"].as_str(),
+    )
+    .await
     {
         Ok(row) => { broadcast(&s, "test_cases"); ok(row) }
         Err(e) => server_err(e),
@@ -517,7 +509,8 @@ async fn update_test_case(State(s): State<BState>, Json(body): Json<Value>) -> a
 
 async fn delete_test_case(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
     let Some(id) = body["id"].as_i64() else { return err(StatusCode::BAD_REQUEST, "id required") };
-    match sqlx::query("DELETE FROM test_cases WHERE id=?").bind(id).execute(&s.pool).await {
+    // 走与 UI 相同的 impl，保留「最后一个收藏用例不可删」保护
+    match crate::commands::test_case::delete_test_case_impl(&s.pool, id).await {
         Ok(_) => { broadcast(&s, "test_cases"); ok(json!({"deleted": id})) }
         Err(e) => server_err(e),
     }
@@ -555,8 +548,10 @@ async fn run_test_case(State(s): State<BState>, Json(body): Json<Value>) -> axum
 // ════════════════════════════════════════════════════════════
 
 async fn list_dictionaries(State(s): State<BState>, Query(q): Query<ProjectQuery>) -> axum::response::Response {
+    // 与 commands/data_dictionary.rs 一致：project_id IS NULL 即全局可见
+    // （builtin 是「是否内置」标记，与可见性正交；io.rs 的导出/导入查重也用此条件）
     let sql = format!(
-        "SELECT {DICT_COLS} FROM data_dictionaries WHERE builtin=1 OR project_id=? ORDER BY builtin DESC, code"
+        "SELECT {DICT_COLS} FROM data_dictionaries WHERE project_id IS NULL OR project_id=? ORDER BY builtin DESC, id ASC"
     );
     match sqlx::query_as::<_, DataDictionary>(&sql)
         .bind(q.project_id)
@@ -937,7 +932,7 @@ async fn stress_report(State(s): State<BState>, Query(q): Query<StressReportQuer
 
 async fn list_environments(State(s): State<BState>, Query(q): Query<ProjectQuery>) -> axum::response::Response {
     let sql = format!(
-        "SELECT {ENV_COLS} FROM environments WHERE project_id=? ORDER BY id"
+        "SELECT {ENV_COLS} FROM environments WHERE project_id=? ORDER BY created_at DESC, id DESC"
     );
     match sqlx::query_as::<_, Environment>(&sql)
         .bind(q.project_id)
