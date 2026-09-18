@@ -93,6 +93,47 @@ pub async fn get_skill_targets() -> CmdResult<Vec<SkillTarget>> {
     Ok(targets)
 }
 
+/// App 启动时静默检测已安装的技能链接是否有效，失效则重建。
+/// 只处理「已安装但源目录不存在」的情况（App 更新后资源目录被替换）。
+/// 未安装的目标不处理（用户没装过就不自动装）。
+pub fn repair_skill_links(app: &tauri::AppHandle) {
+    let Ok(src) = builtin_skills_dir(app) else { return };
+    let Ok(home) = home_dir() else { return };
+
+    for (id, skills_dir) in [
+        ("claude", home.join(".claude").join("skills")),
+        ("codex", home.join(".codex").join("skills")),
+    ] {
+        // 该目标下是否装过技能（任一技能目录存在即视为装过）
+        let any_installed = SKILL_NAMES.iter().any(|s| skills_dir.join(s).exists());
+        if !any_installed {
+            continue;
+        }
+
+        let mut repaired = Vec::new();
+        for skill in SKILL_NAMES {
+            let dest = skills_dir.join(skill);
+            if !dest.exists() {
+                continue;
+            }
+            // 检查链接是否有效：junction 的目标是否存在
+            // 对于 junction/symlink，exists() 会跟随链接检查目标；目标不存在时 exists() 返回 false
+            // 但 symlink_metadata() 仍返回 Ok（链接本身还在）
+            if dest.symlink_metadata().is_ok() && !dest.exists() {
+                // 链接悬空，重建
+                eprintln!("[skill_installer] 检测到悬空链接: {} → 重建", dest.display());
+                match create_link(&src.join(skill), &dest) {
+                    Ok(method) => repaired.push(format!("{skill}:{method}")),
+                    Err(e) => eprintln!("[skill_installer] 重建 {skill} 失败: {e}"),
+                }
+            }
+        }
+        if !repaired.is_empty() {
+            eprintln!("[skill_installer] {id} 技能链接已修复: {}", repaired.join(", "));
+        }
+    }
+}
+
 /// 在目录上建链接（junction / symlink），失败回退复制
 fn create_link(src: &Path, dest: &Path) -> Result<String, crate::error::AppError> {
     // 确保父目录存在

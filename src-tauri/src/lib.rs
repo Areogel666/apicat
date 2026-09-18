@@ -86,6 +86,9 @@ pub fn run() {
                 });
             }
 
+            // 1.0.5：静默修复悬空的技能链接（App 更新后资源目录被替换的场景）
+            commands::skill_installer::repair_skill_links(app.handle());
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
