@@ -3,7 +3,7 @@
   <div class="app-layout">
     <TopBar />
     <div class="app-body">
-      <!-- 1.0.4：最左侧窄竖栏 —— 上层 Tab 切换「接口树 / 字典树」 -->
+      <!-- 最左侧窄竖栏 —— 上层 Tab 切换「接口树 / 字典树 / 文档」 -->
       <div class="activity-bar">
         <button
           class="activity-item"
@@ -17,13 +17,26 @@
           title="数据字典"
           @click="leftPanel = 'dictionary'"
         >📖</button>
+        <button
+          class="activity-item"
+          :class="{ active: leftPanel === 'docs' }"
+          title="接口文档"
+          @click="leftPanel = 'docs'"
+        >📄</button>
       </div>
-      <!-- 1.0.4 fix：左右面板均常驻(v-show)，切换时保留全部浏览状态（接口树展开/选中、编辑区、字典选中） -->
+      <!-- 左右面板均常驻(v-show)，切换时保留全部浏览状态 -->
       <div class="side-pane" v-show="leftPanel === 'interface'">
         <Sidebar :style="{ width: sidebarWidth + 'px' }" />
       </div>
-      <div class="side-pane" v-show="leftPanel !== 'interface'">
+      <div class="side-pane" v-show="leftPanel === 'dictionary'">
         <DictionarySidebar :style="{ width: sidebarWidth + 'px' }" />
+      </div>
+      <div class="side-pane" v-show="leftPanel === 'docs'">
+        <DocsSidebar
+          ref="docsSidebarRef"
+          :style="{ width: sidebarWidth + 'px' }"
+          @select="onDocSelect"
+        />
       </div>
       <ResizableSplitter
         direction="horizontal"
@@ -34,7 +47,8 @@
         @resize="onSidebarResize"
       />
       <MainPanel v-show="leftPanel === 'interface'" style="flex: 1; min-width: 0" />
-      <DictionaryJsonPanel v-show="leftPanel !== 'interface'" style="flex: 1; min-width: 0" />
+      <DictionaryJsonPanel v-show="leftPanel === 'dictionary'" style="flex: 1; min-width: 0" />
+      <DocsPanel v-show="leftPanel === 'docs'" :file="selectedDocFile" style="flex: 1; min-width: 0" />
     </div>
   </div>
 </template>
@@ -46,12 +60,29 @@ import Sidebar from './Sidebar.vue'
 import DictionarySidebar from './DictionarySidebar.vue'
 import DictionaryJsonPanel from './DictionaryJsonPanel.vue'
 import MainPanel from './MainPanel.vue'
+import DocsSidebar from '../docs/DocsSidebar.vue'
+import DocsPanel from '../docs/DocsPanel.vue'
 import ResizableSplitter from '../common/ResizableSplitter.vue'
+
+interface DocFile {
+  relative_path: string
+  name: string
+  dir: string
+  size: number
+  modified_at: string
+  absolute_path: string
+}
 
 const sidebarWidth = ref(Number(localStorage.getItem('layout.sidebarWidth') ?? 240))
 
-// 1.0.4：左侧内容面板切换（接口树 / 字典树）
-const leftPanel = ref<'interface' | 'dictionary'>('interface')
+// 左侧内容面板切换（接口树 / 字典树 / 文档）
+const leftPanel = ref<'interface' | 'dictionary' | 'docs'>('interface')
+
+const selectedDocFile = ref<DocFile | null>(null)
+
+function onDocSelect(file: DocFile | null) {
+  selectedDocFile.value = file
+}
 
 function onSidebarResize(size: number) {
   sidebarWidth.value = size
