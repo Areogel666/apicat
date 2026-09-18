@@ -9,25 +9,20 @@
 use crate::error::CmdResult;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
+use tauri::Manager;
 
 /// App 内置技能目录（打包时 resources 带入）
-fn builtin_skills_dir() -> Result<PathBuf, crate::error::AppError> {
+fn builtin_skills_dir(app: &tauri::AppHandle) -> Result<PathBuf, crate::error::AppError> {
     // 开发模式：源码目录下的 skills/
     let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../skills");
     if dev.exists() {
         return Ok(dev.canonicalize().unwrap_or(dev));
     }
-    // 生产模式：资源目录
-    #[cfg(not(debug_assertions))]
-    {
-        // Tauri 2 的 resource_dir 在运行时获取，这里用 exe 旁的相对路径兜底
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(dir) = exe.parent() {
-                let res = dir.join("skills");
-                if res.exists() {
-                    return Ok(res);
-                }
-            }
+    // 生产模式：Tauri 资源目录
+    if let Ok(res_dir) = app.path().resource_dir() {
+        let res = res_dir.join("skills");
+        if res.exists() {
+            return Ok(res);
         }
     }
     Err(crate::error::AppError::Custom(
@@ -185,8 +180,8 @@ fn remove_link(dest: &Path) -> Result<(), crate::error::AppError> {
 
 /// 安装技能到指定目标
 #[tauri::command]
-pub async fn install_skills(target_id: String) -> CmdResult<String> {
-    let src = builtin_skills_dir()?;
+pub async fn install_skills(app: tauri::AppHandle, target_id: String) -> CmdResult<String> {
+    let src = builtin_skills_dir(&app)?;
     let home = home_dir()?;
     let dest = match target_id.as_str() {
         "claude" => home.join(".claude/skills"),
