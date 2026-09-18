@@ -5,6 +5,25 @@
 
 鉴权：所有端点需 `Authorization: Bearer {token}` 头（`/api/v1/health` 免鉴权，供探活）。
 
+> **⚠️ 中文 body 必须走 stdin 或文件，禁止内联**
+> Git Bash（Windows）会把**命令行参数**里的中文转成 GBK，服务端按 UTF-8 解析会报
+> `invalid unicode code point`。**本文档所有示例里的 body，只要可能出现中文（接口名、
+> 字典名、label、description…），都要改写成 heredoc 形式**：
+>
+> ```bash
+> # ✅ 对
+> curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+>   -d @- "$BASE/create_collection" <<'EOF'
+> {"projectId": 1, "parentId": null, "name": "用户模块"}
+> EOF
+>
+> # ❌ 错（内联中文，必失败）
+> curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+>   -d '{"projectId": 1, "name": "用户模块"}' "$BASE/create_collection"
+> ```
+>
+> 纯 ASCII 的 body 内联没问题。**遇到该报错不要重试，改 heredoc 即可。**
+
 示例（port=17320, token 从 bridge.json 读）：
 ```bash
 curl -s http://127.0.0.1:17320/api/v1/health
@@ -61,11 +80,13 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 **⚠️ 只支持 collectionId / name / method / url 四个字段。params/headers/body 会被忽略。**
 建完后必须再调 `update_request` 补参数。
 ```bash
+# 建接口（body 含中文 → 必须走 heredoc）
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"collectionId": 1, "name": "获取用户信息", "method": "GET", "url": "/api/user/info"}' \
-  "$BASE/create_request"
+  -d @- "$BASE/create_request" <<'EOF'
+{"collectionId": 1, "name": "获取用户信息", "method": "GET", "url": "/api/user/info"}
+EOF
 # 返回 {"ok":true,"data":{"id":14,...}}
-# 再补参数：
+# 再补参数（纯 ASCII，内联即可）
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"id": 14, "params": "[{\"key\":\"userId\",\"value\":\"test\",\"enabled\":true}]"}' \
   "$BASE/update_request"

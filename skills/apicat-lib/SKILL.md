@@ -63,13 +63,34 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_projects"
 # 只读（GET + query 参数）
 curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_collections?project_id=1"
 
-# 写操作（POST + JSON body）
+# 写操作（POST + JSON body）—— body 走 stdin，见下方「中文坑」
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"collectionId": 1, "name": "新接口", "method": "GET", "url": "/api/foo"}' \
-  "$BASE/create_request"
+  -d @- "$BASE/create_request" <<'EOF'
+{"collectionId": 1, "name": "新接口", "method": "GET", "url": "/api/foo"}
+EOF
 ```
 
 响应统一格式：成功 `{"ok": true, "data": ...}`；失败 `{"ok": false, "error": "..."}`。
+
+**⚠️ 中文坑（必读）**：Git Bash 在 Windows 下会把**命令行参数**里的中文转成 GBK，服务端按 UTF-8 解析，直接报 `Failed to parse the request body as JSON: invalid unicode code point`。所以 **body 里只要可能出现中文（接口名、字典名、label、description…），就必须走 stdin 或文件，禁止内联**：
+
+```bash
+# ✅ 对：heredoc 走 stdin（推荐，不落文件）
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d @- "$BASE/create_request" <<'EOF'
+{"collectionId": 1, "name": "中文接口名", "method": "GET", "url": "/api/foo"}
+EOF
+
+# ✅ 对：从文件读
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d @body.json "$BASE/create_request"
+
+# ❌ 错：内联中文，必失败
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name": "中文接口名"}' "$BASE/create_request"
+```
+
+纯 ASCII 的 body（如 `{"id": 5}`）内联没问题。**报这个错时不要反复重试，改用 heredoc 即可。**
 
 **多步调用（5+ 次连续读写）→ 可选脚本**：`scripts/bridge_client.py`（本技能目录下）封装了 bridge.json 定位、鉴权、超时与错误处理。
 
