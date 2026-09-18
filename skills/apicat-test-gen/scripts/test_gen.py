@@ -19,9 +19,11 @@ import json
 import sys
 from pathlib import Path
 
-# bridge_client 位于同仓库的 apicat-lib 底座技能下，按相对路径引入
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(_REPO_ROOT / "skills" / "apicat-lib" / "scripts"))
+# bridge_client 位于同级技能 apicat-lib 的 scripts/ 下。
+# parents[2] 从 skills/<技能>/scripts/ 上溯到 skills/ 目录 —— 仓库内与安装后
+# （junction 或复制）都成立，故不要改成依赖仓库布局的路径。
+_SKILLS_DIR = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_SKILLS_DIR / "apicat-lib" / "scripts"))
 from bridge_client import ApiCatBridge  # noqa: E402
 
 AI_COLLECTION_NAME = "🤖 AI 测试用例"
@@ -64,6 +66,8 @@ def _to_bridge_payload(case: dict, collection_id: int) -> dict:
         "params": _json_field(case.get("params"), []),
         "bodyType": case.get("body_type"),
         "body": case.get("body", ""),
+        # 必须显式传：后端缺省兜底是 happy_path，漏传会把 7 种类型全标成 happy_path
+        "caseType": case.get("case_type"),
         "assertions": _json_field(case.get("assertions"), []),
     }
 

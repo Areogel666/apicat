@@ -77,16 +77,49 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_requests?collection_id=$CI
 }
 ```
 
-## Step 6：写入（幂等）
+## Step 6：写入
 
-同名检查：先查已有用例（`GET /list_test_cases?request_id=$RID`），同 `name` 则跳过。
+**多条用例（≥3）用 `test_gen.py`** —— 走 Bridge，自动建目录、按 `request_id` 幂等跳过：
+
+```bash
+python "<skills>/apicat-test-gen/scripts/test_gen.py" --project $PID --file cases.json
+```
+
+`cases.json` 是**数组**，元素用 **snake_case**（`<skills>` = 技能安装目录）：
+
+```jsonc
+[
+  {
+    "request_id": 5,
+    "name": "[缺必填] 缺少 userId",
+    "description": "缺必填参数时的表现",
+    "method": "GET",
+    "url": "{{base_url}}/api/user/info",
+    "headers": [{"key": "Authorization", "value": "Bearer x", "enabled": true}],
+    "params":  [{"key": "page", "value": "1", "enabled": true}],
+    "body_type": null,
+    "body": null,
+    "case_type": "missing_required",
+    "assertions": [{"type": "status_code", "operator": "eq", "expected": "400"}]
+  }
+]
+```
+
+**⚠️ 注意与 Step 5 的字段差异**：Step 5 那份是 **camelCase 的 Bridge 原生载荷**（给 curl 用）；`test_gen.py` 收的是 **snake_case**（`request_id`/`body_type`/`case_type`）。别把 Step 5 的 JSON 直接喂给它，字段会全丢。
+`headers`/`params`/`assertions` 给数组或已是 JSON 字符串都行（脚本会统一）。
+
+**脚本的两个行为，需知道**：
+- 用例统一写入项目下的 **「🤖 AI 测试用例」目录**（自动建/复用），**不使用接口所在目录** —— `collection_id` 由脚本决定，输入里的该字段被忽略
+- **`case_type` 必须填**：后端对缺省值兜底成 `happy_path`，漏填会把 7 种类型全标成 happy_path 且不报错
+
+**单条用例**直接 curl（`case.json` 用 Step 5 的 camelCase 载荷）：
 
 ```bash
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d @case.json "$BASE/create_test_case"
 ```
 
-**用例多时改用脚本**（`<skills>/apicat-lib/scripts/bridge_client.py`，`<skills>` = 技能安装目录），省掉逐条拼 curl 与结果校验：
+**需要逐条控制时**用底座客户端（自行查重、自定义目录）：
 
 ```python
 import sys; sys.path.insert(0, "<skills>/apicat-lib/scripts")
