@@ -56,6 +56,19 @@ export const useRequestStore = defineStore('request', () => {
     return null
   })
 
+  /** 跨已加载目录按 id 查接口（兼容目标所在 collection 尚未单独加载的场景） */
+  function findRequestById(id: number): ApiRequest | undefined {
+    return Object.values(requestMap.value).flat().find(r => r.id === id)
+  }
+
+  /** 标记刚保存成功，驱动左侧树绿点动画（1.5s 后自动消失） */
+  function markSaved(id: number) {
+    savedRequestIds.value.add(id)
+    setTimeout(() => {
+      savedRequestIds.value.delete(id)
+    }, 1500)
+  }
+
   async function loadRequests(collectionId: number) {
     const rows = await invoke<ApiRequest[]>('list_requests', { collectionId })
     requestMap.value[collectionId] = rows
@@ -74,7 +87,7 @@ export const useRequestStore = defineStore('request', () => {
   async function updateRequest(id: number, data: Partial<ApiRequest>) {
     // 优先用 id 查找目标接口（兼容非激活接口保存），再回退到 activeRequest
     const current =
-      Object.values(requestMap.value).flat().find(r => r.id === id) ??
+      findRequestById(id) ??
       activeRequest.value
     if (!current) throw new Error('No active request')
     const updated = await invoke<ApiRequest>('update_request', {
@@ -92,10 +105,8 @@ export const useRequestStore = defineStore('request', () => {
     const list = requestMap.value[current.collection_id] ?? []
     const idx = list.findIndex(r => r.id === id)
     if (idx !== -1) list[idx] = updated
-    // 保存成功后清除 dirty 标记（替换整个 Set 以触发 Vue 3 响应式更新）
-    const cleanSet = new Set(dirtyRequestIds.value)
-    cleanSet.delete(id)
-    dirtyRequestIds.value = cleanSet
+    // 保存成功后清除 dirty 标记
+    dirtyRequestIds.value.delete(id)
     return updated
   }
 
@@ -107,7 +118,7 @@ export const useRequestStore = defineStore('request', () => {
     const draft = draftCache.value[id]
     if (!draft) return
     // 将草稿序列化为接口字段
-    const req = Object.values(requestMap.value).flat().find(r => r.id === id)
+    const req = findRequestById(id)
     if (!req) return
 
     let body = draft.bodyContent
@@ -132,14 +143,7 @@ export const useRequestStore = defineStore('request', () => {
     delete newCache[id]
     draftCache.value = newCache
     // 触发 saved 圆点动画
-    const savedSet = new Set(savedRequestIds.value)
-    savedSet.add(id)
-    savedRequestIds.value = savedSet
-    setTimeout(() => {
-      const s = new Set(savedRequestIds.value)
-      s.delete(id)
-      savedRequestIds.value = s
-    }, 1500)
+    markSaved(id)
   }
 
   /**
@@ -151,7 +155,7 @@ export const useRequestStore = defineStore('request', () => {
     id: number,
     data: { params: string; headers: string; body_type: string; body: string },
   ): Promise<void> {
-    const req = Object.values(requestMap.value).flat().find(r => r.id === id)
+    const req = findRequestById(id)
     if (!req) return
     await invoke('update_request', {
       id,
@@ -173,9 +177,7 @@ export const useRequestStore = defineStore('request', () => {
     requestMap.value[collectionId] = list.filter(r => r.id !== id)
     // 注意：activeRequestId 由 tabStore.closeTab() → MainPanel watch 驱动，此处不再直接重置
     // 清除 dirty 标记
-    const cleanSet = new Set(dirtyRequestIds.value)
-    cleanSet.delete(id)
-    dirtyRequestIds.value = cleanSet
+    dirtyRequestIds.value.delete(id)
     // 清除草稿缓存（已删除接口无需保留草稿）
     if (draftCache.value[id]) {
       const newCache = { ...draftCache.value }
@@ -196,7 +198,7 @@ export const useRequestStore = defineStore('request', () => {
   }
 
   async function renameRequest(id: number, name: string) {
-    const current = Object.values(requestMap.value).flat().find(r => r.id === id)
+    const current = findRequestById(id)
     if (!current) throw new Error('Request not found')
     const updated = await invoke<ApiRequest>('update_request', {
       id,
@@ -231,5 +233,7 @@ export const useRequestStore = defineStore('request', () => {
     duplicateRequest,
     renameRequest,
     saveRequest,
+    findRequestById,
+    markSaved,
   }
 })

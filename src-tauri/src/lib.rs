@@ -40,12 +40,6 @@ use commands::{
 use db::{init_db, AppDb};
 use tauri::Manager;
 
-/// 示例 Tauri Command（M2 起逐步替换为真实业务 command）
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello from ApiCat, {}!", name)
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -92,7 +86,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            greet,
             list_projects, create_project, update_project, delete_project,
             list_collections, create_collection, rename_collection, delete_collection, update_collection_sort, move_collection,
             list_requests, create_request, update_request, delete_request, duplicate_request, update_request_sort, move_request,

@@ -77,17 +77,6 @@ export interface ApiRequest {
   updated_at: string
 }
 
-// NTree 节点类型
-export interface TreeNode {
-  key: string            // 格式: "col-{id}" 或 "req-{id}"
-  label: string
-  type: 'collection' | 'request'
-  data: Collection | ApiRequest
-  children?: TreeNode[]
-  isLeaf?: boolean
-  prefix?: string        // emoji 图标
-}
-
 // URL 解析结果
 export interface ParsedUrl {
   displayName: string       // "/apm/intl/download"（不含 method，避免树节点拼接重复）

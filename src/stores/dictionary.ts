@@ -141,16 +141,6 @@ export const useDictionaryStore = defineStore('dictionary', () => {
     }
   }
 
-  /** 通过 item id 反查字典项（用于展示 descriptionDictRef 指向的描述） */
-  function getItemById(id: number | null | undefined): DictionaryItem | null {
-    if (id == null) return null
-    for (const list of Object.values(itemsMap.value)) {
-      const found = list.find(x => x.id === id)
-      if (found) return found
-    }
-    return null
-  }
-
   // ── 1.0.4「字段名绑定」：规则 / 例外 / 复制 ────────────────────
 
   async function loadFieldBindings(projectId: number | null) {
@@ -279,6 +269,5 @@ export const useDictionaryStore = defineStore('dictionary', () => {
     updateItem,
     deleteItem,
     replaceDictionaryItems,
-    getItemById,
   }
 })

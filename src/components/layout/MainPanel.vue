@@ -585,6 +585,7 @@ import {
 import { parseUrl, buildUrl, resolveEffectiveUrl, hasUnresolvedPlaceholder } from '../../utils/urlParser'
 import { buildCurl } from '../../utils/curlBuilder'
 import { parseKvText, toKvText, parseJsonToParams, toJsonText } from '../../utils/paramParser'
+import { copyText } from '../../utils/clipboard'
 import { useRequestStore } from '../../stores/request'
 import { useResponseStore } from '../../stores/response'
 import { useHistoryStore } from '../../stores/history'
@@ -997,6 +998,18 @@ function syncFormData() {
   }
 }
 
+/**
+ * 把 KV/JSON 文本模式的内容同步回权威的 ParamItem[]（表格数据源）。
+ * 任何读取 queryParams / requestHeaders 的入口（发送/保存/cURL/压测）都必须先调，
+ * 否则会漏掉用户在文本态里的改动。body 的序列化方式各入口不同，不在此处理。
+ */
+function syncKvJsonToParams() {
+  if (queryMode.value === 'kv') queryParams.value = parseKvText(queryKvText.value, queryParams.value)
+  else if (queryMode.value === 'json') queryParams.value = parseJsonToParams(queryJsonText.value, queryParams.value)
+  if (headerMode.value === 'kv') requestHeaders.value = parseKvText(headerKvText.value, requestHeaders.value)
+  else if (headerMode.value === 'json') requestHeaders.value = parseJsonToParams(headerJsonText.value, requestHeaders.value)
+}
+
 const urlencodedParams = ref<ParamItem[]>([])
 const urlencodedMode = ref<'table' | 'kv'>('table')
 const urlencodedKvText = ref('')
@@ -1063,6 +1076,14 @@ const authTypeOptions = [
   { label: 'API Key', value: 'api_key' },
 ]
 
+/** 把当前 auth 子字段序列化为 auth_config JSON 字符串（落库 / cURL / 发送共用同一套规则） */
+function buildAuthConfigStr(): string {
+  if (authType.value === 'bearer') return JSON.stringify({ token: authBearer.value })
+  if (authType.value === 'basic') return JSON.stringify({ username: authBasicUser.value, password: authBasicPass.value })
+  if (authType.value === 'api_key') return JSON.stringify({ key: authApiKeyName.value, value: authApiKeyValue.value, in: authApiKeyIn.value })
+  return '{}'
+}
+
 /** 切换 auth 类型时，从接口数据恢复字段（或重置） */
 function onAuthTypeChange(val: string) {
   authType.value = val
@@ -1071,14 +1092,7 @@ function onAuthTypeChange(val: string) {
 
 /** 把当前 auth 子字段合并为 auth_config JSON 并保存到接口 */
 function syncAuthConfig() {
-  let cfg = '{}'
-  if (authType.value === 'bearer') {
-    cfg = JSON.stringify({ token: authBearer.value })
-  } else if (authType.value === 'basic') {
-    cfg = JSON.stringify({ username: authBasicUser.value, password: authBasicPass.value })
-  } else if (authType.value === 'api_key') {
-    cfg = JSON.stringify({ key: authApiKeyName.value, value: authApiKeyValue.value, in: authApiKeyIn.value })
-  }
+  const cfg = buildAuthConfigStr()
   // 静默保存到当前接口（不影响发请求，发请求时从 ref 读取）
   const req = requestStore.activeRequest
   if (req) {
@@ -1154,10 +1168,7 @@ function markRequestDirty() {
   const reqId = requestStore.activeRequest?.id
   if (reqId == null) return
   requestDirty.value = true
-  // 用 Set 替换赋值触发 Vue 3 响应式（直接 add/delete 不触发）
-  const newSet = new Set(requestStore.dirtyRequestIds)
-  newSet.add(reqId)
-  requestStore.dirtyRequestIds = newSet
+  requestStore.dirtyRequestIds.add(reqId)
 }
 
 // ── 1.0.4 fix：参数元数据（类型/描述/字典引用）自动落库 ─────────
@@ -1827,10 +1838,7 @@ watch(queryJsonText, (text) => {
 // pathParamValues 已填值），输出的 cURL URL 是 effectiveUrl —— 占位符已替换 + 拼 base_url。
 async function handleCopyAsCurl() {
   // 与 handleSend 保持一致：先同步非表格模式内容到权威数据源，避免漏 KV/JSON 文本态改动
-  if (queryMode.value === 'kv') queryParams.value = parseKvText(queryKvText.value, queryParams.value)
-  else if (queryMode.value === 'json') queryParams.value = parseJsonToParams(queryJsonText.value, queryParams.value)
-  if (headerMode.value === 'kv') requestHeaders.value = parseKvText(headerKvText.value, requestHeaders.value)
-  else if (headerMode.value === 'json') requestHeaders.value = parseJsonToParams(headerJsonText.value, requestHeaders.value)
+  syncKvJsonToParams()
 
   // 计算 body（form_data / form_urlencoded 需要序列化）
   let bodyStr = bodyContent.value
@@ -1844,12 +1852,7 @@ async function handleCopyAsCurl() {
   }
 
   // 计算 auth_config（与 handleSend 保持同一套规则）
-  const authConfigStr = (() => {
-    if (authType.value === 'bearer') return JSON.stringify({ token: authBearer.value })
-    if (authType.value === 'basic') return JSON.stringify({ username: authBasicUser.value, password: authBasicPass.value })
-    if (authType.value === 'api_key') return JSON.stringify({ key: authApiKeyName.value, value: authApiKeyValue.value, in: authApiKeyIn.value })
-    return '{}'
-  })()
+  const authConfigStr = buildAuthConfigStr()
 
   const curl = buildCurl({
     method: method.value,
@@ -1862,17 +1865,7 @@ async function handleCopyAsCurl() {
     authConfig: authConfigStr,
   })
 
-  try {
-    await navigator.clipboard.writeText(curl)
-  } catch {
-    // Tauri 环境 clipboard 可能无权限，降级到 execCommand
-    const ta = document.createElement('textarea')
-    ta.value = curl
-    document.body.appendChild(ta)
-    ta.select()
-    document.execCommand('copy')
-    document.body.removeChild(ta)
-  }
+  await copyText(curl)
 
   // 编辑区场景占位符应已被 effectiveUrl 替换为空，若仍残留（用户未填值）给出提示
   if (hasUnresolvedPlaceholder(effectiveUrl.value)) {
@@ -1885,10 +1878,7 @@ async function handleCopyAsCurl() {
 // ── 发送请求 ──────────────────────────────────────────────────
 async function handleSend() {
   // 非表格模式时先同步内容到 source of truth（queryParams / requestHeaders）
-  if (queryMode.value === 'kv') queryParams.value = parseKvText(queryKvText.value, queryParams.value)
-  else if (queryMode.value === 'json') queryParams.value = parseJsonToParams(queryJsonText.value, queryParams.value)
-  if (headerMode.value === 'kv') requestHeaders.value = parseKvText(headerKvText.value, requestHeaders.value)
-  else if (headerMode.value === 'json') requestHeaders.value = parseJsonToParams(headerJsonText.value, requestHeaders.value)
+  syncKvJsonToParams()
   // form-data 序列化
   if (bodyType.value === 'form_data') syncFormData()
   if (bodyType.value === 'form_urlencoded') syncUrlencodedData()
@@ -1914,12 +1904,7 @@ async function handleSend() {
       body: bodyContent.value,
       path_params: pathParamList,
       auth_type: authType.value,
-      auth_config: (() => {
-        if (authType.value === 'bearer') return JSON.stringify({ token: authBearer.value })
-        if (authType.value === 'basic') return JSON.stringify({ username: authBasicUser.value, password: authBasicPass.value })
-        if (authType.value === 'api_key') return JSON.stringify({ key: authApiKeyName.value, value: authApiKeyValue.value, in: authApiKeyIn.value })
-        return '{}'
-      })(),
+      auth_config: buildAuthConfigStr(),
     },
     envStore.activeEnvId,
     projectStore.currentProjectId,
@@ -2223,10 +2208,7 @@ async function handleSaveRequest() {
   const req = requestStore.activeRequest
   if (!req) return
   // 非表格模式时先同步到 source of truth
-  if (queryMode.value === 'kv') queryParams.value = parseKvText(queryKvText.value, queryParams.value)
-  else if (queryMode.value === 'json') queryParams.value = parseJsonToParams(queryJsonText.value, queryParams.value)
-  if (headerMode.value === 'kv') requestHeaders.value = parseKvText(headerKvText.value, requestHeaders.value)
-  else if (headerMode.value === 'json') requestHeaders.value = parseJsonToParams(headerJsonText.value, requestHeaders.value)
+  syncKvJsonToParams()
   if (bodyType.value === 'form_data') syncFormData()
   // form_urlencoded 存储用结构化 JSON（含类型/描述），发送时才编码 k=v
   const saveBody = bodyType.value === 'form_urlencoded' ? urlencodedStorageBody() : bodyContent.value
@@ -2249,10 +2231,7 @@ async function handleSaveRequest() {
     requestStore.draftCache = newCache
     requestDirty.value = false
     // 短暂显示绿色已保存小点
-    const savedSet = new Set(requestStore.savedRequestIds); savedSet.add(req.id); requestStore.savedRequestIds = savedSet
-    setTimeout(() => {
-      const s = new Set(requestStore.savedRequestIds); s.delete(req.id); requestStore.savedRequestIds = s
-    }, 1500)
+    requestStore.markSaved(req.id)
 
     // 恢复用例 Tab 状态（防止 updateRequest 或其他连锁反应清空 activeTestCaseId）
     if (preSaveActiveTestCaseId !== null) {
@@ -2284,10 +2263,7 @@ const showStressResult = ref(false)
 
 async function handleStartStress(config: StressConfig, testCaseId: number | null, openResultModal = true) {
   // 先同步 kv/json 模式内容到 source of truth
-  if (queryMode.value === 'kv') queryParams.value = parseKvText(queryKvText.value, queryParams.value)
-  else if (queryMode.value === 'json') queryParams.value = parseJsonToParams(queryJsonText.value, queryParams.value)
-  if (headerMode.value === 'kv') requestHeaders.value = parseKvText(headerKvText.value, requestHeaders.value)
-  else if (headerMode.value === 'json') requestHeaders.value = parseJsonToParams(headerJsonText.value, requestHeaders.value)
+  syncKvJsonToParams()
   if (bodyType.value === 'form_data') syncFormData()
   if (bodyType.value === 'form_urlencoded') syncUrlencodedData()
 

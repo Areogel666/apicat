@@ -199,9 +199,11 @@ import {
   summarizeStats,
   formatTime,
   drawCompareChart,
+  drawStressChart,
   computeCompareMetrics,
   formatMetric,
   deltaClass,
+  readToken,
   type CompareMetric,
   type CompareRun,
 } from './stressUtils'
@@ -278,100 +280,9 @@ async function drawCompare() {
   if (compareCanvasRef.value) drawCompareChart(compareCanvasRef.value, compareMetrics.value)
 }
 
-/** 从 :root CSS 变量读取色值，用于 canvas 绘制时跟随主题 */
-function readToken(name: string, fallback: string): string {
-  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
-  return v || fallback
-}
-
-// ── Canvas 折线图绘制 ────────────────────────────────────────
-
+/** 折线图绘制：算法在 stressUtils.drawStressChart，此处只负责取 canvas 与数据 */
 function drawChart() {
-  const canvas = canvasRef.value
-  if (!canvas) return
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-
-  const points = stressStore.chartPoints
-  const W = canvas.width
-  const H = canvas.height
-  const PAD = { top: 16, right: 16, bottom: 24, left: 48 }
-  const innerW = W - PAD.left - PAD.right
-  const innerH = H - PAD.top - PAD.bottom
-
-  ctx.clearRect(0, 0, W, H)
-
-  // 从 token 读取主题相关色值（每次 draw 重新读，主题切换后调用 drawChart 即跟随）
-  const bgColor      = readToken('--bg-surface',     '#fafafa')
-  const textTertiary = readToken('--text-tertiary',  '#999')
-  const borderColor  = readToken('--border-base',    '#e8e8e8')
-  const tpsColor     = readToken('--color-success',  '#18a058')
-  const avgColor     = readToken('--color-info',     '#2080f0')
-  const p95Color     = readToken('--color-warning',  '#f0a020')
-
-  // 背景
-  ctx.fillStyle = bgColor
-  ctx.fillRect(0, 0, W, H)
-
-  if (points.length < 2) {
-    ctx.fillStyle = textTertiary
-    ctx.font = '12px sans-serif'
-    ctx.textAlign = 'center'
-    ctx.fillText('等待数据...', W / 2, H / 2)
-    return
-  }
-
-  // 计算 Y 轴最大值（TPS 和 ms 都画在同一 Y 轴，用归一化）
-  const maxTps = Math.max(...points.map(p => p.tps), 1)
-  const maxMs = Math.max(...points.map(p => p.p95_ms), 1)
-
-  // 网格线
-  ctx.strokeStyle = borderColor
-  ctx.lineWidth = 1
-  for (let i = 0; i <= 4; i++) {
-    const y = PAD.top + (innerH * i) / 4
-    ctx.beginPath()
-    ctx.moveTo(PAD.left, y)
-    ctx.lineTo(PAD.left + innerW, y)
-    ctx.stroke()
-  }
-
-  const xForIdx = (i: number) => PAD.left + (i / (points.length - 1)) * innerW
-
-  // 绘制折线函数
-  function drawLine(
-    values: number[],
-    maxVal: number,
-    color: string,
-    lineWidth = 1.5
-  ) {
-    ctx!.strokeStyle = color
-    ctx!.lineWidth = lineWidth
-    ctx!.lineJoin = 'round'
-    ctx!.beginPath()
-    values.forEach((v, i) => {
-      const x = xForIdx(i)
-      const y = PAD.top + innerH - (v / maxVal) * innerH
-      if (i === 0) ctx!.moveTo(x, y)
-      else ctx!.lineTo(x, y)
-    })
-    ctx!.stroke()
-  }
-
-  drawLine(points.map(p => p.tps), maxTps, tpsColor, 2)      // TPS — 绿色
-  drawLine(points.map(p => p.avg_ms), maxMs, avgColor, 1.5)  // avg — 蓝色
-  drawLine(points.map(p => p.p95_ms), maxMs, p95Color, 1.5)  // p95 — 橙色
-
-  // X 轴时间标签
-  ctx.fillStyle = textTertiary
-  ctx.font = '10px sans-serif'
-  ctx.textAlign = 'center'
-  const labelCount = Math.min(5, points.length)
-  for (let i = 0; i < labelCount; i++) {
-    const idx = Math.floor((i / (labelCount - 1)) * (points.length - 1))
-    const x = xForIdx(idx)
-    ctx.fillText(`${points[idx].time.toFixed(0)}s`, x, H - 4)
-  }
+  if (canvasRef.value) drawStressChart(canvasRef.value, stressStore.chartPoints)
 }
 
 // 监听 chartPoints 变化，重新绘制

@@ -1,6 +1,5 @@
 <template>
   <div
-    ref="viewerEl"
     class="json-viewer"
     @mouseenter="isHovering = true"
     @mouseleave="isHovering = false"
@@ -78,6 +77,7 @@
 import { ref, computed, watch } from 'vue'
 import { NButton, useMessage } from 'naive-ui'
 import { useResponseStore, type FormatOverride } from '../../stores/response'
+import { copyText } from '../../utils/clipboard'
 import {
   detectFormat,
   defaultViewMode,
@@ -117,9 +117,7 @@ const props = defineProps<{
 const message = useMessage()
 const responseStore = useResponseStore()
 
-// 根元素 ref + 鼠标悬停态（传给 JsonRenderer 做 Ctrl+F 范围判断）
-const viewerEl = ref<HTMLElement | null>(null)
-void viewerEl
+// 鼠标悬停态（传给 JsonRenderer 做 Ctrl+F 范围判断）
 const isHovering = ref(false)
 
 /** 根据 Content-Type 和 body 自动识别的格式 */
@@ -197,20 +195,8 @@ watch([activeId, effectiveFormat], ([id, fmt]) => {
 })
 
 async function copyContent() {
-  const text = props.body
-  try {
-    await navigator.clipboard.writeText(text)
-    message.success('已复制到剪贴板')
-  } catch {
-    // 降级复制
-    const ta = document.createElement('textarea')
-    ta.value = text
-    document.body.appendChild(ta)
-    ta.select()
-    document.execCommand('copy')
-    document.body.removeChild(ta)
-    message.success('已复制到剪贴板')
-  }
+  await copyText(props.body)
+  message.success('已复制到剪贴板')
 }
 </script>
 

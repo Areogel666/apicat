@@ -1,5 +1,5 @@
 <template>
-  <aside class="sidebar" :style="{ width: sidebarWidth + 'px' }">
+  <aside class="sidebar">
     <!-- 搜索框 + 刷新按钮 -->
     <div class="sidebar__search">
       <n-input v-model:value="searchText" placeholder="搜索接口..." size="small" clearable>
@@ -132,7 +132,6 @@ import { h, ref, computed, watch, onMounted, onUnmounted, defineComponent } from
 import { NInput, NEmpty, NButton, NTree, NSpin, NModal, NSpace, NSelect, NTag, NDropdown, useMessage } from 'naive-ui'
 import type { TreeOption, TreeDropInfo } from 'naive-ui'
 import { invoke } from '@tauri-apps/api/core'
-import { useUiStore } from '../../stores/ui'
 import { useProjectStore } from '../../stores/project'
 import { useCollectionStore } from '../../stores/collection'
 import { useRequestStore } from '../../stores/request'
@@ -141,9 +140,9 @@ import { useTestCaseStore } from '../../stores/testCase'
 import { useEnvironmentStore } from '../../stores/environment'
 import { parseUrl, resolveEffectiveUrl, hasUnresolvedPlaceholder } from '../../utils/urlParser'
 import { buildCurl } from '../../utils/curlBuilder'
+import { copyText } from '../../utils/clipboard'
 import type { ApiRequest, Collection, ParamItem } from '../../types'
 
-const uiStore = useUiStore()
 const projectStore = useProjectStore()
 const collectionStore = useCollectionStore()
 const requestStore = useRequestStore()
@@ -189,7 +188,6 @@ const NodeStatusDot = defineComponent({
   },
 })
 
-const sidebarWidth = uiStore.sidebarWidth
 const searchText = ref('')
 const loading = ref(false)
 const creating = ref(false)
@@ -341,17 +339,7 @@ async function copyAsCurl() {
     authConfig: req.auth_config,
   })
 
-  try {
-    await navigator.clipboard.writeText(curl)
-  } catch {
-    // Tauri 环境 clipboard API 可能需要权限，降级为 execCommand
-    const ta = document.createElement('textarea')
-    ta.value = curl
-    document.body.appendChild(ta)
-    ta.select()
-    document.execCommand('copy')
-    document.body.removeChild(ta)
-  }
+  await copyText(curl)
 
   // 侧边栏走 DB URL —— 若 DB 存的 URL 含未替换占位符（:id / {id}），
   // 粘贴到终端会请求到错误地址。提示用户可改用编辑区的 "📋 cURL" 填值后复制。
