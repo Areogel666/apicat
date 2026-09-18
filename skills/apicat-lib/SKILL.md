@@ -8,16 +8,39 @@ allowed-tools: Bash, Read, Glob
 
 ApiCat 是桌面 API 调试工具（Tauri 2 + SQLite）。1.0.5 起内置 localhost HTTP Bridge，外部技能通过 HTTP 调用全部 IPC 能力。
 
+**⚠️ 铁律：只走 HTTP Bridge，禁止直连 SQLite。**
+- 不要用 `sqlite3`、`python sqlite3`、或任何方式直接读写 `apicat.db`
+- 直写 DB 会绕过 UI 刷新、业务校验、断言引擎
+- 如果 bridge.json 不存在 → 报错让用户启动 ApiCat，**不要回退到 SQLite**
+
+## 最短路径（30 秒查项目）
+
+```bash
+# 1. 读 bridge.json
+cat "$APPDATA/com.apicat.app/bridge.json"
+# → {"port": 17320, "token": "xxx", "enabled": true}
+
+# 2. 用 token 调 API
+curl -s -H "Authorization: Bearer <token>" http://127.0.0.1:<port>/api/v1/list_projects
+```
+
 ## Step 1：定位 Bridge
 
-读 `%APPDATA%\com.apicat.app\bridge.json`（Windows）或 `~/Library/Application Support/com.apicat.app/bridge.json`（macOS）：
+**第一件事就是读 bridge.json**，不要先去找数据库文件：
+
+```bash
+# Windows
+cat "$APPDATA/com.apicat.app/bridge.json"
+# macOS
+cat ~/Library/Application\ Support/com.apicat.app/bridge.json
+```
 
 ```json
 { "port": 17320, "token": "abc123...", "enabled": true }
 ```
 
 - 文件不存在或 `enabled: false` → **报错退出**，提示用户启动 ApiCat 并确认 Bridge 已开启
-- **不要回退直写 SQLite**（会绕过 UI 刷新和业务校验）
+- **绝对不要回退直写 SQLite**
 
 ## Step 2：curl 约定
 
