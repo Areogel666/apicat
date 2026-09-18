@@ -109,11 +109,13 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 3. 汇总 N 份报告
 
 ```bash
-# 用例参数 → SendRequestParams
+# 用例参数 → SendRequestParams（注意：params 内部字段用 snake_case，url 必须完整地址）
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d "{\"requestId\": $RID, \"params\": {\"method\": \"GET\", \"url\": \"$URL\", \"queryParams\": $PARAMS, \"headers\": $HEADERS, \"bodyType\": \"$BT\", \"body\": \"$BODY\", \"pathParams\": [], \"authType\": \"none\", \"authConfig\": \"{}\"}, \"concurrent\": 10, \"mode\": \"count\", \"value\": 100}" \
+  -d "{\"requestId\": $RID, \"params\": {\"method\": \"GET\", \"url\": \"$FULL_URL\", \"query_params\": $PARAMS, \"headers\": $HEADERS, \"body_type\": \"$BT\", \"body\": \"$BODY\", \"path_params\": [], \"auth_type\": \"none\", \"auth_config\": \"{}\"}, \"concurrent\": 10, \"mode\": \"count\", \"value\": 100}" \
   "$BASE/start_stress"
 ```
+
+**⚠️ 压测引擎不做 `{{base_url}}` 替换**：如果用例 URL 是 `{{base_url}}/api/x`，必须先查环境拿 base_url 拼成完整地址再传。
 
 参数：`concurrent 1~500`、`mode: count|duration`、`value`（count=总请求数≤10000，duration=秒数）。
 

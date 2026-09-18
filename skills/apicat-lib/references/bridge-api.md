@@ -58,10 +58,17 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 ### GET /list_requests?collection_id=N
 ### GET /get_request?id=N
 ### POST /create_request
+**⚠️ 只支持 collectionId / name / method / url 四个字段。params/headers/body 会被忽略。**
+建完后必须再调 `update_request` 补参数。
 ```bash
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"collectionId": 1, "name": "获取推荐", "method": "GET", "url": "/apm/intl/recommend"}' \
   "$BASE/create_request"
+# 返回 {"ok":true,"data":{"id":14,...}}
+# 再补参数：
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"id": 14, "params": "[{\"key\":\"gpId\",\"value\":\"test\",\"enabled\":true}]"}' \
+  "$BASE/update_request"
 ```
 
 ### POST /update_request
@@ -196,9 +203,10 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 ## 发送 / 历史
 
 ### POST /send_request
+**⚠️ params 内部字段必须用 snake_case**（同 start_stress）。
 ```bash
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"requestId": 5, "method": "GET", "url": "https://example.com/api", "queryParams": [], "headers": [], "bodyType": "none", "body": "", "pathParams": [], "authType": "none", "authConfig": "{}"}' \
+  -d '{"requestId": 5, "method": "GET", "url": "https://example.com/api", "query_params": [], "headers": [], "body_type": "none", "body": "", "path_params": [], "auth_type": "none", "auth_config": "{}"}' \
   "$BASE/send_request"
 ```
 
@@ -208,9 +216,12 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 
 ### POST /start_stress
 阻塞到压测结束，返回最终统计。
+
+**⚠️ params 内部字段必须用 snake_case**（`query_params` / `body_type` / `path_params` / `auth_type` / `auth_config`），camelCase 会 400。
+**⚠️ 压测引擎不做 `{{base_url}}` 替换**，`url` 必须传完整地址（`https://...`）。
 ```bash
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"requestId": 5, "params": {"method": "GET", "url": "https://example.com/api", "queryParams": [], "headers": [], "bodyType": "none", "body": "", "pathParams": [], "authType": "none", "authConfig": "{}"}, "concurrent": 10, "mode": "count", "value": 100}' \
+  -d '{"requestId": 5, "params": {"method": "GET", "url": "https://example.com/api", "query_params": [], "headers": [], "body_type": "none", "body": "", "path_params": [], "auth_type": "none", "auth_config": "{}"}, "concurrent": 10, "mode": "count", "value": 100}' \
   "$BASE/start_stress"
 ```
 - `concurrent`: 1~500
