@@ -120,14 +120,37 @@
         </div>
       </div>
 
-      <!-- 双条对比图 -->
+      <!-- 多指标分组对比图 + 对比表（1.0.5） -->
       <div v-if="compareVisible" class="compare-box">
-        <canvas ref="compareCanvas" width="620" height="140" class="stress-canvas" />
+        <canvas ref="compareCanvas" height="200" class="stress-canvas compare-canvas" />
         <div class="chart-legend">
-          <span v-for="(t, i) in compareLegend" :key="i" class="legend-item" :style="{ color: compareColors[i] }">
-            ▬ 轮{{ i + 1 }} {{ t }}
+          <span
+            v-for="(run, i) in compareRuns"
+            :key="run.id"
+            class="legend-item"
+            :style="{ color: compareColors[i] }"
+          >
+            ▮ 轮{{ i + 1 }} · {{ formatTime(run.created_at) }}
           </span>
         </div>
+        <div class="compare-note">
+          每组柱子按该指标自身的最大值归一化（组间高度不可直接比较），柱顶数字为实际值。
+        </div>
+        <table class="compare-table">
+          <thead>
+            <tr><th>指标</th><th>轮1</th><th>轮2</th><th>变化</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="m in compareMetrics" :key="m.label">
+              <td>{{ m.label }}</td>
+              <td>{{ formatMetric(m.v1, m.unit) }}</td>
+              <td>{{ formatMetric(m.v2, m.unit) }}</td>
+              <td :class="deltaClass(m)">
+                {{ m.deltaPct == null ? '—' : `${m.deltaPct >= 0 ? '+' : ''}${m.deltaPct.toFixed(1)}%` }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -141,11 +164,14 @@ import { NButton, NInputNumber, NRadioGroup, NRadioButton, NSelect, NSpin, NEmpt
 import { useStressStore } from '../../stores/stress'
 import { useRequestStore } from '../../stores/request'
 import { useTestCaseStore } from '../../stores/testCase'
+import { useThemeStore } from '../../stores/theme'
 import StressReportModal from './StressReportModal.vue'
 import type { StressConfig, StressRun } from '../../types'
 import {
   formatTime, summarizeStats,
-  drawStressChart, drawCompareChart, readToken, DEFAULT_EXPECT_STATUS,
+  drawStressChart, drawCompareChart, computeCompareMetrics, formatMetric, deltaClass,
+  readToken, DEFAULT_EXPECT_STATUS,
+  type CompareMetric, type CompareRun,
 } from './stressUtils'
 
 const emit = defineEmits<{
@@ -170,8 +196,15 @@ const chartCanvas = ref<HTMLCanvasElement | null>(null)
 const compareCanvas = ref<HTMLCanvasElement | null>(null)
 const compareVisible = ref(false)
 const compareSelection = ref<number[]>([])
-const compareLegend = ref<string[]>([])
-const compareColors = [readToken('--color-success', '#18a058'), readToken('--color-info', '#2080f0')]
+const compareRuns = ref<CompareRun[]>([])
+const compareMetrics = ref<CompareMetric[]>([])
+
+const themeStore = useThemeStore()
+/** 主题切换后重新读 token（原先 compareColors 是初始化时读一次的快照） */
+const compareColors = computed(() => {
+  void themeStore.effectiveMode
+  return [readToken('--color-success', '#18a058'), readToken('--color-info', '#2080f0')]
+})
 
 const activeRequestId = computed(() => requestStore.activeRequestId)
 const canStart = computed(() => requestStore.activeRequest != null && !stressStore.isRunning)
@@ -228,11 +261,12 @@ async function doCompare() {
     .map(id => stressStore.history.find(r => r.id === id))
     .filter((r): r is StressRun => Boolean(r))
   if (runs.length < 2) return
+  compareRuns.value = runs
+  compareMetrics.value = computeCompareMetrics(runs)
   compareVisible.value = true
+  // canvas 必须已在 DOM 且完成布局，clientWidth 才非 0（prepareCanvas 依赖它）
   await nextTick()
-  if (compareCanvas.value) {
-    compareLegend.value = drawCompareChart(compareCanvas.value, runs)
-  }
+  if (compareCanvas.value) drawCompareChart(compareCanvas.value, compareMetrics.value)
 }
 
 // ── 报告预览（1.0.5：先预览再导出，不再直接弹系统保存框） ──
@@ -301,7 +335,28 @@ function onExportReport(run: StressRun) {
   border-radius: var(--radius-sm);
   overflow: hidden;
 }
-.stress-canvas { display: block; width: 100%; height: 150px; }
+/* 高度由容器分别指定，避免属性尺寸与 CSS 不一致导致拉伸（prepareCanvas 以 CSS 为准） */
+.stress-canvas { display: block; width: 100%; }
+.chart-box .stress-canvas { height: 150px; }
+.compare-canvas { height: 200px; }
+
+.compare-note {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  color: var(--text-tertiary);
+  border-top: 1px solid var(--border-base);
+}
+.compare-table { border-collapse: collapse; width: 100%; font-size: var(--font-size-sm); }
+.compare-table th, .compare-table td {
+  border-top: 1px solid var(--border-base);
+  padding: 4px 10px;
+  text-align: left;
+}
+.compare-table th { color: var(--text-tertiary); font-weight: 600; }
+.delta-better { color: var(--color-success); }
+.delta-worse { color: var(--color-error); }
+.delta-flat { color: var(--text-tertiary); }
+
 .chart-legend {
   display: flex;
   gap: var(--spacing-md);

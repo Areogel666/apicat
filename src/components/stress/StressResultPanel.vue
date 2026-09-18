@@ -143,14 +143,37 @@
       </div>
     </div>
 
-    <!-- 1.0.4：双条对比折线 -->
+    <!-- 1.0.5：多指标分组对比图 + 对比表 -->
     <div v-if="compareCanvasVisible" class="compare-area">
-      <canvas ref="compareCanvasRef" width="620" height="160" class="stress-canvas" />
+      <canvas ref="compareCanvasRef" height="200" class="stress-canvas compare-canvas" />
       <div class="chart-legend">
-        <span v-for="(seed, i) in ['#18a058', '#2080f0']" :key="i" class="legend-item" :style="{ color: seed }">
-          ▬ {{ compareLegend[i] || '—' }}
+        <span
+          v-for="(run, i) in compareRuns"
+          :key="run.id"
+          class="legend-item"
+          :style="{ color: compareColors[i] }"
+        >
+          ▮ 轮{{ i + 1 }} · {{ formatTime(run.created_at) }}
         </span>
       </div>
+      <div class="compare-note">
+        每组柱子按该指标自身的最大值归一化（组间高度不可直接比较），柱顶数字为实际值。
+      </div>
+      <table class="compare-table">
+        <thead>
+          <tr><th>指标</th><th>轮1</th><th>轮2</th><th>变化</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="m in compareMetrics" :key="m.label">
+            <td>{{ m.label }}</td>
+            <td>{{ formatMetric(m.v1, m.unit) }}</td>
+            <td>{{ formatMetric(m.v2, m.unit) }}</td>
+            <td :class="deltaClass(m)">
+              {{ m.deltaPct == null ? '—' : `${m.deltaPct >= 0 ? '+' : ''}${m.deltaPct.toFixed(1)}%` }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
     <template #footer>
@@ -168,8 +191,6 @@ import { useStressStore } from '../../stores/stress'
 import { useThemeStore } from '../../stores/theme'
 import { useRequestStore } from '../../stores/request'
 import StressReportModal from './StressReportModal.vue'
-// Task 9 会再加：drawCompareChart / computeCompareMetrics / formatMetric / deltaClass
-// 以及类型 CompareMetric / CompareRun
 import {
   LATENCY_LABELS,
   histHeight,
@@ -177,10 +198,15 @@ import {
   pct,
   summarizeStats,
   formatTime,
+  drawCompareChart,
+  computeCompareMetrics,
+  formatMetric,
+  deltaClass,
+  type CompareMetric,
+  type CompareRun,
 } from './stressUtils'
 import { statusHint } from './stressReport'
-// StressStats 仅剩 drawCompare 在用，Task 9 重写对比图后移除
-import type { StressStats, StressRun } from '../../types'
+import type { StressRun } from '../../types'
 
 const show = defineModel<boolean>('show', { required: true })
 const stressStore = useStressStore()
@@ -208,7 +234,14 @@ const bizRateText = computed(() => {
 const compareSelection = ref<number[]>([])
 const compareCanvasRef = ref<HTMLCanvasElement | null>(null)
 const compareCanvasVisible = ref(false)
-const compareLegend = ref<string[]>([])
+const compareRuns = ref<CompareRun[]>([])
+const compareMetrics = ref<CompareMetric[]>([])
+
+/** 主题切换后重新读 token（原先用硬编码色种子，不跟主题） */
+const compareColors = computed(() => {
+  void themeStore.effectiveMode
+  return [readToken('--color-success', '#18a058'), readToken('--color-info', '#2080f0')]
+})
 
 function toggleCompare(id: number) {
   const i = compareSelection.value.indexOf(id)
@@ -231,60 +264,18 @@ function openReport(run: StressRun) {
   showReport.value = true
 }
 
-/** 1.0.4：叠绘两条历史折线（TPS/耗时 归一化双系列） */
-function drawCompare() {
-  compareLegend.value = []
-  compareCanvasVisible.value = true
-  const canvas = compareCanvasRef.value
-  if (!canvas) return
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-
+/** 1.0.5：多指标分组对比。原实现在置 visible 后立刻绘制，canvas 尚未布局，
+ *  prepareCanvas 取到的 clientWidth 会是 0 —— 补 nextTick 是本次修复的一部分。 */
+async function drawCompare() {
   const runs = compareSelection.value
     .map(id => stressStore.history.find(r => r.id === id))
-    .filter((r): r is NonNullable<typeof r> => Boolean(r))
+    .filter((r): r is StressRun => Boolean(r))
   if (runs.length < 2) return
-
-  // 归一化两条耗时（avg 逐轮对比），画两条横线高度对比
-  const vals = runs.map((r) => {
-    try { return (JSON.parse(r.stats_json) as StressStats).avg_ms || 0 } catch { return 0 }
-  })
-  compareLegend.value = runs.map((_, i) => `轮${i + 1} 场均 ${vals[i].toFixed(1)}ms`)
-  const max = Math.max(...vals, 1)
-
-  const W = canvas.width
-  const H = canvas.height
-  const PAD = { top: 10, right: 16, bottom: 20, left: 48 }
-  ctx.clearRect(0, 0, W, H)
-  const bg = readToken('--bg-surface', '#fafafa')
-  ctx.fillStyle = bg
-  ctx.fillRect(0, 0, W, H)
-
-  const colors = [readToken('--color-success', '#18a058'), readToken('--color-info', '#2080f0')]
-  if (runs.length >= 1) {
-    const v0 = vals[0]
-    const barH0 = (v0 / max) * (H - PAD.top - PAD.bottom)
-    const x0 = PAD.left + 12
-    const bw0 = (W - PAD.left - PAD.right) / runs.length - 24
-    ctx.fillStyle = colors[0]
-    ctx.fillRect(x0, H - PAD.bottom - barH0, bw0, barH0)
-    ctx.fillStyle = readToken('--text-secondary', '#666')
-    ctx.font = '11px sans-serif'
-    ctx.fillText(v0.toFixed(0) + 'ms', x0, H - PAD.bottom - barH0 - 4)
-    ctx.fillText('轮1', x0 + bw0 / 2 - 8, H - 4)
-  }
-  if (runs.length >= 2) {
-    const v1 = vals[1]
-    const barH1 = (v1 / max) * (H - PAD.top - PAD.bottom)
-    const x1 = PAD.left + (W - PAD.left - PAD.right) / runs.length + 12
-    const bw1 = (W - PAD.left - PAD.right) / runs.length - 24
-    ctx.fillStyle = colors[1]
-    ctx.fillRect(x1, H - PAD.bottom - barH1, bw1, barH1)
-    ctx.fillStyle = readToken('--text-secondary', '#666')
-    ctx.font = '11px sans-serif'
-    ctx.fillText(v1.toFixed(0) + 'ms', x1, H - PAD.bottom - barH1 - 4)
-    ctx.fillText('轮2', x1 + bw1 / 2 - 8, H - 4)
-  }
+  compareRuns.value = runs
+  compareMetrics.value = computeCompareMetrics(runs)
+  compareCanvasVisible.value = true
+  await nextTick()
+  if (compareCanvasRef.value) drawCompareChart(compareCanvasRef.value, compareMetrics.value)
 }
 
 /** 从 :root CSS 变量读取色值，用于 canvas 绘制时跟随主题 */
@@ -450,11 +441,13 @@ onUnmounted(() => {
   margin-bottom: 12px;
 }
 
+/* 高度由容器分别指定，避免属性尺寸与 CSS 不一致导致拉伸（prepareCanvas 以 CSS 为准） */
 .stress-canvas {
   display: block;
   width: 100%;
-  height: 180px;
 }
+.chart-area .stress-canvas { height: 180px; }
+.compare-canvas { height: 200px; }
 
 .chart-legend {
   display: flex;
@@ -561,4 +554,20 @@ onUnmounted(() => {
   border-radius: var(--radius-sm);
   overflow: hidden;
 }
+.compare-note {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  color: var(--text-tertiary);
+  border-top: 1px solid var(--border-base);
+}
+.compare-table { border-collapse: collapse; width: 100%; font-size: var(--font-size-sm); }
+.compare-table th, .compare-table td {
+  border-top: 1px solid var(--border-base);
+  padding: 4px 10px;
+  text-align: left;
+}
+.compare-table th { color: var(--text-tertiary); font-weight: 600; }
+.delta-better { color: var(--color-success); }
+.delta-worse { color: var(--color-error); }
+.delta-flat { color: var(--text-tertiary); }
 </style>

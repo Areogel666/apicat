@@ -15,6 +15,32 @@ export function readToken(name: string, fallback: string): string {
   return v || fallback
 }
 
+/**
+ * 让 canvas 的绘图坐标系与 CSS 尺寸一致，并按 devicePixelRatio 提采样。
+ *
+ * 解决两个问题：
+ *   1. 属性 width/height 与 CSS 尺寸不一致导致的图形拉伸（对比图原先 140 vs 150px）
+ *   2. 画布宽度写死 620px 而容器更宽时的横向变形
+ * 调用方必须用返回的 W/H 做绘制计算，不要再用 canvas.width / canvas.height。
+ */
+export function prepareCanvas(
+  canvas: HTMLCanvasElement,
+): { ctx: CanvasRenderingContext2D; W: number; H: number } | null {
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+  const W = canvas.clientWidth || canvas.width
+  const H = canvas.clientHeight || canvas.height
+  const dpr = window.devicePixelRatio || 1
+  const pw = Math.round(W * dpr)
+  const ph = Math.round(H * dpr)
+  if (canvas.width !== pw || canvas.height !== ph) {
+    canvas.width = pw
+    canvas.height = ph
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  return { ctx, W, H }
+}
+
 export function histHeight(bucket: { pct: number }): number {
   return Math.max(2, Math.round(bucket.pct / 100 * MAX_HIST_BAR_HEIGHT))
 }
@@ -128,44 +154,136 @@ export function drawStressChart(canvas: HTMLCanvasElement, points: StressChartPo
   }
 }
 
-/** 双条历史对比：两条压测场均耗时归一化柱状图。返回每条的可读标题。 */
-export function drawCompareChart(
-  canvas: HTMLCanvasElement,
-  runs: Array<{ id: number; stats_json: string }>,
-): string[] {
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return []
-  const titles: string[] = runs.map((r) => {
-    try { return `场均 ${(JSON.parse(r.stats_json) as StressStats).avg_ms.toFixed(1)}ms` } catch { return '—' }
-  })
+// ── 两次压测对比（1.0.5：多指标分组双柱 + 对比表）────────────────
 
-  const vals = runs.map((r) => {
-    try { return (JSON.parse(r.stats_json) as StressStats).avg_ms || 0 } catch { return 0 }
-  })
-  const max = Math.max(...vals, 1)
+export interface CompareRun {
+  id: number
+  stats_json: string
+  created_at: string
+}
 
-  const W = canvas.width
-  const H = canvas.height
-  const PAD = { top: 10, right: 16, bottom: 20, left: 48 }
-  ctx.clearRect(0, 0, W, H)
+export interface CompareMetric {
+  label: string
+  unit: string
+  /** 该指标是否「越大越好」——决定变化值的着色 */
+  higherIsBetter: boolean
+  v1: number
+  v2: number
+  /** 轮2 相对轮1 的变化百分比；轮1 为 0 时无法计算，返回 null */
+  deltaPct: number | null
+}
+
+/** 对比指标定义。每项按自身最大值独立归一化，因此组间柱高不可直接比较 */
+const COMPARE_METRICS: Array<{
+  label: string
+  unit: string
+  higherIsBetter: boolean
+  pick: (st: StressStats) => number
+}> = [
+  { label: 'TPS',        unit: '',   higherIsBetter: true,  pick: st => st.tps },
+  { label: '响应率',      unit: '%',  higherIsBetter: true,  pick: st => st.success_rate },
+  { label: '业务成功率',  unit: '%',  higherIsBetter: true,  pick: st => st.biz_success_rate ?? 0 },
+  { label: '平均耗时',    unit: 'ms', higherIsBetter: false, pick: st => st.avg_ms },
+  { label: 'P95',        unit: 'ms', higherIsBetter: false, pick: st => st.p95_ms },
+  { label: 'P99',        unit: 'ms', higherIsBetter: false, pick: st => st.p99_ms },
+]
+
+export function formatMetric(v: number, unit: string): string {
+  return unit === 'ms' ? `${v.toFixed(0)}ms` : `${v.toFixed(1)}${unit}`
+}
+
+function parseStatsOf(run: CompareRun): StressStats | null {
+  try { return JSON.parse(run.stats_json) as StressStats } catch { return null }
+}
+
+/** 算出两条记录的逐指标对比。任一条解析失败或不足两条时返回空数组 */
+export function computeCompareMetrics(runs: CompareRun[]): CompareMetric[] {
+  const stats = runs.slice(0, 2).map(parseStatsOf)
+  if (stats.length < 2) return []
+  const [a, b] = stats
+  if (!a || !b) return []
+  return COMPARE_METRICS.map(m => {
+    const v1 = m.pick(a)
+    const v2 = m.pick(b)
+    return {
+      label: m.label,
+      unit: m.unit,
+      higherIsBetter: m.higherIsBetter,
+      v1,
+      v2,
+      deltaPct: v1 === 0 ? null : (v2 - v1) / v1 * 100,
+    }
+  })
+}
+
+/** 变化值的着色方向：变好绿、变差红、几乎不变灰 */
+export function deltaClass(m: CompareMetric): 'delta-better' | 'delta-worse' | 'delta-flat' {
+  if (m.deltaPct == null || Math.abs(m.deltaPct) < 0.05) return 'delta-flat'
+  const improved = m.higherIsBetter ? m.deltaPct > 0 : m.deltaPct < 0
+  return improved ? 'delta-better' : 'delta-worse'
+}
+
+/** 多指标分组双柱对比图。每组独立归一化，柱顶标实际值 */
+export function drawCompareChart(canvas: HTMLCanvasElement, metrics: CompareMetric[]): void {
+  const prep = prepareCanvas(canvas)
+  if (!prep) return
+  const { ctx, W, H } = prep
+
   const bg = readToken('--bg-surface', '#fafafa')
+  const textTertiary = readToken('--text-tertiary', '#999')
+  const textSecondary = readToken('--text-secondary', '#666')
+  const borderColor = readToken('--border-base', '#e8e8e8')
+  const colors = [readToken('--color-success', '#18a058'), readToken('--color-info', '#2080f0')]
+
+  ctx.clearRect(0, 0, W, H)
   ctx.fillStyle = bg
   ctx.fillRect(0, 0, W, H)
 
-  const colors = [readToken('--color-success', '#18a058'), readToken('--color-info', '#2080f0')]
-  runs.forEach((_, i) => {
-    if (i >= 2) return
-    const v = vals[i]
-    const barH = (v / max) * (H - PAD.top - PAD.bottom)
-    const slotW = (W - PAD.left - PAD.right) / runs.length
-    const x = PAD.left + slotW * i + 12
-    const bw = slotW - 24
-    ctx.fillStyle = colors[i]
-    ctx.fillRect(x, H - PAD.bottom - barH, bw, barH)
-    ctx.fillStyle = readToken('--text-secondary', '#666')
+  if (!metrics.length) {
+    ctx.fillStyle = textTertiary
+    ctx.font = '12px sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText('勾选两条历史记录后点「对比」', W / 2, H / 2)
+    return
+  }
+
+  const PAD = { top: 26, right: 12, bottom: 42, left: 12 }
+  const innerW = W - PAD.left - PAD.right
+  const innerH = H - PAD.top - PAD.bottom
+  const groupW = innerW / metrics.length
+  const barW = Math.max(8, Math.min(26, groupW / 2 - 8))
+  const gap = 6
+
+  // 基线
+  ctx.strokeStyle = borderColor
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(PAD.left, H - PAD.bottom)
+  ctx.lineTo(W - PAD.right, H - PAD.bottom)
+  ctx.stroke()
+
+  metrics.forEach((m, gi) => {
+    const cx = PAD.left + groupW * gi + groupW / 2
+    // 每组按自身最大值归一化，避免「TPS 数值远大于百分比」把其它组压成一条线
+    const max = Math.max(m.v1, m.v2, 1e-9)
+    const bars: Array<[number, number, string]> = [
+      [cx - barW - gap / 2, m.v1, colors[0]],
+      [cx + gap / 2, m.v2, colors[1]],
+    ]
+
+    bars.forEach(([x, v, color]) => {
+      const bh = Math.max(2, (v / max) * innerH)
+      ctx.fillStyle = color
+      ctx.fillRect(x, H - PAD.bottom - bh, barW, bh)
+      ctx.fillStyle = textSecondary
+      ctx.font = '10px sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText(formatMetric(v, m.unit), x + barW / 2, H - PAD.bottom - bh - 4)
+    })
+
+    ctx.fillStyle = textTertiary
     ctx.font = '11px sans-serif'
-    ctx.fillText(v.toFixed(0) + 'ms', x, H - PAD.bottom - barH - 4)
-    ctx.fillText(`轮${i + 1}`, x + bw / 2 - 8, H - 4)
+    ctx.textAlign = 'center'
+    ctx.fillText(m.label, cx, H - PAD.bottom + 16)
   })
-  return titles
 }
