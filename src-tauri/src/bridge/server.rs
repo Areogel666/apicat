@@ -208,7 +208,7 @@ pub fn build_router(state: BState) -> Router {
 
 async fn list_projects(State(s): State<BState>) -> axum::response::Response {
     match sqlx::query_as::<_, Project>(
-        "SELECT id, name, description, docs_output_dir, created_at, updated_at FROM projects ORDER BY created_at DESC",
+        "SELECT id, name, description, docs_output_dir, p95_threshold_ms, p99_threshold_ms, created_at, updated_at FROM projects ORDER BY created_at DESC",
     )
     .fetch_all(&s.pool)
     .await
@@ -894,9 +894,16 @@ async fn start_stress(State(s): State<BState>, Json(body): Json<Value>) -> axum:
         .or(body["expect_status"].as_str())
         .unwrap_or(crate::commands::stress::DEFAULT_EXPECT_STATUS)
         .to_string();
+    let p95_threshold_ms = body["p95ThresholdMs"]
+        .as_u64()
+        .or(body["p95_threshold_ms"].as_u64());
+    let p99_threshold_ms = body["p99ThresholdMs"]
+        .as_u64()
+        .or(body["p99_threshold_ms"].as_u64());
 
     match crate::commands::stress::start_stress_impl(
         &s.app, &s.pool, request_id, params, concurrent, &mode, value, &expect_status,
+        p95_threshold_ms, p99_threshold_ms,
     ).await {
         Ok(stats) => { broadcast(&s, "stress"); ok(stats) }
         Err(e) => server_err(e),

@@ -141,8 +141,8 @@ pub async fn duplicate_request_impl(
 
     let new_name = format!("{} 副本", src.name);
     let row = sqlx::query_as::<_, ApiRequest>(&format!(
-        "INSERT INTO api_requests (collection_id, name, method, url, params, headers, body_type, body, auth_type, auth_config, description, sort_order) \
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?) RETURNING {REQUEST_COLS}"
+        "INSERT INTO api_requests (collection_id, name, method, url, params, headers, body_type, body, auth_type, auth_config, description, p95_threshold_ms, p99_threshold_ms, sort_order) \
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING {REQUEST_COLS}"
     ))
     .bind(src.collection_id)
     .bind(&new_name)
@@ -155,6 +155,8 @@ pub async fn duplicate_request_impl(
     .bind(&src.auth_type)
     .bind(&src.auth_config)
     .bind(&src.description)
+    .bind(src.p95_threshold_ms)
+    .bind(src.p99_threshold_ms)
     .bind(src.sort_order + 1)
     .fetch_one(pool)
     .await
@@ -192,12 +194,11 @@ pub async fn move_request(
     new_collection_id: i64,
     sort_order: i64,
 ) -> CmdResult<ApiRequest> {
-    let row = sqlx::query_as::<_, ApiRequest>(
+    let row = sqlx::query_as::<_, ApiRequest>(&format!(
         "UPDATE api_requests SET collection_id=?, sort_order=?, updated_at=datetime('now') \
          WHERE id=? \
-         RETURNING id, collection_id, name, method, url, params, headers, \
-                   body_type, body, auth_type, auth_config, description, sort_order, created_at, updated_at"
-    )
+         RETURNING {REQUEST_COLS}"
+    ))
     .bind(new_collection_id)
     .bind(sort_order)
     .bind(id)

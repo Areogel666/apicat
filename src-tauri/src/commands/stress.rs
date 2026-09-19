@@ -273,6 +273,9 @@ struct ReportConfig {
     #[serde(default)] concurrent: Option<u32>,
     #[serde(default)] mode: Option<String>,
     #[serde(default)] value: Option<u64>,
+    // 1.0.6：压测参考线阈值（旧记录没有 → 用默认值）
+    #[serde(default)] p95_threshold_ms: Option<u64>,
+    #[serde(default)] p99_threshold_ms: Option<u64>,
 }
 
 const NA_UNCOLLECTED: &str = "—（旧版本未采集）";
@@ -292,7 +295,7 @@ fn status_hint(code: u16) -> &'static str {
 }
 
 /// 结论摘要。按固定顺序产出，保证同一份数据每次生成结果一致。
-fn conclusions(st: &ReportStats) -> Vec<String> {
+fn conclusions(st: &ReportStats, p95_threshold: u64, p99_threshold: u64) -> Vec<String> {
     let mut out = Vec::new();
 
     if st.failed > 0 {
@@ -315,15 +318,15 @@ fn conclusions(st: &ReportStats) -> Vec<String> {
         Some(_) => {}
     }
 
-    if st.p95_ms > 500 {
-        out.push(format!("⚠️ P95 耗时 **{}ms**，超过 500ms 参考线", st.p95_ms));
+    if st.p95_ms > p95_threshold {
+        out.push(format!("⚠️ P95 耗时 **{}ms**，超过 {}ms 参考线", st.p95_ms, p95_threshold));
     }
-    if st.p99_ms > 1000 {
-        out.push(format!("❌ P99 耗时 **{}ms**，超过 1000ms，长尾明显", st.p99_ms));
+    if st.p99_ms > p99_threshold {
+        out.push(format!("❌ P99 耗时 **{}ms**，超过 {}ms，长尾明显", st.p99_ms, p99_threshold));
     }
 
     if out.is_empty() {
-        out.push("✅ 全部请求均拿到响应，状态码全部符合预期，P95 在 500ms 以内".to_string());
+        out.push(format!("✅ 全部请求均拿到响应，状态码全部符合预期，P95 在 {}ms 以内", p95_threshold));
     }
     out
 }
@@ -342,9 +345,18 @@ fn md_table(headers: &[&str], rows: &[Vec<String>]) -> String {
 }
 
 /// 生成压测报告的 Markdown。App 预览/导出与 bridge 技能共用这一份内容。
+/// 默认 P95 参考线（毫秒）
+pub const DEFAULT_P95_THRESHOLD_MS: u64 = 500;
+/// 默认 P99 参考线（毫秒）
+pub const DEFAULT_P99_THRESHOLD_MS: u64 = 1000;
+
 pub fn build_stress_report_markdown(run: &StressRun, request: Option<&ApiRequest>) -> String {
     let cfg: ReportConfig = serde_json::from_str(&run.config_json).unwrap_or_default();
     let st: Option<ReportStats> = serde_json::from_str(&run.stats_json).ok();
+
+    // 阈值取值链：config_json（压测时写入）→ 默认值
+    let p95_threshold = cfg.p95_threshold_ms.unwrap_or(DEFAULT_P95_THRESHOLD_MS);
+    let p99_threshold = cfg.p99_threshold_ms.unwrap_or(DEFAULT_P99_THRESHOLD_MS);
 
     let mut out = String::new();
     out.push_str("# ApiCat 压测报告\n\n");
@@ -373,7 +385,7 @@ pub fn build_stress_report_markdown(run: &StressRun, request: Option<&ApiRequest
 
     // ── 一、结论摘要 ──
     out.push_str("## 一、结论摘要\n\n");
-    for c in conclusions(&st) {
+    for c in conclusions(&st, p95_threshold, p99_threshold) {
         out.push_str(&format!("- {c}\n"));
     }
     out.push('\n');
@@ -463,6 +475,8 @@ pub fn build_stress_report_markdown(run: &StressRun, request: Option<&ApiRequest
         vec!["模式".into(), mode_cell],
         vec!["请求数 / 持续秒数".into(), cfg.value.map(|v| v.to_string()).unwrap_or_else(|| "—".into())],
         vec!["期望状态码".into(), expect_shown],
+        vec!["P95 参考线".into(), format!("{} ms", p95_threshold)],
+        vec!["P99 参考线".into(), format!("{} ms", p99_threshold)],
     ]));
 
     out
@@ -480,6 +494,8 @@ pub async fn start_stress_impl(
     mode: &str,
     value: u64,
     expect_status: &str,
+    p95_threshold_ms: Option<u64>,
+    p99_threshold_ms: Option<u64>,
 ) -> Result<StressStats, crate::error::AppError> {
     let app = app.clone();
     let mode = mode.to_string();
@@ -673,6 +689,8 @@ pub async fn start_stress_impl(
         "mode": mode,
         "value": value,
         "expect_status": expect_status,
+        "p95_threshold_ms": p95_threshold_ms,
+        "p99_threshold_ms": p99_threshold_ms,
     }).to_string();
     let _ = sqlx::query(
         "INSERT INTO stress_runs (request_id, config_json, stats_json) VALUES (?1, ?2, ?3)",
@@ -697,9 +715,11 @@ pub async fn start_stress(
     mode: String,
     value: u64,
     expect_status: Option<String>,
+    p95_threshold_ms: Option<u64>,
+    p99_threshold_ms: Option<u64>,
 ) -> CmdResult<()> {
     let expect = expect_status.unwrap_or_else(|| DEFAULT_EXPECT_STATUS.to_string());
-    start_stress_impl(&app, &db.0, request_id, params, concurrent, &mode, value, &expect).await?;
+    start_stress_impl(&app, &db.0, request_id, params, concurrent, &mode, value, &expect, p95_threshold_ms, p99_threshold_ms).await?;
     Ok(())
 }
 

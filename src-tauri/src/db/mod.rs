@@ -126,6 +126,37 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Err
             .await?;
     }
 
+    // 1.0.6：压测参考线阈值 —— 项目级默认 + 接口级覆盖
+    let proj_cols2: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM pragma_table_info('projects')")
+            .fetch_all(pool)
+            .await?;
+    if !proj_cols2.iter().any(|c| c == "p95_threshold_ms") {
+        sqlx::query("ALTER TABLE projects ADD COLUMN p95_threshold_ms INTEGER DEFAULT 500")
+            .execute(pool)
+            .await?;
+    }
+    if !proj_cols2.iter().any(|c| c == "p99_threshold_ms") {
+        sqlx::query("ALTER TABLE projects ADD COLUMN p99_threshold_ms INTEGER DEFAULT 1000")
+            .execute(pool)
+            .await?;
+    }
+
+    let req_cols2: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM pragma_table_info('api_requests')")
+            .fetch_all(pool)
+            .await?;
+    if !req_cols2.iter().any(|c| c == "p95_threshold_ms") {
+        sqlx::query("ALTER TABLE api_requests ADD COLUMN p95_threshold_ms INTEGER")
+            .execute(pool)
+            .await?;
+    }
+    if !req_cols2.iter().any(|c| c == "p99_threshold_ms") {
+        sqlx::query("ALTER TABLE api_requests ADD COLUMN p99_threshold_ms INTEGER")
+            .execute(pool)
+            .await?;
+    }
+
     // M3-C 触发器：trg_tch_keep_10
     // 复合 BEGIN/END 块内部含 ';'，不能写在 0001_init.sql 里（会被 split(';') 拆坏）。
     // 单独以一条 query 执行；CREATE TRIGGER IF NOT EXISTS 幂等。

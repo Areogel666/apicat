@@ -11,6 +11,9 @@ pub struct Project {
     pub description: Option<String>,
     // 1.0.5：doc-gen 技能的文档输出目录（null = 用默认 ~/.apicat/apidoc/{project}）
     pub docs_output_dir: Option<String>,
+    // 1.0.6：压测参考线阈值（项目级默认，null = 500 / 1000）
+    pub p95_threshold_ms: Option<i64>,
+    pub p99_threshold_ms: Option<i64>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -41,6 +44,9 @@ pub struct ApiRequest {
     pub auth_type: String,
     pub auth_config: String,
     pub description: String,  // 1.0.4 新增：接口描述（0002 migration 加列）
+    // 1.0.6：压测参考线阈值（接口级覆盖，null = 继承项目级）
+    pub p95_threshold_ms: Option<i64>,
+    pub p99_threshold_ms: Option<i64>,
     pub sort_order: i64,
     pub created_at: String,
     pub updated_at: String,

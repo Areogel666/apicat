@@ -79,6 +79,30 @@
         <span class="config-hint">响应命中才算业务成功</span>
       </div>
 
+      <!-- P95 / P99 参考线阈值（1.0.6） -->
+      <div class="config-row">
+        <span class="config-label">P95 参考线</span>
+        <n-input-number
+          v-model:value="config.p95_threshold_ms"
+          :min="1"
+          :max="60000"
+          size="small"
+          style="width: 120px"
+        />
+        <span class="config-hint">ms（默认 500）</span>
+      </div>
+      <div class="config-row">
+        <span class="config-label">P99 参考线</span>
+        <n-input-number
+          v-model:value="config.p99_threshold_ms"
+          :min="1"
+          :max="60000"
+          size="small"
+          style="width: 120px"
+        />
+        <span class="config-hint">ms（默认 1000）</span>
+      </div>
+
       <!-- 预估提示 -->
       <div class="config-tip" v-if="config.mode === 'count'">
         💡 {{ config.concurrent }} 并发 × {{ config.value }} 请求
@@ -111,6 +135,8 @@ const config = reactive<StressConfig>({
   mode: 'count',
   value: 100,
   expect_status: DEFAULT_EXPECT_STATUS,
+  p95_threshold_ms: 500,
+  p99_threshold_ms: 1000,
 })
 
 const paramSource = ref<'current' | 'testcase'>('current')

@@ -6,7 +6,8 @@
 
 /// api_requests
 pub const REQUEST_COLS: &str = "id, collection_id, name, method, url, params, headers, \
-    body_type, body, auth_type, auth_config, description, sort_order, created_at, updated_at";
+    body_type, body, auth_type, auth_config, description, p95_threshold_ms, p99_threshold_ms, \
+    sort_order, created_at, updated_at";
 
 /// test_cases
 pub const TEST_CASE_COLS: &str = "id, request_id, collection_id, name, description, source, case_type, \

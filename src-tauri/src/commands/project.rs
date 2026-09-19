@@ -5,7 +5,7 @@ use tauri::State;
 #[tauri::command]
 pub async fn list_projects(db: State<'_, AppDb>) -> CmdResult<Vec<Project>> {
     let rows = sqlx::query_as::<_, Project>(
-        "SELECT id, name, description, docs_output_dir, created_at, updated_at FROM projects ORDER BY created_at DESC"
+        "SELECT id, name, description, docs_output_dir, p95_threshold_ms, p99_threshold_ms, created_at, updated_at FROM projects ORDER BY created_at DESC"
     )
     .fetch_all(&db.0)
     .await?;

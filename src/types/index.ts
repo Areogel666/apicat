@@ -10,6 +10,8 @@ export interface Project {
   name: string
   description: string | null
   docs_output_dir: string | null   // 1.0.5：doc-gen 技能的文档输出目录
+  p95_threshold_ms: number | null  // 1.0.6：压测 P95 参考线（项目级默认）
+  p99_threshold_ms: number | null  // 1.0.6：压测 P99 参考线（项目级默认）
   created_at: string
   updated_at: string
 }
@@ -54,6 +56,10 @@ export interface StressConfig {
   value: number          // 总请求数 或 持续秒数
   /** 期望状态码表达式，如 `2xx` / `200` / `2xx,3xx`（1.0.5） */
   expect_status: string
+  /** P95 参考线阈值 ms，null = 用默认 500（1.0.6） */
+  p95_threshold_ms?: number | null
+  /** P99 参考线阈值 ms，null = 用默认 1000（1.0.6） */
+  p99_threshold_ms?: number | null
 }
 
 // 折线图数据点（每次 stress://progress 推送时追加一条）
@@ -77,6 +83,8 @@ export interface ApiRequest {
   auth_type: string
   auth_config: string
   description: string  // 1.0.4 新增：与 types.rs 的 ApiRequest.description 对应
+  p95_threshold_ms: number | null  // 1.0.6：压测 P95 参考线（接口级覆盖）
+  p99_threshold_ms: number | null  // 1.0.6：压测 P99 参考线（接口级覆盖）
   sort_order: number
   created_at: string
   updated_at: string

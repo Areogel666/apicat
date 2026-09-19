@@ -188,6 +188,8 @@ const config = reactive<StressConfig>({
   mode: 'count',
   value: 100,
   expect_status: DEFAULT_EXPECT_STATUS,
+  p95_threshold_ms: 500,
+  p99_threshold_ms: 1000,
 })
 const paramSource = ref<'current' | 'testcase'>('current')
 const selectedTestCaseId = ref<number | null>(null)

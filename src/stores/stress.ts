@@ -78,6 +78,8 @@ export const useStressStore = defineStore('stress', () => {
         mode: config.mode,
         value: config.value,
         expectStatus: config.expect_status,
+        p95ThresholdMs: config.p95_threshold_ms ?? null,
+        p99ThresholdMs: config.p99_threshold_ms ?? null,
       })
     } catch (e) {
       error.value = String(e)
