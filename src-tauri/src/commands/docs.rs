@@ -67,10 +67,14 @@ pub async fn get_home_dir() -> CmdResult<String> {
 /// dir 为空时返回空列表（前端负责传入已解析的目录）
 #[tauri::command]
 pub async fn scan_docs_dir(dir: String) -> CmdResult<Vec<DocFile>> {
-    let root = PathBuf::from(&dir);
-    if !root.exists() || !root.is_dir() {
+    let raw = PathBuf::from(&dir);
+    if !raw.exists() || !raw.is_dir() {
         return Ok(Vec::new());
     }
+    // 归一化分隔符：前端拼的目录可能混合 `/` 与 `\`（如 C:/Users/x/.apicat/...），
+    // 直接作根会让 read_dir 产出的 absolute_path 也是混合分隔符，explorer /select
+    // 无法解析时退回默认位置。components() 重渲染为平台标准分隔符。
+    let root: PathBuf = raw.components().collect();
     let mut files = Vec::new();
     scan_md_files(&root, &root, &mut files);
     // 按路径排序，便于树形展示
@@ -141,4 +145,41 @@ pub async fn open_file_with_default(path: String) -> CmdResult<()> {
             .map_err(|e| crate::error::AppError::Custom(format!("打开文件失败: {e}")))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 模拟 scan_docs_dir 的分隔符归一化（测试需要，非生产代码）
+    fn run_scan(dir: &str) -> Vec<DocFile> {
+        let raw = PathBuf::from(dir);
+        if !raw.exists() || !raw.is_dir() {
+            return Vec::new();
+        }
+        let root: PathBuf = raw.components().collect();
+        let mut files = Vec::new();
+        scan_md_files(&root, &root, &mut files);
+        files
+    }
+
+    /// 回归：前端 resolveDefaultDir 用 `/` 拼接目录（如 C:/Users/x/.apicat/apidoc/{proj}），
+    /// 若直接作为扫描根，read_dir 产出的 absolute_path 会混合 `/` 与 `\`，
+    /// 导致 explorer /select 解析失败退回默认位置（曾表现为「打开所在目录只开 C 盘」）。
+    #[test]
+    fn mixed_separator_root_produces_normalized_abs_path() {
+        let home = std::env::temp_dir().to_string_lossy().replace('\\', "/");
+        let dir = format!("{home}/apicat_mixed_sep_test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(format!("{dir}/a.md"), "x").unwrap();
+
+        let files = run_scan(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(!files.is_empty(), "应扫描到测试文件");
+        let abs = &files[0].absolute_path;
+        let mixed = abs.contains('/') && abs.contains('\\');
+        assert!(!mixed, "absolute_path 不应混合分隔符: {abs}");
+    }
 }

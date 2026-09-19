@@ -2284,19 +2284,25 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
     if (tc) {
       if (tc.method) stressMethod = tc.method
       if (tc.url) {
-        // 和 effectiveUrl 一样：相对路径自动拼接激活环境的 base_url
+        // 用例 URL 常含 {{base_url}}（test-gen 技能生成格式）。压测引擎不做变量替换
+        // （正常发送在 Rust 侧 replace_variables 处理），此处必须预替换，否则 URL
+        // 静默不可解析、全部请求网络失败。与 effectiveUrl 一致，相对路径再拼 base_url。
+        const baseUrl = envStore.activeEnv?.base_url
         const rawUrl = tc.url
-        if (/^https?:\/\//i.test(rawUrl)) {
-          stressUrl = rawUrl
+        const hadPlaceholder = /\{\{\s*base_url\s*\}\}/i.test(rawUrl)
+        const urlAfterPlaceholder = rawUrl.replace(/\{\{\s*base_url\s*\}\}/gi, baseUrl ?? '')
+        if (/^https?:\/\//i.test(urlAfterPlaceholder)) {
+          stressUrl = urlAfterPlaceholder
+        } else if (baseUrl) {
+          const base = baseUrl.replace(/\/$/, '')
+          const path = urlAfterPlaceholder.startsWith('/') ? urlAfterPlaceholder : `/${urlAfterPlaceholder}`
+          stressUrl = `${base}${path}`
         } else {
-          const baseUrl = envStore.activeEnv?.base_url
-          if (baseUrl) {
-            const base = baseUrl.replace(/\/$/, '')
-            const path = rawUrl.startsWith('/') ? rawUrl : `/${rawUrl}`
-            stressUrl = `${base}${path}`
-          } else {
-            stressUrl = rawUrl
-          }
+          stressUrl = urlAfterPlaceholder
+        }
+        // 兜底：仍含未替换的 {{...}}，或占位符存在却无激活环境 → 提示而不是静默失败
+        if (/\{\{/.test(stressUrl) || (hadPlaceholder && !baseUrl)) {
+          message.warning('压测 URL 含未替换的 {{...}} 占位符（未激活环境？），请求可能全部失败')
         }
       }
       try { stressQueryParams = JSON.parse(tc.params) } catch {}
