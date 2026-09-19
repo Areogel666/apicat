@@ -1,10 +1,14 @@
 <template>
   <div class="token-row">
-    <div
-      class="swatch"
-      :style="{ background: currentValue }"
-      @click="openColorPicker"
-    />
+    <div class="picker-wrap">
+      <n-color-picker
+        :value="currentValue"
+        :modes="['rgb', 'hex']"
+        :show-alpha="true"
+        size="small"
+        @update:value="onColorChange"
+      />
+    </div>
     <div class="label">
       <span class="name">{{ tokenKey }}</span>
       <span class="desc">{{ description }}</span>
@@ -16,19 +20,12 @@
       title="重置为默认值"
       @click="$emit('reset')"
     >↺</button>
-    <!-- 隐藏的 color input -->
-    <input
-      ref="colorInputRef"
-      type="color"
-      :value="currentValue"
-      class="hidden-input"
-      @change="onColorChange"
-    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
+import { NColorPicker } from 'naive-ui'
 
 const props = defineProps<{
   tokenKey: string
@@ -42,17 +39,10 @@ const emit = defineEmits<{
   'reset': []
 }>()
 
-const colorInputRef = ref<HTMLInputElement | null>(null)
-
 const isModified = computed(() => props.currentValue !== props.defaultValue)
 
-function openColorPicker() {
-  colorInputRef.value?.click()
-}
-
-function onColorChange(e: Event) {
-  const target = e.target as HTMLInputElement
-  emit('update:value', target.value)
+function onColorChange(val: string) {
+  emit('update:value', val)
 }
 </script>
 
@@ -68,13 +58,31 @@ function onColorChange(e: Event) {
 .token-row:hover {
   background: var(--bg-hover);
 }
-.swatch {
+/* n-color-picker 渲染 fragment，无法直接继承 style，用 wrapper 控制尺寸 */
+.picker-wrap {
   width: 22px;
   height: 22px;
-  border-radius: 4px;
-  border: 1.5px solid var(--border-base);
   flex-shrink: 0;
-  cursor: pointer;
+}
+/* 剥掉 trigger 默认的边框/圆角/内边距，只留纯色块 */
+.picker-wrap :deep(.n-color-picker) {
+  width: 100%;
+  height: 100%;
+}
+.picker-wrap :deep(.n-color-picker-trigger) {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  box-shadow: none;
+}
+.picker-wrap :deep(.n-color-picker-fill) {
+  border-radius: 4px;
+}
+/* 隐藏 picker 内部的色值文字，右侧 .value span 已展示，22px 色块塞不下 */
+.picker-wrap :deep(.n-color-picker__value) {
+  display: none;
 }
 .label {
   flex: 1;
@@ -116,12 +124,5 @@ function onColorChange(e: Event) {
 .reset-btn:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
-}
-.hidden-input {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-  pointer-events: none;
 }
 </style>

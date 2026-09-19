@@ -34,7 +34,8 @@ const activePresetId = ref<string | null>(null)
 
 function selectPreset(preset: ThemePreset) {
   activePresetId.value = preset.id
-  // 预设只定主色/语义色，不锁定深浅模式（背景色跟随当前模式）
+  // 选预设时同步切换深浅模式（用户之后可独立切回）
+  themeStore.mode = preset.mode
   themeStore.customTokens = { ...preset.tokens }
   themeStore.density = preset.density
   themeStore.radiusScale = preset.radiusScale

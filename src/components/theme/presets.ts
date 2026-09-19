@@ -12,7 +12,7 @@ export interface ThemePreset {
   mode: 'light' | 'dark'
   /** 要覆盖的 token（不填的 token 保持默认值） */
   tokens: Record<string, string>
-  /** 3 个代表色，用于卡片色块展示 */
+  /** 代表色（仅主色，用于卡片色块展示；背景/次色不再暗示） */
   swatches: string[]
   density: 'compact' | 'default' | 'spacious'
   radiusScale: 0.5 | 1.0 | 1.5
@@ -25,7 +25,7 @@ export const PRESET_THEMES: ThemePreset[] = [
     name: '深蓝',
     description: '专业冷静的深蓝主题',
     mode: 'dark',
-    swatches: ['#4a9eff', '#18181c', '#63cd96'],
+    swatches: ['#4a9eff'],
     tokens: {
       '--color-primary': '#4a9eff',
       '--color-primary-hover': '#3685e0',
@@ -45,7 +45,7 @@ export const PRESET_THEMES: ThemePreset[] = [
     name: '竹林',
     description: 'ApiCat 默认绿色主题',
     mode: 'dark',
-    swatches: ['#63cd96', '#18181c', '#63cd96'],
+    swatches: ['#63cd96'],
     tokens: {
       '--color-primary': '#63cd96',
       '--color-primary-hover': '#7fdfa8',
@@ -65,7 +65,7 @@ export const PRESET_THEMES: ThemePreset[] = [
     name: '暖橘',
     description: '温暖明亮的浅色主题',
     mode: 'light',
-    swatches: ['#e88a6e', '#fafafa', '#2080f0'],
+    swatches: ['#e88a6e'],
     tokens: {
       '--color-primary': '#e88a6e',
       '--color-primary-hover': '#f09e88',
@@ -85,7 +85,7 @@ export const PRESET_THEMES: ThemePreset[] = [
     name: '紫苑',
     description: '优雅浪漫的紫色主题',
     mode: 'dark',
-    swatches: ['#b39ff0', '#1e1e24', '#ff6b9d'],
+    swatches: ['#b39ff0'],
     tokens: {
       '--color-primary': '#b39ff0',
       '--color-primary-hover': '#c5b5f5',

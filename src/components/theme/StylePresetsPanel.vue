@@ -100,7 +100,7 @@ const fontSizeOptions = [
 }
 .density-btn.active {
   background: var(--color-primary);
-  color: #000;
+  color: #fff;
   border-color: var(--color-primary);
   font-weight: 500;
 }
@@ -126,7 +126,7 @@ const fontSizeOptions = [
 }
 .tab-btn.active {
   background: var(--color-primary);
-  color: #000;
+  color: #fff;
   border-color: var(--color-primary);
 }
 .font-options {
