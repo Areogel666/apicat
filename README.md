@@ -39,6 +39,11 @@ ApiCat is a modern desktop application for API debugging and testing, powered by
 - **Data Dictionary Field Binding**: Bind a dictionary to a field name (project-level rules + per-request overrides); every same-named field across requests auto-resolves its value to a meaning, with hover to view the full enum. Copy a dictionary (with its rules) to another project.
 - **Param Metadata**: Field `type` / `description` persisted per request — survive switching requests, test cases, and KV/JSON/Text modes; never bleed across requests.
 - **Stress History Tab**: A dedicated "Stress" tab beside the request editor listing past runs with report download (Markdown) and two-run comparison.
+- **Localhost HTTP Bridge**: A local REST service on `127.0.0.1:17320` (token-secured) that lets AI skills read and write projects, requests, dictionaries, test cases, and stress runs — data stays in one place instead of scripts touching the database directly.
+- **AI Skills Installer**: One-click install/uninstall of four bundled skills — `apicat-lib` (Bridge access base), `apicat-edit` (edit requests/dictionaries, batch-import from Markdown docs), `apicat-test-gen` (generate test cases / stress runs), `apicat-doc-gen` (generate API docs) — into your Agent's skills directory via junction links; dangling links are auto-repaired on app startup.
+- **Test Assertions**: Test cases can declare assertions (`status_code` / JSON Path); running a case gives a clear pass/fail verdict.
+- **Stress Report Preview & Thresholds**: Built-in Markdown report generator shared by the app and the Bridge, with in-app preview and Markdown/HTML export. P95/P99 reference lines are configurable per project with per-request overrides.
+- **API Docs Panel**: A third sidebar tab browsing your local API documentation directory — open files directly or reveal them in the file explorer.
 
 ### 🚀 Quick Start (For Users)
 
@@ -75,7 +80,8 @@ Build output: `src-tauri/target/release/bundle/msi/`
 
 ### 📋 Changelog
 
-- Latest stable: [docs/release/1.0.4.md](docs/release/1.0.4.md)
+- Latest stable: [docs/release/1.0.5.md](docs/release/1.0.5.md)
+- Previous: [docs/release/1.0.4.md](docs/release/1.0.4.md)
 - Beta history: [docs/release/1.0.0-beta.md](docs/release/1.0.0-beta.md)
 
 ### 📄 License
@@ -105,6 +111,11 @@ ApiCat 是一款基于 Tauri 2.0 + Rust + Vue 3 的轻量、高性能、无跨�
 - **数据字典「字段名绑定」**：项目级「字段名 ↔ 字典」规则 + 接口级例外；项目内所有同名字段按当前取值自动命中展示含义，悬停查看全部枚举；可把字典（含规则）整体复制到其它项目。
 - **参数元数据持久化**：字段「类型 / 描述」随每个接口独立保存，切换接口、用例或 KV/JSON/Text 模式都不丢、不串扰。
 - **压测历史 Tab**：编辑区新增常驻「压测」页，本接口历史回看、Markdown 报告下载、双条历史对比。
+- **本地 HTTP Bridge**：`127.0.0.1:17320` 上的本地 REST 服务（token 鉴权），供 AI 技能读写项目、接口、字典、用例与压测数据——数据真源收敛到一处，脚本不再直连数据库。
+- **AI 技能安装器**：一键把 4 个内置技能安装/卸载到各 Agent 的 skills 目录（junction 链接）：`apicat-lib`（Bridge 访问底座）、`apicat-edit`（增删改接口/字典、从 Markdown 文档批量导入）、`apicat-test-gen`（生成用例/压测）、`apicat-doc-gen`（生成接口文档）；App 启动时自动修复悬空链接。
+- **用例断言**：测试用例可声明断言（`status_code` / JSON Path），运行后给出明确的通过/失败判定。
+- **压测报告预览与参考线**：Markdown 报告生成器在 Rust 侧下沉，App 与 Bridge 共用同一真源；支持应用内预览与 Markdown/HTML 导出；P95/P99 参考线可按项目配置、按接口覆盖。
+- **接口文档面板**：侧边栏第三个 Tab，浏览本地接口文档目录，双击打开文件或在文件管理器中定位。
 
 ### 🚀 快速使用
 
@@ -121,7 +132,7 @@ ApiCat 是一款基于 Tauri 2.0 + Rust + Vue 3 的轻量、高性能、无跨�
 | 区域 | 说明 |
 |------|------|
 | 顶部栏 | 项目切换 / 环境选择 / 设置菜单（导入导出、Header 模板等）|
-| 左侧边栏 | 接口树，支持文件夹嵌套、拖拽排序、搜索过滤；悬停节点显示 `+` / `•••` 操作按钮 |
+| 左侧边栏 | 三个 Tab：接口树 / 字典树 / 接口文档；接口树支持文件夹嵌套、拖拽排序、搜索过滤，悬停节点显示 `+` / `•••` 操作按钮 |
 | 中央主面板 | URL 栏（内嵌 Method 选择器 + 环境标签）+ Params / Headers / Body / Auth 配置 |
 | 底部响应面板 | 响应状态 / Body（支持 JSON 折叠、XML/HTML 高亮）/ Headers / Cookie / 历史记录 / 压测结果 |
 
@@ -152,7 +163,8 @@ npm run tauri build
 
 ### 📋 更新记录
 
-- 最新稳定版说明： [docs/release/1.0.4.md](docs/release/1.0.4.md)
+- 最新稳定版说明： [docs/release/1.0.5.md](docs/release/1.0.5.md)
+- 上一版本说明： [docs/release/1.0.4.md](docs/release/1.0.4.md)
 - Beta 阶段历史记录： [docs/release/1.0.0-beta.md](docs/release/1.0.0-beta.md)
 
 ### 📄 开源协议
