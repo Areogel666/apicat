@@ -126,7 +126,7 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Err
             .await?;
     }
 
-    // 1.0.6：压测参考线阈值 —— 项目级默认 + 接口级覆盖
+    // 1.0.5：压测参考线阈值 —— 项目级默认 + 接口级覆盖
     let proj_cols2: Vec<String> =
         sqlx::query_scalar("SELECT name FROM pragma_table_info('projects')")
             .fetch_all(pool)

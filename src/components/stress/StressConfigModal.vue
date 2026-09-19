@@ -79,7 +79,7 @@
         <span class="config-hint">响应命中才算业务成功</span>
       </div>
 
-      <!-- P95 / P99 参考线阈值（1.0.6） -->
+      <!-- P95 / P99 参考线阈值（1.0.5） -->
       <div class="config-row">
         <span class="config-label">P95 参考线</span>
         <n-input-number

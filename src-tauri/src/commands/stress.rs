@@ -273,7 +273,7 @@ struct ReportConfig {
     #[serde(default)] concurrent: Option<u32>,
     #[serde(default)] mode: Option<String>,
     #[serde(default)] value: Option<u64>,
-    // 1.0.6：压测参考线阈值（旧记录没有 → 用默认值）
+    // 1.0.5：压测参考线阈值（旧记录没有 → 用默认值）
     #[serde(default)] p95_threshold_ms: Option<u64>,
     #[serde(default)] p99_threshold_ms: Option<u64>,
 }
