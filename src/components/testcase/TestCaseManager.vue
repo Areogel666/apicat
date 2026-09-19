@@ -715,7 +715,7 @@ watch(typeFilter, () => {
 }
 .testcase-manager .case-list .run-btn:hover:not(:disabled) {
   background: var(--bg-hover);
-  color: var(--color-primary, #2080f0);
+  color: var(--color-primary, #18a058);
 }
 .testcase-manager .case-list .run-btn:disabled {
   opacity: 0.5;

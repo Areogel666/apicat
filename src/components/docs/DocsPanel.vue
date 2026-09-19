@@ -8,8 +8,8 @@
       <header class="panel-header">
         <span class="file-name">{{ file.name }}</span>
         <div class="actions">
-          <n-button size="small" quaternary @click="openFile">打开文件</n-button>
-          <n-button size="small" quaternary @click="revealFile">打开所在目录</n-button>
+          <n-button size="small" secondary type="primary" @click="openFile">打开文件</n-button>
+          <n-button size="small" secondary type="primary" @click="revealFile">打开所在目录</n-button>
         </div>
       </header>
       <div class="meta-list">
