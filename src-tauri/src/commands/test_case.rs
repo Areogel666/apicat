@@ -202,52 +202,28 @@ pub async fn delete_test_case(db: State<'_, AppDb>, id: i64) -> CmdResult<()> {
     delete_test_case_impl(&db.0, id).await
 }
 
-// ── M3-C：用例执行历史 ─────────────────────────────────────────
-
-use crate::sql_cols::TEST_CASE_HISTORY_COLS as HIST_COLS;
+// ── 用例执行历史（合并到 request_history）────────────────
 
 /// 列出某用例的最近 10 条历史调用（按时间倒序）
+/// 从 request_history 查询，用 AS 别名映射到 TestCaseHistory 结构
 #[tauri::command]
 pub async fn list_test_case_history(
     db: State<'_, AppDb>,
     test_case_id: i64,
 ) -> CmdResult<Vec<TestCaseHistory>> {
-    let sql = format!(
-        "SELECT {HIST_COLS} FROM test_case_history \
-         WHERE test_case_id=? ORDER BY created_at DESC, id DESC LIMIT 10"
-    );
-    let rows = sqlx::query_as::<_, TestCaseHistory>(&sql)
-        .bind(test_case_id)
-        .fetch_all(&db.0)
-        .await?;
+    let rows = sqlx::query_as::<_, TestCaseHistory>(
+        "SELECT id, test_case_id, status_code, \
+                response_time_ms as duration_ms, \
+                substr(response_body, 1, 1024) as response_preview, \
+                error_message, created_at \
+         FROM request_history \
+         WHERE test_case_id = ? \
+         ORDER BY created_at DESC, id DESC LIMIT 10"
+    )
+    .bind(test_case_id)
+    .fetch_all(&db.0)
+    .await?;
     Ok(rows)
-}
-
-/// 写入一条用例历史。触发器 trg_tch_keep_10 自动滚动淘汰最早的（>10 条）。
-#[tauri::command]
-pub async fn add_test_case_history(
-    db: State<'_, AppDb>,
-    test_case_id: i64,
-    status_code: Option<i64>,
-    duration_ms: Option<i64>,
-    response_preview: Option<String>,
-    error_message: Option<String>,
-) -> CmdResult<TestCaseHistory> {
-    let sql = format!(
-        "INSERT INTO test_case_history \
-            (test_case_id, status_code, duration_ms, response_preview, error_message) \
-         VALUES (?, ?, ?, ?, ?) \
-         RETURNING {HIST_COLS}"
-    );
-    let row = sqlx::query_as::<_, TestCaseHistory>(&sql)
-        .bind(test_case_id)
-        .bind(status_code)
-        .bind(duration_ms)
-        .bind(response_preview)
-        .bind(error_message)
-        .fetch_one(&db.0)
-        .await?;
-    Ok(row)
 }
 
 /// 批量删除用例（一次 DB 往返）。

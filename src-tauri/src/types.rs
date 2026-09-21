@@ -79,7 +79,7 @@ pub struct HistoryRecord {
     pub response_body: Option<String>,
     pub is_truncated: i64,
     pub response_headers: Option<String>, // JSON
-    pub error_message: Option<String>, // 1.0.6：合并 test_case_history 带来的字段
+    pub error_message: Option<String>, // 合并 test_case_history 带来的字段
     pub created_at: String,
 }
 

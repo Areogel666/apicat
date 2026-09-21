@@ -37,12 +37,16 @@ pub fn get_response_dir() -> Result<PathBuf, crate::error::AppError> {
 
 /// 保存响应体到文件（超过阈值时），返回 (存储到DB的body, 是否截断)
 /// 供 send_request_impl 和 run_test_case_impl 共用
+/// 文件名格式：{history_id}_{status}_{yyyyMMdd_HHmmss}.txt
 pub fn save_response_body_if_large(
     history_id: i64,
+    status_code: u16,
     body: &str,
 ) -> Result<(String, bool), crate::error::AppError> {
     if body.len() > RESPONSE_FILE_THRESHOLD {
-        let file_path = get_response_dir()?.join(format!("{history_id}.txt"));
+        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+        let filename = format!("{history_id}_{status_code}_{timestamp}.txt");
+        let file_path = get_response_dir()?.join(&filename);
         std::fs::write(&file_path, body).map_err(|e| {
             crate::error::AppError::Custom(format!("保存响应文件失败: {e}"))
         })?;
@@ -176,7 +180,7 @@ pub async fn send_request_impl(
         .await?;
 
         // 保存响应体（超过阈值时存文件）
-        let (stored_body, is_file) = save_response_body_if_large(history_id, &resp.body)?;
+        let (stored_body, is_file) = save_response_body_if_large(history_id, resp.status_code, &resp.body)?;
         if is_file {
             sqlx::query("UPDATE request_history SET response_body = ? WHERE id = ?")
                 .bind(&stored_body)
@@ -226,7 +230,7 @@ pub async fn list_history(
         r#"
         SELECT id, request_id, test_case_id, status_code, response_time_ms,
                NULL AS request_snapshot, NULL AS response_body, is_truncated,
-               NULL AS response_headers, created_at
+               NULL AS response_headers, NULL AS error_message, created_at
         FROM request_history
         WHERE request_id = ? AND (?2 IS NULL OR test_case_id = ?2)
         ORDER BY created_at DESC
@@ -243,14 +247,28 @@ pub async fn list_history(
 /// 打开响应文件所在位置（资源管理器定位）
 #[tauri::command]
 pub async fn open_response_file(history_id: i64) -> CmdResult<()> {
-    let file_path = get_response_dir()?.join(format!("{history_id}.txt"));
+    // 文件名格式：{history_id}_{status}_{timestamp}.txt
+    // 需要模糊匹配，因为 status 和 timestamp 未知
+    let response_dir = get_response_dir()?;
+    let mut found_path = None;
 
-    if !file_path.exists() {
-        return Err(crate::error::AppError::Custom(format!(
-            "响应文件不存在: {}",
-            file_path.display()
-        )));
+    if let Ok(entries) = std::fs::read_dir(&response_dir) {
+        for entry in entries.flatten() {
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            // 匹配 {history_id}_ 开头的文件
+            if file_name.starts_with(&format!("{history_id}_")) && file_name.ends_with(".txt") {
+                found_path = Some(entry.path());
+                break;
+            }
+        }
     }
+
+    let file_path = found_path.ok_or_else(|| {
+        crate::error::AppError::Custom(format!(
+            "响应文件不存在: history_id={}",
+            history_id
+        ))
+    })?;
 
     // 复用 docs.rs 的 reveal_in_explorer 逻辑
     #[cfg(target_os = "windows")]
@@ -294,9 +312,6 @@ pub struct CleanupHistoryParams {
     /// 是否同时清理响应文件（默认 true）
     #[serde(default = "default_true")]
     pub cleanup_files: bool,
-    /// 是否同时清理用例执行历史（默认 true）
-    #[serde(default = "default_true")]
-    pub cleanup_test_case_history: bool,
 }
 
 fn default_true() -> bool { true }
@@ -317,7 +332,6 @@ pub async fn cleanup_history_impl(
 ) -> Result<CleanupHistoryResult, crate::error::AppError> {
     let mut deleted_count = 0i64;
     let mut deleted_files = 0i64;
-    let mut deleted_test_case_history = 0i64;
 
     // 收集要删除的历史记录 ID（用于清理文件）
     let mut ids_to_delete: Vec<i64> = Vec::new();
@@ -415,10 +429,16 @@ pub async fn cleanup_history_impl(
         if params.cleanup_files {
             let response_dir = get_response_dir()?;
             for id in &ids_to_delete {
-                let file_path = response_dir.join(format!("{id}.txt"));
-                if file_path.exists() {
-                    std::fs::remove_file(&file_path).ok();
-                    deleted_files += 1;
+                // 文件名格式：{history_id}_{status}_{timestamp}.txt
+                // 需要模糊匹配
+                if let Ok(entries) = std::fs::read_dir(&response_dir) {
+                    for entry in entries.flatten() {
+                        let file_name = entry.file_name().to_string_lossy().to_string();
+                        if file_name.starts_with(&format!("{id}_")) && file_name.ends_with(".txt") {
+                            std::fs::remove_file(entry.path()).ok();
+                            deleted_files += 1;
+                        }
+                    }
                 }
             }
         }
@@ -433,38 +453,9 @@ pub async fn cleanup_history_impl(
         }
     }
 
-    // 同步清理用例执行历史
-    if params.cleanup_test_case_history {
-        let tc_where = if let Some(pid) = params.project_id {
-            format!(
-                "AND test_case_id IN (
-                    SELECT tc.id FROM test_cases tc
-                    JOIN collections c ON tc.collection_id = c.id
-                    WHERE c.project_id = {}
-                )",
-                pid
-            )
-        } else if let Some(rid) = params.request_id {
-            format!(
-                "AND test_case_id IN (SELECT id FROM test_cases WHERE request_id = {})",
-                rid
-            )
-        } else {
-            String::new()
-        };
-
-        let sql = format!(
-            "DELETE FROM test_case_history WHERE 1=1 {}",
-            tc_where
-        );
-        let result = sqlx::query(&sql).execute(pool).await?;
-        deleted_test_case_history = result.rows_affected() as i64;
-    }
-
     Ok(CleanupHistoryResult {
         deleted_records: deleted_count,
         deleted_files,
-        deleted_test_case_history,
     })
 }
 
@@ -475,8 +466,6 @@ pub struct CleanupHistoryResult {
     pub deleted_records: i64,
     /// 删除的响应文件数
     pub deleted_files: i64,
-    /// 删除的用例执行历史数
-    pub deleted_test_case_history: i64,
 }
 
 /// 按 id 取单条完整历史记录（含 response_body / request_snapshot / response_headers）
@@ -489,7 +478,7 @@ pub async fn get_history_record(
         r#"
         SELECT id, request_id, test_case_id, status_code, response_time_ms,
                request_snapshot, response_body, is_truncated,
-               response_headers, created_at
+               response_headers, error_message, created_at
         FROM request_history WHERE id = ?
         "#,
     )

@@ -154,13 +154,6 @@
         </n-checkbox>
       </div>
 
-      <!-- 同时清理用例执行历史 -->
-      <div>
-        <n-checkbox v-model:checked="cleanupTestCaseHistory">
-          同时清理用例执行历史（用例页右侧栏显示的历史记录）
-        </n-checkbox>
-      </div>
-
       <!-- 警告提示 -->
       <n-alert v-if="cleanupByDays || cleanupByCount" type="warning" :bordered="false">
         即将清理{{ cleanupScope === 'current' ? '当前项目' : '所有项目' }}的历史记录，此操作不可恢复
@@ -230,7 +223,6 @@ const cleanupDays = ref(30)
 const cleanupByCount = ref(false)
 const cleanupKeepCount = ref(50)
 const cleanupFiles = ref(true)
-const cleanupTestCaseHistory = ref(true)
 const cleanupLoading = ref(false)
 
 // 主题三选一菜单项（M3-B）
@@ -299,22 +291,21 @@ async function confirmCleanupHistory() {
   const scopeText = cleanupScope.value === 'current' ? '当前项目' : '所有项目'
   dialog.warning({
     title: '确认清理',
-    content: `将清理${scopeText}的历史记录${cleanupFiles.value ? '及响应文件' : ''}${cleanupTestCaseHistory.value ? '及用例执行历史' : ''}，此操作不可恢复。确定继续？`,
+    content: `将清理${scopeText}的历史记录${cleanupFiles.value ? '及响应文件' : ''}，此操作不可恢复。确定继续？`,
     positiveText: '确认清理',
     negativeText: '取消',
     onPositiveClick: async () => {
       cleanupLoading.value = true
       try {
-        const result = await invoke<{ deleted_records: number; deleted_files: number; deleted_test_case_history: number }>('cleanup_history', {
+        const result = await invoke<{ deleted_records: number; deleted_files: number }>('cleanup_history', {
           params: {
             days: cleanupByDays.value ? cleanupDays.value : null,
             keep_per_request: cleanupByCount.value ? cleanupKeepCount.value : null,
             project_id: cleanupScope.value === 'current' ? projectStore.currentProjectId : null,
             cleanup_files: cleanupFiles.value,
-            cleanup_test_case_history: cleanupTestCaseHistory.value,
           },
         })
-        message.success(`清理完成：删除 ${result.deleted_records} 条记录，${result.deleted_files} 个文件，${result.deleted_test_case_history} 条用例历史`)
+        message.success(`清理完成：删除 ${result.deleted_records} 条记录，${result.deleted_files} 个文件`)
         showCleanupHistoryModal.value = false
       } catch (e) {
         message.error(`清理失败：${e}`)

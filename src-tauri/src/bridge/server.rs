@@ -15,7 +15,6 @@ use tauri::Emitter;
 
 use crate::sql_cols::{
     COOKIE_COLS, DICT_COLS, ENV_COLS, ENV_VAR_COLS, PROJECT_COLS, REQUEST_COLS, TEST_CASE_COLS,
-    TEST_CASE_HISTORY_COLS,
 };
 use crate::types::*;
 
@@ -521,13 +520,18 @@ async fn delete_test_case(State(s): State<BState>, Json(body): Json<Value>) -> a
 }
 
 async fn list_test_case_history(State(s): State<BState>, Query(q): Query<IdQuery>) -> axum::response::Response {
-    let sql = format!(
-        "SELECT {TEST_CASE_HISTORY_COLS} FROM test_case_history WHERE test_case_id=? ORDER BY created_at DESC, id DESC LIMIT 10"
-    );
-    match sqlx::query_as::<_, TestCaseHistory>(&sql)
-        .bind(q.id)
-        .fetch_all(&s.pool)
-        .await
+    match sqlx::query_as::<_, TestCaseHistory>(
+        "SELECT id, test_case_id, status_code, \
+                response_time_ms as duration_ms, \
+                substr(response_body, 1, 1024) as response_preview, \
+                error_message, created_at \
+         FROM request_history \
+         WHERE test_case_id = ? \
+         ORDER BY created_at DESC, id DESC LIMIT 10"
+    )
+    .bind(q.id)
+    .fetch_all(&s.pool)
+    .await
     {
         Ok(rows) => ok(rows),
         Err(e) => server_err(e),
@@ -872,7 +876,7 @@ async fn send_request(State(s): State<BState>, Json(body): Json<Value>) -> axum:
 async fn list_history(State(s): State<BState>, Query(q): Query<RequestQuery>) -> axum::response::Response {
     match sqlx::query_as::<_, HistoryRecord>(
         "SELECT id, request_id, test_case_id, status_code, response_time_ms, request_snapshot, \
-         response_body, is_truncated, response_headers, created_at \
+         response_body, is_truncated, response_headers, error_message, created_at \
          FROM request_history WHERE request_id=? AND (?2 IS NULL OR test_case_id=?2) \
          ORDER BY created_at DESC LIMIT 20",
     )
@@ -893,7 +897,6 @@ async fn cleanup_history(State(s): State<BState>, Json(body): Json<Value>) -> ax
         request_id: body["request_id"].as_i64().or(body["requestId"].as_i64()),
         project_id: body["project_id"].as_i64().or(body["projectId"].as_i64()),
         cleanup_files: body["cleanup_files"].as_bool().or(body["cleanupFiles"].as_bool()).unwrap_or(true),
-        cleanup_test_case_history: body["cleanup_test_case_history"].as_bool().or(body["cleanupTestCaseHistory"].as_bool()).unwrap_or(true),
     };
 
     match crate::commands::send_request::cleanup_history_impl(&s.pool, params).await {

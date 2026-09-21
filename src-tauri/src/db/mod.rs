@@ -157,7 +157,7 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Err
             .await?;
     }
 
-    // 1.0.6：合并 test_case_history 到 request_history
+    // 合并 test_case_history 到 request_history
     // 守卫：request_history 增加 error_message 列
     let has_err_msg = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM pragma_table_info('request_history') WHERE name='error_message'"
@@ -176,9 +176,9 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Err
         sqlx::query(
             "INSERT INTO request_history \
              (request_id, test_case_id, status_code, response_time_ms, \
-              response_body, error_message, created_at) \
+              request_snapshot, response_body, error_message, created_at) \
              SELECT tc.request_id, tch.test_case_id, tch.status_code, \
-                    tch.duration_ms, tch.response_preview, tch.error_message, tch.created_at \
+                    tch.duration_ms, '{}', tch.response_preview, tch.error_message, tch.created_at \
              FROM test_case_history tch \
              JOIN test_cases tc ON tch.test_case_id = tc.id \
              WHERE tc.request_id IS NOT NULL"

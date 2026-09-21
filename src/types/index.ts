@@ -155,7 +155,7 @@ export interface HistoryRecord {
   response_body: string | null
   is_truncated: number       // 0 | 1
   response_headers: string | null   // JSON
-  error_message: string | null  // 1.0.6：合并 test_case_history 带来的字段
+  error_message: string | null  // 合并 test_case_history 带来的字段
   created_at: string
 }
 

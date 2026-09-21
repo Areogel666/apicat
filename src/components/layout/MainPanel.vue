@@ -1938,6 +1938,7 @@ async function handleSend() {
       response_body: resp.body,
       is_truncated: resp.is_truncated ? 1 : 0,
       response_headers: JSON.stringify(resp.headers),
+      error_message: null,
       created_at: new Date().toISOString(),
     })
   }
@@ -1970,34 +1971,13 @@ async function handleSend() {
     checkParamsDirty()
   }
 
-  // M3-C：写入用例历史。仅当当前有激活用例时记录（无激活 = 用户在用"原始参数"调试，不算用例执行）
-  // 成功路径用 resp.status_code/elapsed_ms/body 摘要；失败路径用 responseStore.error
-  // 同步在 sendRequest 后做，await 失败也不影响响应展示（store 内部已 try/catch）
+  // 刷新用例历史（数据已在 send_request 时写入 request_history）
   const activeTestCaseId = testCaseStore.activeTestCaseId
   if (activeTestCaseId !== null) {
     try {
-      if (resp) {
-        const preview = (resp.body ?? '').slice(0, 1024)  // 1KB 上限，避免 DB 膨胀
-        await testCaseStore.recordHistory({
-          testCaseId: activeTestCaseId,
-          statusCode: resp.status_code,
-          durationMs: resp.elapsed_ms,
-          responsePreview: preview,
-          errorMessage: null,
-        })
-      } else {
-        // 网络层失败（DNS/超时/连接拒绝），无 status / 无 duration
-        const errMsg = (responseStore.error ?? '请求失败').slice(0, 1024)
-        await testCaseStore.recordHistory({
-          testCaseId: activeTestCaseId,
-          statusCode: null,
-          durationMs: null,
-          responsePreview: null,
-          errorMessage: errMsg,
-        })
-      }
+      await testCaseStore.loadHistory(activeTestCaseId)
     } catch (e) {
-      console.warn('[testCase] recordHistory failed:', e)
+      console.warn('[testCase] loadHistory failed:', e)
     }
   }
 }

@@ -127,33 +127,8 @@ export const useTestCaseStore = defineStore('testCase', () => {
   }
 
   /**
-   * 写入一条历史。后端触发器自动滚动淘汰，前端做镜像同步：
-   * 头插 + 截断 10。
-   *
-   * @param responsePreview 已由调用方裁剪到 ≤1KB
-   */
-  async function recordHistory(params: {
-    testCaseId: number
-    statusCode: number | null
-    durationMs: number | null
-    responsePreview: string | null
-    errorMessage: string | null
-  }): Promise<TestCaseHistory> {
-    const row = await invoke<TestCaseHistory>('add_test_case_history', {
-      testCaseId: params.testCaseId,
-      statusCode: params.statusCode,
-      durationMs: params.durationMs,
-      responsePreview: params.responsePreview,
-      errorMessage: params.errorMessage,
-    })
-    const list = historyMap.value[params.testCaseId] ?? []
-    historyMap.value[params.testCaseId] = [row, ...list].slice(0, 10)
-    return row
-  }
-
-  /**
    * 批量删除用例（M3-C）。
-   * 后端 FK CASCADE 自动清理 test_case_history；前端同步清理 testCaseMap + historyMap。
+   * 后端 FK CASCADE 自动清理 request_history；前端同步清理 testCaseMap + historyMap。
    */
   async function deleteTestCases(ids: number[]): Promise<number> {
     if (ids.length === 0) return 0
@@ -218,7 +193,6 @@ export const useTestCaseStore = defineStore('testCase', () => {
     clearForRequest,
     getHistory,
     loadHistory,
-    recordHistory,
     runTestCase,
   }
 })
