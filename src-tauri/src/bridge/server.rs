@@ -581,13 +581,18 @@ async fn list_dictionary_items(State(s): State<BState>, Query(q): Query<DictQuer
 }
 
 async fn create_dictionary(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
+    // projectId 必填：缺省落 NULL 会静默变成全局共享字典，泄漏到所有项目
+    // （与 create_test_case 的 case_type 必填同理）；全局可见性仅保留给 builtin 数据
+    let Some(project_id) = get_i64(&body, "projectId", "project_id") else {
+        return err(StatusCode::BAD_REQUEST, "projectId is required (dictionary ownership scope)");
+    };
     let sql = "INSERT INTO data_dictionaries (code, name, description, project_id) VALUES (?, ?, ?, ?) \
          RETURNING id, code, name, description, builtin, project_id, created_at, updated_at";
     match sqlx::query_as::<_, DataDictionary>(sql)
         .bind(body["code"].as_str().unwrap_or(""))
         .bind(body["name"].as_str().unwrap_or(""))
         .bind(body["description"].as_str().unwrap_or(""))
-        .bind(get_i64(&body, "projectId", "project_id"))
+        .bind(project_id)
         .fetch_one(&s.pool)
         .await
     {
@@ -597,6 +602,10 @@ async fn create_dictionary(State(s): State<BState>, Json(body): Json<Value>) -> 
 }
 
 async fn create_dictionary_with_items(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
+    // projectId 必填：缺省落 NULL 会静默变成全局共享字典，泄漏到所有项目
+    let Some(project_id) = get_i64(&body, "projectId", "project_id") else {
+        return err(StatusCode::BAD_REQUEST, "projectId is required (dictionary ownership scope)");
+    };
     let mut tx = match s.pool.begin().await {
         Ok(tx) => tx,
         Err(e) => return server_err(e),
@@ -608,7 +617,7 @@ async fn create_dictionary_with_items(State(s): State<BState>, Json(body): Json<
     .bind(body["code"].as_str().unwrap_or(""))
     .bind(body["name"].as_str().unwrap_or(""))
     .bind(body["description"].as_str().unwrap_or(""))
-    .bind(get_i64(&body, "projectId", "project_id"))
+    .bind(project_id)
     .fetch_one(&mut *tx)
     .await;
 

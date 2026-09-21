@@ -551,13 +551,15 @@ async fn import_apicat_inner(
         if exists.is_some() {
             continue;
         }
+        // 归属导入目标项目，而非全局（NULL）——否则源项目的私有字典会泄漏到所有项目
         let (dict_id,): (i64,) = sqlx::query_as(
             "INSERT INTO data_dictionaries (code, name, description, builtin, project_id) \
-             VALUES (?,?,?,0,NULL) RETURNING id",
+             VALUES (?,?,?,0,?4) RETURNING id",
         )
         .bind(&dict.code)
         .bind(&dict.name)
         .bind(&dict.description)
+        .bind(pid)
         .fetch_one(&mut *conn)
         .await?;
         for item in &dict.items {
