@@ -179,6 +179,16 @@ pub async fn send_request_impl(
         .fetch_one(pool)
         .await?;
 
+        // 1.0.5 口径乙：激活用例态下 Send 算「跑该用例」——更新 last_run_at 供列表
+        // 按最近使用排序。刻意不碰 last_status / 断言：断言结论只留给显式 run_test_case
+        // 求值（共识 Q16-A），否则手改参数的调试 Send 会把用例误标成失败。
+        if let Some(tc_id) = test_case_id {
+            sqlx::query("UPDATE test_cases SET last_run_at=datetime('now') WHERE id=?")
+                .bind(tc_id)
+                .execute(pool)
+                .await?;
+        }
+
         // 保存响应体（超过阈值时存文件）
         let (stored_body, is_file) = save_response_body_if_large(history_id, resp.status_code, &resp.body)?;
         if is_file {

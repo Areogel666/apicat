@@ -1311,9 +1311,9 @@ watch(() => requestStore.activeRequest, async (req, oldReq) => {
     // 加载该接口历史 + 测试用例
     await historyStore.loadHistory(req.id, null)
     await testCaseStore.loadTestCases(req.id)
-    // 1.0.4 fix：loadTestCases 内部会自动激活「第一个收藏用例」（activeTestCaseId 变为非 null），
-    // 此处必须把 responseStore 视图指针同步到同一用例，否则响应面板仍留在 raw 桶，
-    // 看不到上次在该用例下发请求的结果（表现为「该用例尚未发送过请求」）。
+    // 1.0.5：loadTestCases 不再自动激活任何用例（口径乙 / Q10），故此处
+    // activeTestCaseId 恒为 null —— 打开接口停在原始参数干净态，响应与 History
+    // 都留在 raw 桶。用户显式点击用例后，handleActivateTestCase 才切桶。
     responseStore.setCurrent(req.id, testCaseStore.activeTestCaseId)
     // History 也跟随激活用例加载，避免切回后 History 与响应不同步
     await historyStore.loadHistory(req.id, testCaseStore.activeTestCaseId)
@@ -1975,6 +1975,8 @@ async function handleSend() {
   if (activeTestCaseId !== null) {
     try {
       await testCaseStore.loadHistory(activeTestCaseId)
+      // 口径乙：后端已更新该用例 last_run_at，重拉列表让「最近使用」排序反映本次发送
+      await testCaseStore.loadTestCases(activeReq.id)
     } catch (e) {
       console.warn('[testCase] loadHistory failed:', e)
     }
