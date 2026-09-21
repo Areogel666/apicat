@@ -3,6 +3,34 @@ import { ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { CaseType, RunCaseResult, TestCase, TestCaseHistory } from '../types'
 
+/**
+ * 按最近使用降序排列用例。
+ *
+ * 排序键 = last_run_at（用例被跑过的时刻）。共识 Q11-A：「使用」= 跑过该用例，
+ * 单纯点开看看不算。未跑过的用例（last_run_at 为 null）排最后，且彼此保持
+ * 原有相对顺序（稳定排序）——避免每次渲染顺序抖动。
+ *
+ * last_run_at 存的是 SQLite 的 `datetime('now')`（UTC，形如 "2026-09-21 08:00:00"），
+ * 无时区标记且用空格分隔，Date.parse 会按本地时区误解析，故统一补 T/Z 转 UTC。
+ * 与 HistoryTab.formatTime 的时间处理口径一致。
+ */
+export function sortCasesByLastRun(cases: TestCase[]): TestCase[] {
+  return cases
+    .map((c, i) => ({ c, i }))
+    .sort((a, b) => {
+      const ta = a.c.last_run_at ? Date.parse(a.c.last_run_at.replace(' ', 'T') + 'Z') : null
+      const tb = b.c.last_run_at ? Date.parse(b.c.last_run_at.replace(' ', 'T') + 'Z') : null
+      // 两者都未跑过：保持原相对顺序
+      if (ta === null && tb === null) return a.i - b.i
+      // 未跑过的排后面
+      if (ta === null) return 1
+      if (tb === null) return -1
+      // 都跑过：最近的在前
+      return tb - ta
+    })
+    .map(x => x.c)
+}
+
 export const useTestCaseStore = defineStore('testCase', () => {
   // requestId → TestCase[]
   const testCaseMap = ref<Record<number, TestCase[]>>({})

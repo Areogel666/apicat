@@ -11,7 +11,7 @@
     <!-- 用例 Tab 栏 -->
     <div class="case-tabs-row">
       <div
-        v-for="tc in testCases"
+        v-for="tc in sortedCases"
         :key="tc.id"
         :class="['case-tab', tc.id === activeId && 'active']"
         @click="handleTabClick(tc.id)"
@@ -70,6 +70,7 @@
 import { ref, computed, nextTick, watch } from 'vue'
 import { NButton, NInput, NDropdown } from 'naive-ui'
 import type { TestCase } from '../../types'
+import { sortCasesByLastRun } from '../../stores/testCase'
 
 const props = defineProps<{
   testCases: TestCase[]
@@ -89,6 +90,9 @@ const emit = defineEmits<{
 }>()
 
 const activeTestCase = computed(() => props.testCases.find(t => t.id === props.activeId) ?? null)
+
+// 1.0.5：按最近使用（跑过）排序，未跑过的排最后（共识 Q11-A）
+const sortedCases = computed(() => sortCasesByLastRun(props.testCases))
 
 // ── 新建输入 ───────────────────────────────────────────────
 const showNewInput = ref(false)
