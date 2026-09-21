@@ -186,9 +186,13 @@ export function parseUrl(rawUrl: string, _method?: string): ParsedUrl {
 
   // pathTemplate 保留用户输入的协议+host 前缀（如有），避免在"完整 URL + 无环境 base_url"
   // 场景下 buildUrl 输出相对路径，导致 reqwest::Url::parse 报 "relative URL without a base"。
-  // 当用户输的是相对路径时 origin 为空字符串，此时 pathTemplate 仍以 '/' 开头（旧行为）。
+  // 当用户输的是相对路径时 origin 为空字符串，此时 pathTemplate 保持用户原始输入的开头形式
+  // （以 / 开头则保持，不以 / 开头则不添加），避免 {{base_url}}/path 被错误规范化为 /{{base_url}}/path
   const origin = extractRawOrigin(rawUrl)
-  const cleanPath = origin + '/' + cleanSegments.join('/')
+  const joinedPath = cleanSegments.join('/')
+  const cleanPath = origin
+    ? origin + '/' + joinedPath
+    : (rawUrl.startsWith('/') ? '/' + joinedPath : joinedPath)
 
   // displayName 专用：用旧规则单独算一遍（仅考虑旧规则识别的段，排除它们得到的路径）
   // 与 pathParams 使用的新规则分离，确保接口默认名称行为向下兼容。
@@ -232,6 +236,7 @@ export function buildUrl(template: string, pathParams: Array<{ key: string; valu
  *
  * 规则：
  * - 入参已含 `http(s)://` 协议头 → 原样返回
+ * - URL 包含 `{{base_url}}` 占位符 → 原样返回（后端 send_request 会做变量替换）
  * - 无 base_url 或 base_url 为空 → 原样返回（发请求时可能报相对路径错误，但属于用户配置问题）
  * - 否则：去掉 base_url 末尾斜杠 + 补齐 raw 开头斜杠后拼接
  *
@@ -243,6 +248,9 @@ export function buildUrl(template: string, pathParams: Array<{ key: string; valu
 export function resolveEffectiveUrl(raw: string, baseUrl: string | null | undefined): string {
   if (!raw) return raw
   if (/^https?:\/\//i.test(raw)) return raw
+  // URL 含 {{base_url}} 占位符时，交给后端 replace_variables 处理，前端不做拼接
+  // 否则会拼成 "base_url/{{base_url}}/path" 的错误形式
+  if (/\{\{\s*base_url\s*\}\}/.test(raw)) return raw
   if (!baseUrl) return raw
   const base = baseUrl.replace(/\/$/, '')
   const path = raw.startsWith('/') ? raw : `/${raw}`
