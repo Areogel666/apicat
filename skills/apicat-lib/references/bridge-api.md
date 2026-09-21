@@ -179,6 +179,7 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_test_case_history?id=10"
 ### GET /list_dictionaries?project_id=N
 ### GET /list_dictionary_items?dictionary_id=N
 ### POST /create_dictionary
+**projectId 必填**（缺省 400）——字典归属创建时的项目；缺省落 NULL 会泄漏为全局共享，所有项目可见。全局可见性仅保留给 builtin 数据。
 ```bash
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"code": "activity_type", "name": "活动类型", "description": "", "projectId": 1}' \
@@ -186,6 +187,7 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 ```
 
 ### POST /create_dictionary_with_items
+同上，**projectId 必填**（缺省 400）。
 ```bash
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"code": "activity_type", "name": "活动类型", "projectId": 1, "items": [{"label": "特别活动", "value": "1"}, {"label": "限时特惠", "value": "2"}]}' \

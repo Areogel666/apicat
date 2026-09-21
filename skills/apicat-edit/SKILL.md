@@ -59,7 +59,7 @@ allowed-tools: Bash, Read, Glob, AskUserQuestion
 ## 三、数据字典 CRUD
 
 ### 新建字典 + 字典项（推荐一步到位）
-`POST /create_dictionary_with_items`，字段：`code`（全局唯一）/`name`/`projectId`/`items: [{label, value, description}]`。
+`POST /create_dictionary_with_items`，字段：`code`（全局唯一）/`name`/`projectId`（**必填**，缺省 400——归属创建时的项目，缺省不落全局）/`items: [{label, value, description}]`。
 `code` 已存在时问用户：更新字典项 / 跳过。
 
 ### 全量替换字典项

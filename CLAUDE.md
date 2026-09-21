@@ -26,7 +26,7 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 
 ### HTTP Bridge
 
-- `127.0.0.1:17320`（占用顺延）起 REST 服务，token 在 `~/.apicat/bridge.json`；路径对齐 IPC command 名，GET=只读 / POST=写。AI 技能读写数据一律走 Bridge，**禁止直连 SQLite**。
+- `127.0.0.1:17320`（占用顺延）起 REST 服务，token 在 `$APPDATA/com.apicat.app/bridge.json`（macOS 在 `~/Library/Application Support/com.apicat.app/`）；路径对齐 IPC command 名，GET=只读 / POST=写。AI 技能读写数据一律走 Bridge，**禁止直连 SQLite**。
 - **新端点取值一律用 `get_str/get_i64`（camel+snake 双键）**：手写单键会把另一命名风格的参数静默丢弃（不报错，字段直接丢失）。
 - 写操作后广播 `bridge-data-changed`，前端 store 自行 reload——**新增写端点漏广播 → 技能改完数据桌面端看不见**。
 
