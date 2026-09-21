@@ -18,7 +18,6 @@
         @dblclick.stop="startInlineRename(tc)"
         @contextmenu.prevent="openMenu(tc, $event)"
       >
-        <span v-if="tc.starred" class="star">⭐</span>
         <!-- 双击时显示内联编辑输入框 -->
         <template v-if="renamingId === tc.id">
           <n-input
@@ -83,7 +82,6 @@ const emit = defineEmits<{
   activate: [id: number]
   create: [name: string]
   rename: [id: number, name: string]
-  'toggle-star': [id: number]
   delete: [id: number]
   'save-to-active': []
   'save-as-new': []
@@ -158,10 +156,8 @@ const menuTargetId = ref<number | null>(null)
 
 const menuOptions = computed(() => {
   if (menuTargetId.value === null) return []
-  const tc = props.testCases.find(t => t.id === menuTargetId.value)
   return [
     { label: '重命名', key: 'rename' },
-    { label: tc?.starred ? '取消收藏 ⭐' : '收藏 ⭐', key: 'star' },
     { label: '删除', key: 'delete' },
   ]
 })
@@ -181,8 +177,6 @@ function handleMenuSelect(key: string) {
     // 触发内联重命名（通过 startInlineRename）
     const tc = props.testCases.find(t => t.id === id)
     if (tc) startInlineRename(tc)
-  } else if (key === 'star') {
-    emit('toggle-star', id)
   } else if (key === 'delete') {
     emit('delete', id)
   }

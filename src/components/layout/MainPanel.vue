@@ -551,7 +551,6 @@
       @activate="handleActivateTestCase"
       @create="handleCreateTestCase"
       @rename="handleRenameTestCase"
-      @toggle-star="handleToggleStar"
       @delete="handleDeleteTestCase"
       @save-to-active="handleSaveToActive"
       @save-as-new="handleSaveAsNew"
@@ -2131,13 +2130,6 @@ async function handleSaveAsNew() {
   responseStore.moveResponse(null, tc.id)
   testCaseStore.activeTestCaseId = tc.id
   paramsDirty.value = false
-}
-
-async function handleToggleStar(id: number) {
-  const cases = testCaseStore.getByRequestId(requestStore.activeRequest?.id ?? 0)
-  const tc = cases.find(c => c.id === id)
-  if (!tc) return
-  await testCaseStore.updateTestCase(id, { starred: tc.starred === 1 ? 0 : 1 })
 }
 
 async function handleDeleteTestCase(id: number) {

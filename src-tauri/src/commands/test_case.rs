@@ -43,14 +43,13 @@ pub async fn create_test_case_impl(
     case_type: &str,
     assertions: Option<&str>,
 ) -> Result<TestCase, crate::error::AppError> {
-    // 判断是否为该接口的第一个用例 → 自动收藏
+    // 统计当前用例数，用于自动命名与末尾插入排序
     let existing_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM test_cases WHERE request_id=?",
     )
     .bind(request_id)
     .fetch_one(pool)
     .await?;
-    let starred: i64 = if existing_count == 0 { 1 } else { 0 };
 
     // 自动命名：「用例 N」（N = existing_count + 1）
     let final_name = if name.is_empty() {
@@ -61,8 +60,8 @@ pub async fn create_test_case_impl(
 
     let sql = format!(
         "INSERT INTO test_cases \
-            (request_id, collection_id, name, description, source, method, url, headers, params, body_type, body, case_type, assertions, starred, sort_order) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+            (request_id, collection_id, name, description, source, method, url, headers, params, body_type, body, case_type, assertions, sort_order) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
          RETURNING {SELECT_COLS}"
     );
     let row = sqlx::query_as::<_, TestCase>(&sql)
@@ -79,7 +78,6 @@ pub async fn create_test_case_impl(
         .bind(body)
         .bind(case_type)
         .bind(assertions.unwrap_or("[]"))
-        .bind(starred)
         .bind(existing_count)   // sort_order = 当前用例数（末尾插入）
         .fetch_one(pool)
         .await?;
@@ -119,13 +117,12 @@ pub async fn create_test_case(
     .await
 }
 
-/// 更新测试用例名称 / 收藏状态 / 请求参数 / 类型 / 断言
+/// 更新测试用例名称 / 请求参数 / 类型 / 断言
 #[tauri::command]
 pub async fn update_test_case(
     db: State<'_, AppDb>,
     id: i64,
     name: String,
-    starred: i64,
     method: Option<String>,
     url: Option<String>,
     headers: Option<String>,
@@ -136,14 +133,13 @@ pub async fn update_test_case(
     assertions: Option<String>,
 ) -> CmdResult<TestCase> {
     let sql = format!(
-        "UPDATE test_cases SET name=?, starred=?, method=?, url=?, headers=?, params=?, \
+        "UPDATE test_cases SET name=?, method=?, url=?, headers=?, params=?, \
          body_type=?, body=?, case_type=COALESCE(?, case_type), \
          assertions=COALESCE(?, assertions), updated_at=datetime('now') \
          WHERE id=? RETURNING {SELECT_COLS}"
     );
     let row = sqlx::query_as::<_, TestCase>(&sql)
         .bind(&name)
-        .bind(starred)
         .bind(&method)
         .bind(&url)
         .bind(headers.as_deref().unwrap_or("[]"))
@@ -158,37 +154,12 @@ pub async fn update_test_case(
     Ok(row)
 }
 
-/// 删除测试用例
-/// 删除测试用例（含「最后一个收藏用例不可删」保护）。
-/// UI 与 Bridge 共用此实现，避免外部脚本绕过业务约束。
+/// 删除测试用例（1.0.5 移除收藏后不再有「最后一个收藏不可删」约束）。
+/// UI 与 Bridge 共用此实现，避免两侧业务分叉。
 pub async fn delete_test_case_impl(
     pool: &sqlx::SqlitePool,
     id: i64,
 ) -> Result<(), crate::error::AppError> {
-    // 查出该用例归属的 request_id 和 starred 状态
-    let (request_id, starred): (Option<i64>, i64) =
-        sqlx::query_as("SELECT request_id, starred FROM test_cases WHERE id=?")
-            .bind(id)
-            .fetch_one(pool)
-            .await?;
-
-    // 若为收藏用例，检查是否为最后一个
-    if starred == 1 {
-        if let Some(rid) = request_id {
-            let starred_count: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM test_cases WHERE request_id=? AND starred=1",
-            )
-            .bind(rid)
-            .fetch_one(pool)
-            .await?;
-            if starred_count <= 1 {
-                return Err(crate::error::AppError::Custom(
-                    "不能删除最后一个收藏用例".to_string(),
-                ));
-            }
-        }
-    }
-
     sqlx::query("DELETE FROM test_cases WHERE id=?")
         .bind(id)
         .execute(pool)

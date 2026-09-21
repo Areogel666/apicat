@@ -209,5 +209,16 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Err
     .execute(pool)
     .await?;
 
+    // 1.0.5：废弃用例收藏。守卫式 DROP（列存在才删，幂等）。
+    // SQLite 3.35+ 支持 DROP COLUMN；若列被索引引用会失败，本列无索引依赖。
+    let has_starred = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM pragma_table_info('test_cases') WHERE name='starred'"
+    ).fetch_one(pool).await?;
+    if has_starred > 0 {
+        sqlx::query("ALTER TABLE test_cases DROP COLUMN starred")
+            .execute(pool)
+            .await?;
+    }
+
     Ok(())
 }

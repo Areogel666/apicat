@@ -65,12 +65,6 @@ pub fn run() {
                 .expect("failed to build HTTP client");
             app.manage(http::HttpClient(http_client));
 
-            // 启动时静默清理 30 天前的未收藏测试用例（fire-and-forget）
-            let cleanup_pool = pool.clone();
-            tauri::async_runtime::spawn(async move {
-                cleanup_old_test_cases(&cleanup_pool).await;
-            });
-
             // 1.0.5：启动 Localhost HTTP Bridge（默认开启，token 写 bridge.json）
             if bridge::read_bridge_enabled(app) {
                 let bridge_app = app.handle().clone();
@@ -155,27 +149,4 @@ async fn start_bridge(
     let router = bridge::server::build_router(state);
     axum::serve(listener, router).await?;
     Ok(())
-}
-
-/// 定时清理：删除 30 天前未收藏的测试用例
-async fn cleanup_old_test_cases(pool: &sqlx::SqlitePool) {
-    // Step 1 + 2 合并：只删「有收藏用例的接口」中 30 天前的未收藏用例
-    // 「没有任何收藏用例」的接口不受影响，其最新用例天然保留
-    let result = sqlx::query(
-        r#"
-        DELETE FROM test_cases
-        WHERE starred = 0
-          AND created_at < datetime('now', '-30 days')
-          AND request_id IN (
-            SELECT DISTINCT request_id FROM test_cases WHERE starred = 1
-          )
-        "#,
-    )
-    .execute(pool)
-    .await;
-
-    match result {
-        Ok(r) => println!("[ApiCat] Cleaned up {} old test cases", r.rows_affected()),
-        Err(e) => eprintln!("[ApiCat] Cleanup failed: {e}"),
-    }
 }

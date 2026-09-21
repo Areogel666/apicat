@@ -16,7 +16,7 @@ pub const REQUEST_COLS: &str = "id, collection_id, name, method, url, params, he
 /// test_cases
 pub const TEST_CASE_COLS: &str = "id, request_id, collection_id, name, description, source, case_type, \
     method, url, headers, params, body_type, body, assertions, last_run_at, last_status, \
-    last_duration_ms, last_response, starred, enabled, sort_order, created_at, updated_at";
+    last_duration_ms, last_response, enabled, sort_order, created_at, updated_at";
 
 /// environments
 pub const ENV_COLS: &str = "id, project_id, name, base_url, is_active, created_at";

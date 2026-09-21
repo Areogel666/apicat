@@ -143,7 +143,6 @@ pub struct TestCase {
     pub last_status: String, // "pending"|"passed"|"failed"|"error"
     pub last_duration_ms: Option<i64>,
     pub last_response: Option<String>,
-    pub starred: i64, // 0 | 1
     pub enabled: i64, // 0 | 1
     pub sort_order: i64,
     pub created_at: String,
@@ -222,7 +221,6 @@ pub struct ExportRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExportTestCase {
     pub name: String,
-    pub starred: i64,
     pub method: Option<String>,
     pub url: Option<String>,
     pub headers: String,

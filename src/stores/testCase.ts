@@ -21,11 +21,8 @@ export const useTestCaseStore = defineStore('testCase', () => {
     // Tauri 2.x #[command] 宏把 Rust snake_case 参数名转为 camelCase IPC key
     const cases = await invoke<TestCase[]>('list_test_cases', { requestId })
     testCaseMap.value[requestId] = cases
-    // 自动激活第一个收藏用例（仅在无激活时）
-    if (activeTestCaseId.value === null) {
-      const starred = cases.find(c => c.starred === 1)
-      if (starred) activeTestCaseId.value = starred.id
-    }
+    // 1.0.5：不再自动激活任何用例 —— 打开接口停在「原始参数、无激活用例」干净态，
+    // 「激活用例」是用户显式点击动作（口径乙 / Q9′-A / Q10）。
   }
 
   async function createTestCase(params: {
@@ -58,7 +55,7 @@ export const useTestCaseStore = defineStore('testCase', () => {
   }
 
   async function updateTestCase(id: number, data: Partial<Pick<TestCase,
-    'name' | 'starred' | 'method' | 'url' | 'headers' | 'params' | 'body_type' | 'body' | 'case_type' | 'assertions'
+    'name' | 'method' | 'url' | 'headers' | 'params' | 'body_type' | 'body' | 'case_type' | 'assertions'
   >>): Promise<TestCase> {
     // 先取当前值做 fallback
     let current: TestCase | undefined
@@ -71,7 +68,6 @@ export const useTestCaseStore = defineStore('testCase', () => {
     const updated = await invoke<TestCase>('update_test_case', {
       id,
       name: data.name ?? current.name,
-      starred: data.starred ?? current.starred,
       method: data.method !== undefined ? data.method : current.method,
       url: data.url !== undefined ? data.url : current.url,
       headers: data.headers ?? current.headers,

@@ -282,10 +282,10 @@ async fn export_collections_tree(
 /// 1.0.4 fix：导出接口下挂载的测试用例
 async fn export_test_cases(db: &AppDb, request_id: i64) -> CmdResult<Vec<ExportTestCase>> {
     let rows: Vec<(
-        String, i64, Option<String>, Option<String>,
+        String, Option<String>, Option<String>,
         String, String, Option<String>, Option<String>, i64,
     )> = sqlx::query_as(
-        "SELECT name, starred, method, url, headers, params, body_type, body, sort_order \
+        "SELECT name, method, url, headers, params, body_type, body, sort_order \
          FROM test_cases WHERE request_id=? ORDER BY sort_order, id",
     )
     .bind(request_id)
@@ -294,9 +294,8 @@ async fn export_test_cases(db: &AppDb, request_id: i64) -> CmdResult<Vec<ExportT
     Ok(rows
         .into_iter()
         .map(
-            |(name, starred, method, url, headers, params, body_type, body, so)| ExportTestCase {
+            |(name, method, url, headers, params, body_type, body, so)| ExportTestCase {
                 name,
-                starred,
                 method,
                 url,
                 headers,
@@ -692,14 +691,13 @@ async fn import_collections_tree(
             for tc in &req.test_cases {
                 sqlx::query(
                     "INSERT INTO test_cases \
-                     (request_id, collection_id, name, starred, method, url, headers, params, \
+                     (request_id, collection_id, name, method, url, headers, params, \
                       body_type, body, sort_order) \
-                     VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                     VALUES (?,?,?,?,?,?,?,?,?,?)",
                 )
                 .bind(req_id)
                 .bind(coll_id)
                 .bind(&tc.name)
-                .bind(tc.starred)
                 .bind(&tc.method)
                 .bind(&tc.url)
                 .bind(&tc.headers)

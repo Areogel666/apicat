@@ -283,7 +283,6 @@ export interface TestCase {
   last_status: string       // "pending" | "passed" | "failed" | "error"
   last_duration_ms: number | null
   last_response: string | null
-  starred: number           // 0 | 1
   enabled: number           // 0 | 1
   sort_order: number
   created_at: string

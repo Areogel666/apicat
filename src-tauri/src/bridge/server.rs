@@ -483,7 +483,7 @@ async fn create_test_case(State(s): State<BState>, Json(body): Json<Value>) -> a
 async fn update_test_case(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
     let Some(id) = body["id"].as_i64() else { return err(StatusCode::BAD_REQUEST, "id required") };
     let sql = format!(
-        "UPDATE test_cases SET name=COALESCE(?, name), starred=COALESCE(?, starred), \
+        "UPDATE test_cases SET name=COALESCE(?, name), \
          method=COALESCE(?, method), url=COALESCE(?, url), \
          headers=COALESCE(?, headers), params=COALESCE(?, params), \
          body_type=COALESCE(?, body_type), body=COALESCE(?, body), \
@@ -492,7 +492,6 @@ async fn update_test_case(State(s): State<BState>, Json(body): Json<Value>) -> a
     );
     match sqlx::query_as::<_, TestCase>(&sql)
         .bind(body["name"].as_str())
-        .bind(body["starred"].as_i64())
         .bind(body["method"].as_str())
         .bind(body["url"].as_str())
         .bind(body["headers"].as_str())

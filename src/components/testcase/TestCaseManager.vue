@@ -51,7 +51,6 @@
         <template v-else>
           <header class="history-header">
             <div class="history-title">
-              <span v-if="focusedCase.starred === 1" class="star">⭐</span>
               <span class="case-name">{{ focusedCase.name }}</span>
             </div>
             <n-button size="tiny" quaternary :loading="loadingHistory" @click="reloadHistory">
@@ -276,7 +275,6 @@ const columns: DataTableColumns<TestCase> = [
     key: 'name',
     minWidth: 120,
     render: (row) => h('span', { class: 'cell-name' }, [
-      row.starred === 1 ? h('span', { class: 'star' }, '⭐ ') : null,
       h('span', { class: `type-badge type-${row.case_type}` }, CASE_TYPE_LABELS[row.case_type] ?? row.case_type),
       row.name,
       (() => {
@@ -439,7 +437,6 @@ const contextMenuOptions = computed(() => {
     { label: '编辑断言', key: 'assertions' },
     { type: 'divider' as const, key: 'd0' },
     { label: '重命名', key: 'rename' },
-    { label: tc.starred === 1 ? '取消收藏 ⭐' : '收藏 ⭐', key: 'star' },
     { type: 'divider' as const, key: 'd1' },
     { label: '删除', key: 'delete' },
   ]
@@ -466,12 +463,6 @@ async function handleContextMenuSelect(key: string) {
     openAssertionEditor(tc)
   } else if (key === 'rename') {
     startRename(tc)
-  } else if (key === 'star') {
-    try {
-      await testCaseStore.updateTestCase(id, { starred: tc.starred === 1 ? 0 : 1 })
-    } catch (e) {
-      message.error(`操作失败：${e}`)
-    }
   } else if (key === 'delete') {
     try {
       await testCaseStore.deleteTestCase(id)
