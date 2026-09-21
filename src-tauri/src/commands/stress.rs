@@ -930,6 +930,7 @@ mod tests {
             body_type: "json".to_string(), body: "{}".to_string(),
             auth_type: "none".to_string(), auth_config: "{}".to_string(),
             description: String::new(), sort_order: 0,
+            p95_threshold_ms: None, p99_threshold_ms: None,
             created_at: String::new(), updated_at: String::new(),
         };
         let md = build_stress_report_markdown(&run, Some(&req));

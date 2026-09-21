@@ -247,6 +247,34 @@ export const useDictionaryStore = defineStore('dictionary', () => {
     return dictionaries.value.find(d => d.id === id) ?? null
   }
 
+  /**
+   * 1.0.5：某字典被哪些绑定引用（项目规则 + 接口例外）。
+   * 供字典预览页展示「影响面」——改条目前先看谁在用它。
+   * 注意 overrides 里 dictionary_id 为 null 表示「本接口显式解绑」，
+   * 那种行并未真正引用该字典，故用 === 严格过滤。
+   */
+  function bindingsForDict(dictionaryId: number): {
+    rules: FieldDictionaryRule[]
+    overrides: FieldDictionaryOverride[]
+  } {
+    return {
+      rules: fieldRules.value.filter(r => r.dictionary_id === dictionaryId),
+      overrides: fieldOverrides.value.filter(o => o.dictionary_id === dictionaryId),
+    }
+  }
+
+  /**
+   * 1.0.5：全部字段绑定规则（项目级 + 接口级合并，供绑定规则页总览）。
+   * 不新增全局级（共识 Q12）——现有体系只有这两级。
+   * 纯前端聚合，不新增后端端点（共识 Q13-A）。
+   */
+  function allFieldBindings(): {
+    rules: FieldDictionaryRule[]
+    overrides: FieldDictionaryOverride[]
+  } {
+    return { rules: fieldRules.value, overrides: fieldOverrides.value }
+  }
+
   return {
     dictionaries,
     itemsMap,
@@ -265,6 +293,8 @@ export const useDictionaryStore = defineStore('dictionary', () => {
     dictIdForField,
     ruleDictIdForField,
     dictById,
+    bindingsForDict,
+    allFieldBindings,
     createDictionary,
     createDictionaryWithItems,
     updateDictionary,
