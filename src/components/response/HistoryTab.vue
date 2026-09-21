@@ -9,8 +9,8 @@
           v-for="rec in records"
           :key="rec.id"
           class="history-item"
-          :class="{ 'is-selected': selectedIds.has(rec.id) }"
-          @click="toggleSelect(rec)"
+          :class="{ 'is-selected': selectedIds.has(rec.id), 'is-previewing': previewId === rec.id }"
+          @click="openPreview(rec)"
         >
           <n-checkbox
             :checked="selectedIds.has(rec.id)"
@@ -36,6 +36,55 @@
             ↩
           </n-button>
         </div>
+      </div>
+
+      <!-- 行内联预览面板（点击行展开，再次点击收起）-->
+      <div v-if="previewId !== null" class="preview-panel">
+        <div class="preview-header">
+          <span class="preview-title">历史响应预览</span>
+          <n-button size="tiny" quaternary @click="closePreview">✕ 收起</n-button>
+        </div>
+
+        <n-spin :show="previewLoading" size="small">
+          <div v-if="previewError" class="preview-error">{{ previewError }}</div>
+
+          <template v-else-if="previewRecord">
+            <div class="preview-meta">
+              <n-tag size="tiny" :type="statusTagType(previewRecord.status_code)">
+                {{ previewRecord.status_code ?? '—' }}
+              </n-tag>
+              <span class="preview-meta-text">{{ previewRecord.response_time_ms ?? '—' }}ms</span>
+              <span class="preview-meta-text">{{ formatTime(previewRecord.created_at) }}</span>
+              <n-button
+                v-if="isLargeResponse(previewRecord.response_body)"
+                size="tiny"
+                secondary
+                type="primary"
+                @click="openPreviewFile"
+              >
+                📂 打开文件位置
+              </n-button>
+            </div>
+
+            <n-tabs v-model:value="previewTab" type="line" size="small" class="preview-tabs">
+              <n-tab-pane name="body" tab="Body">
+                <pre class="preview-body">{{ previewBodyText(previewRecord) || '（空响应体）' }}</pre>
+              </n-tab-pane>
+              <n-tab-pane name="headers" tab="Headers">
+                <div v-if="!previewHeadersList(previewRecord).length" class="preview-empty">（无 Headers）</div>
+                <div v-else class="preview-headers">
+                  <div v-for="([k, v], i) in previewHeadersList(previewRecord)" :key="i" class="preview-header-row">
+                    <span class="preview-header-key">{{ k }}</span>
+                    <span class="preview-header-val">{{ v }}</span>
+                  </div>
+                </div>
+              </n-tab-pane>
+              <n-tab-pane name="meta" tab="请求快照">
+                <pre class="preview-body">{{ prettyBody(previewRecord.request_snapshot) || '（无请求快照）' }}</pre>
+              </n-tab-pane>
+            </n-tabs>
+          </template>
+        </n-spin>
       </div>
 
       <!-- Diff 按钮（选中恰好 2 条时激活）-->
@@ -73,7 +122,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { NEmpty, NCheckbox, NTag, NButton, NModal } from 'naive-ui'
+import { NEmpty, NCheckbox, NTag, NButton, NModal, NSpin, NTabs, NTabPane } from 'naive-ui'
 import { invoke } from '@tauri-apps/api/core'
 import type { HistoryRecord } from '../../types'
 
@@ -140,6 +189,88 @@ async function refill(rec: HistoryRecord) {
   if (full.request_snapshot != null) emit('refill', full.request_snapshot)
 }
 
+// ── 点击行内联预览（accordion）────────────────────────────────
+const previewId = ref<number | null>(null)
+const previewLoading = ref(false)
+const previewTab = ref<'body' | 'headers' | 'meta'>('body')
+const previewRecord = ref<HistoryRecord | null>(null)
+const previewError = ref('')
+
+function isLargeResponse(body?: string | null): boolean {
+  return !!body && body.startsWith('@file:')
+}
+
+// body 预览截断上限：内联预览只为「扫一眼」，超长截断 + 提示
+const PREVIEW_BODY_LIMIT = 20000
+
+function previewBodyText(rec: HistoryRecord): string {
+  if (!rec.response_body) return ''
+  if (isLargeResponse(rec.response_body)) {
+    return '⚠️ 大响应已保存到文件系统，点击「打开文件位置」查看完整内容'
+  }
+  let text = rec.response_body
+  if (text.length > PREVIEW_BODY_LIMIT) {
+    text = text.slice(0, PREVIEW_BODY_LIMIT) + `\n…（已截断，共 ${rec.response_body.length} 字符）`
+  }
+  try {
+    return JSON.stringify(JSON.parse(text), null, 2)
+  } catch {
+    return text
+  }
+}
+
+function previewHeadersList(rec: HistoryRecord): Array<[string, string]> {
+  if (!rec.response_headers) return []
+  try {
+    const parsed = JSON.parse(rec.response_headers)
+    // 归一为 [k,v] 数组：兼容对象与数组两种历史格式
+    if (Array.isArray(parsed)) {
+      return parsed.map((h: [string, string] | Record<string, string>) =>
+        Array.isArray(h) ? h : [String(Object.keys(h)[0] ?? ''), String(Object.values(h)[0] ?? '')],
+      )
+    }
+    if (parsed && typeof parsed === 'object') {
+      return Object.entries(parsed).map(([k, v]) => [k, String(v)])
+    }
+  } catch { /* 解析失败返回空 */ }
+  return []
+}
+
+async function openPreview(rec: HistoryRecord) {
+  // 再次点击同一行 = 收起
+  if (previewId.value === rec.id) {
+    closePreview()
+    return
+  }
+  previewId.value = rec.id
+  previewRecord.value = null
+  previewError.value = ''
+  previewTab.value = 'body'
+  previewLoading.value = true
+  try {
+    previewRecord.value = await ensureFullRecord(rec.id)
+  } catch (e) {
+    previewError.value = String(e)
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+function closePreview() {
+  previewId.value = null
+  previewRecord.value = null
+  previewError.value = ''
+}
+
+async function openPreviewFile() {
+  if (!previewRecord.value) return
+  try {
+    await invoke('open_response_file', { historyId: previewRecord.value.id })
+  } catch (e) {
+    previewError.value = `打开文件失败：${e}`
+  }
+}
+
 function formatTime(iso: string): string {
   // SQLite 返回的格式是 "YYYY-MM-DD HH:MM:SS"（UTC，无时区标记）
   // new Date() 对无时区标记的字符串行为不一致，需统一加 Z 转为 UTC 解析
@@ -202,6 +333,125 @@ function prettyBody(body?: string | null): string {
 
 .history-item:hover { background: var(--bg-hover); }
 .history-item.is-selected { background: var(--bg-active); }
+.history-item.is-previewing {
+  background: var(--bg-active);
+  border-left: 2px solid var(--color-primary);
+}
+
+/* 行内联预览面板 */
+.preview-panel {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border-base);
+  background: var(--bg-elevated-secondary, var(--bg-elevated));
+  padding: var(--spacing-sm) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  max-height: 45%;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--spacing-xs);
+  flex-shrink: 0;
+}
+
+.preview-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.preview-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs);
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.preview-meta-text {
+  font-size: var(--font-size-sm);
+  color: var(--text-tertiary);
+}
+
+.preview-tabs {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--spacing-xs);
+}
+
+.preview-tabs :deep(.n-tabs-pane-wrapper) {
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.preview-tabs :deep(.n-tab-pane) {
+  height: 100%;
+  overflow: auto;
+  min-height: 0;
+}
+
+.preview-body {
+  margin: 0;
+  padding: var(--spacing-xs);
+  font-family: monospace;
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-primary);
+  background: var(--bg-base, transparent);
+  border-radius: var(--border-radius-sm, 4px);
+  max-height: 100%;
+  overflow: auto;
+}
+
+.preview-headers {
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-header-row {
+  display: flex;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) 0;
+  font-size: var(--font-size-sm);
+  border-bottom: 1px solid var(--border-base);
+}
+
+.preview-header-key {
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 120px;
+  word-break: break-all;
+}
+
+.preview-header-val {
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.preview-error {
+  color: var(--color-error);
+  font-size: var(--font-size-sm);
+  padding: var(--spacing-xs);
+}
+
+.preview-empty {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+  padding: var(--spacing-xs);
+}
 
 .history-time { color: var(--text-tertiary); font-size: 11px; min-width: 80px; }
 .history-ms { color: var(--text-tertiary); font-size: 11px; min-width: 48px; text-align: right; }
