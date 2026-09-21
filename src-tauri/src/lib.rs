@@ -35,7 +35,7 @@ use commands::{
     test_case_run::run_test_case,
     stress::{start_stress, list_stress_runs, delete_stress_run, get_stress_report},
     io::{export_apicat, export_postman, import_apicat, import_postman, import_openapi},
-    docs::{scan_docs_dir, reveal_in_explorer, open_file_with_default, get_home_dir},
+    docs::{scan_docs_dir, reveal_in_explorer, open_file_with_default, get_home_dir, read_doc_file},
     skill_installer::{get_skill_targets, install_skills, uninstall_skills},
 };
 use db::{init_db, AppDb};
@@ -107,7 +107,7 @@ pub fn run() {
             start_stress,
             list_stress_runs, delete_stress_run, get_stress_report,
             export_apicat, export_postman, import_apicat, import_postman, import_openapi,
-            scan_docs_dir, reveal_in_explorer, open_file_with_default, get_home_dir,
+            scan_docs_dir, reveal_in_explorer, open_file_with_default, get_home_dir, read_doc_file,
             get_skill_targets, install_skills, uninstall_skills,
         ])
         .run(tauri::generate_context!())

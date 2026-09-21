@@ -147,6 +147,29 @@ pub async fn open_file_with_default(path: String) -> CmdResult<()> {
     Ok(())
 }
 
+/// 读取文档文件内容用于预览。
+/// 仅限已扫描进 DocFile 列表的路径由前端传入；这里仍做存在性与大小上限校验，
+/// 防止误传大文件把 WebView 撑爆。
+#[tauri::command]
+pub async fn read_doc_file(path: String) -> CmdResult<String> {
+    const MAX_PREVIEW_BYTES: u64 = 2 * 1024 * 1024; // 2MB
+    let p = PathBuf::from(&path);
+    if !p.exists() || !p.is_file() {
+        return Err(crate::error::AppError::Custom(format!("文件不存在: {path}")));
+    }
+    let size = std::fs::metadata(&p)
+        .map_err(|e| crate::error::AppError::Custom(format!("读取文件信息失败: {e}")))?
+        .len();
+    if size > MAX_PREVIEW_BYTES {
+        return Err(crate::error::AppError::Custom(format!(
+            "文件过大（{} KB），超出预览上限 2048 KB",
+            size / 1024
+        )));
+    }
+    std::fs::read_to_string(&p)
+        .map_err(|e| crate::error::AppError::Custom(format!("读取文件失败: {e}")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

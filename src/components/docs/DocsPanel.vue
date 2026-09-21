@@ -12,31 +12,51 @@
           <n-button size="small" secondary type="primary" @click="revealFile">打开所在目录</n-button>
         </div>
       </header>
-      <div class="meta-list">
-        <div class="meta-row">
-          <span class="meta-label">完整路径</span>
-          <span class="meta-value path" :title="file.absolute_path">{{ file.absolute_path }}</span>
-        </div>
-        <div class="meta-row">
-          <span class="meta-label">相对路径</span>
-          <span class="meta-value">{{ file.relative_path }}</span>
-        </div>
-        <div class="meta-row">
-          <span class="meta-label">大小</span>
-          <span class="meta-value">{{ formatSize(file.size) }}</span>
-        </div>
-        <div class="meta-row">
-          <span class="meta-label">修改时间</span>
-          <span class="meta-value">{{ formatTime(file.modified_at) }}</span>
-        </div>
+
+      <!-- Markdown 预览（主区域）-->
+      <div class="preview-area">
+        <n-spin :show="loading" size="medium" class="preview-spin">
+          <div v-if="previewError" class="preview-error">
+            <div class="preview-error-icon">⚠️</div>
+            <div>{{ previewError }}</div>
+          </div>
+          <MarkdownRenderer v-else-if="content" :body="content" />
+          <div v-else class="preview-hint">该文件为空</div>
+        </n-spin>
       </div>
+
+      <!-- 元数据（默认折叠到底部）-->
+      <n-collapse class="meta-collapse">
+        <n-collapse-item title="文件信息" name="meta">
+          <div class="meta-list">
+            <div class="meta-row">
+              <span class="meta-label">完整路径</span>
+              <span class="meta-value path" :title="file.absolute_path">{{ file.absolute_path }}</span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">相对路径</span>
+              <span class="meta-value">{{ file.relative_path }}</span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">大小</span>
+              <span class="meta-value">{{ formatSize(file.size) }}</span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">修改时间</span>
+              <span class="meta-value">{{ formatTime(file.modified_at) }}</span>
+            </div>
+          </div>
+        </n-collapse-item>
+      </n-collapse>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { NButton, useMessage } from 'naive-ui'
+import { ref, watch } from 'vue'
+import { NButton, NSpin, NCollapse, NCollapseItem, useMessage } from 'naive-ui'
 import { invoke } from '@tauri-apps/api/core'
+import MarkdownRenderer from '../response/formatters/MarkdownRenderer.vue'
 
 interface DocFile {
   relative_path: string
@@ -52,6 +72,36 @@ const props = defineProps<{
 }>()
 
 const message = useMessage()
+
+// ── Markdown 预览 ─────────────────────────────────────────────
+const content = ref('')
+const loading = ref(false)
+const previewError = ref('')
+
+// 切换文件时异步读取内容。用请求序号防竞态：快速切换文件时
+// 只有最后一次请求的结果生效，避免旧文件内容覆盖新文件。
+let readSeq = 0
+watch(
+  () => props.file?.absolute_path,
+  async (path) => {
+    const seq = ++readSeq
+    content.value = ''
+    previewError.value = ''
+    if (!path) return
+    loading.value = true
+    try {
+      const text = await invoke<string>('read_doc_file', { path })
+      if (seq !== readSeq) return  // 已有更新的请求，丢弃本次结果
+      content.value = text
+    } catch (e) {
+      if (seq !== readSeq) return
+      previewError.value = String(e)
+    } finally {
+      if (seq === readSeq) loading.value = false
+    }
+  },
+  { immediate: true },
+)
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -131,6 +181,52 @@ function revealFile() {
   display: flex;
   gap: 4px;
   flex-shrink: 0;
+}
+
+/* Markdown 预览主区域 */
+.preview-area {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-spin {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-hint {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.preview-error {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--color-error);
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.preview-error-icon {
+  font-size: 28px;
+}
+
+/* 元数据折叠区：固定在底部，不参与滚动 */
+.meta-collapse {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border-base);
+  max-height: 40%;
+  overflow-y: auto;
 }
 
 .meta-list {
