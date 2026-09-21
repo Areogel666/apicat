@@ -32,6 +32,15 @@
         <div class="tab-content">
           <n-empty v-if="!resp && !responseStore.loading" :description="emptyDescription" style="margin-top:40px" />
           <n-spin v-else-if="responseStore.loading" style="margin-top:40px; display:flex; justify-content:center" />
+          <!-- 大响应文件占位提示 -->
+          <div v-else-if="resp && isLargeResponse" class="large-response-placeholder">
+            <div class="placeholder-icon">📄</div>
+            <div class="placeholder-text">响应体过大（{{ formatSize(resp.body_size) }}）</div>
+            <div class="placeholder-hint">已保存到文件系统以避免卡顿</div>
+            <n-button type="primary" @click="openResponseFile">
+              📂 打开文件位置
+            </n-button>
+          </div>
           <JsonViewer
             v-else-if="resp"
             :body="resp.body"
@@ -69,7 +78,8 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { NTabs, NTabPane, NEmpty, NSpin, NTag } from 'naive-ui'
+import { NTabs, NTabPane, NEmpty, NSpin, NTag, NButton, useMessage } from 'naive-ui'
+import { invoke } from '@tauri-apps/api/core'
 import { useResponseStore } from '../../stores/response'
 import { useHistoryStore } from '../../stores/history'
 import { useRequestStore } from '../../stores/request'
@@ -87,6 +97,25 @@ const requestStore = useRequestStore()
 const testCaseStore = useTestCaseStore()
 
 const resp = computed(() => responseStore.response)
+const message = useMessage()
+
+// 判断是否是大响应文件（body 以 @file: 开头）
+const isLargeResponse = computed(() => {
+  return resp.value?.body?.startsWith('@file:') ?? false
+})
+
+// 打开响应文件所在位置
+async function openResponseFile() {
+  if (!resp.value?.history_id) {
+    message.error('无法获取历史记录 ID')
+    return
+  }
+  try {
+    await invoke('open_response_file', { historyId: resp.value.history_id })
+  } catch (e) {
+    message.error(`打开文件失败：${e}`)
+  }
+}
 
 // 空态文案：激活了用例但该用例未发送过请求时提示更具体
 const emptyDescription = computed(() => {
@@ -208,5 +237,32 @@ function onRefill(snapshot: string) {
 .header-value {
   color: var(--text-primary);
   word-break: break-all;
+}
+
+/* 大响应文件占位提示 */
+.large-response-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-xl) var(--spacing-md);
+  gap: var(--spacing-sm);
+}
+
+.placeholder-icon {
+  font-size: 48px;
+  margin-bottom: var(--spacing-sm);
+}
+
+.placeholder-text {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.placeholder-hint {
+  font-size: var(--font-size-sm);
+  color: var(--text-tertiary);
+  margin-bottom: var(--spacing-md);
 }
 </style>

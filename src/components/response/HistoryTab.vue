@@ -162,6 +162,10 @@ function statusTagType(code: number | null): 'success' | 'error' | 'warning' | '
 
 function prettyBody(body?: string | null): string {
   if (!body) return ''
+  // 大响应文件标记：显示提示而非内容
+  if (body.startsWith('@file:')) {
+    return '⚠️ 大响应已保存到文件系统，不支持 diff 查看\n请使用"打开文件位置"功能查看完整内容'
+  }
   try {
     return JSON.stringify(JSON.parse(body), null, 2)
   } catch {

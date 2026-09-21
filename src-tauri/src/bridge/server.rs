@@ -174,6 +174,7 @@ pub fn build_router(state: BState) -> Router {
         // 发送 / 历史
         .route("/send_request", post(send_request))
         .route("/list_history", get(list_history))
+        .route("/cleanup_history", post(cleanup_history))
         // 压测
         .route("/start_stress", post(start_stress))
         .route("/list_stress_runs", get(list_stress_runs))
@@ -881,6 +882,22 @@ async fn list_history(State(s): State<BState>, Query(q): Query<RequestQuery>) ->
     .await
     {
         Ok(rows) => ok(rows),
+        Err(e) => server_err(e),
+    }
+}
+
+async fn cleanup_history(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
+    let params = crate::commands::send_request::CleanupHistoryParams {
+        days: body["days"].as_i64(),
+        keep_per_request: body["keep_per_request"].as_i64().or(body["keepPerRequest"].as_i64()),
+        request_id: body["request_id"].as_i64().or(body["requestId"].as_i64()),
+        project_id: body["project_id"].as_i64().or(body["projectId"].as_i64()),
+        cleanup_files: body["cleanup_files"].as_bool().or(body["cleanupFiles"].as_bool()).unwrap_or(true),
+        cleanup_test_case_history: body["cleanup_test_case_history"].as_bool().or(body["cleanupTestCaseHistory"].as_bool()).unwrap_or(true),
+    };
+
+    match crate::commands::send_request::cleanup_history_impl(&s.pool, params).await {
+        Ok(result) => { broadcast(&s, "history"); ok(result) }
         Err(e) => server_err(e),
     }
 }

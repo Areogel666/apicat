@@ -93,13 +93,99 @@
       <n-button type="primary" @click="confirmRenameProject">确定</n-button>
     </template>
   </n-modal>
+
+  <!-- 清理历史记录弹窗 -->
+  <n-modal v-model:show="showCleanupHistoryModal" preset="dialog" title="清理历史记录">
+    <div style="display: flex; flex-direction: column; gap: 16px">
+      <div style="font-size: 13px; color: var(--text-secondary)">
+        选择清理策略，可组合使用。清理后不可恢复，请谨慎操作。
+      </div>
+
+      <!-- 清理范围 -->
+      <div>
+        <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px">清理范围</div>
+        <n-radio-group v-model:value="cleanupScope">
+          <n-radio value="all">所有项目</n-radio>
+          <n-radio value="current">仅当前项目（{{ projectStore.currentProject?.name || '未知' }}）</n-radio>
+        </n-radio-group>
+      </div>
+
+      <!-- 按天数清理 -->
+      <div>
+        <n-checkbox v-model:checked="cleanupByDays">
+          按天数清理
+        </n-checkbox>
+        <div v-if="cleanupByDays" style="margin-top: 8px; margin-left: 24px">
+          <n-input-number
+            v-model:value="cleanupDays"
+            :min="1"
+            :max="365"
+            placeholder="天数"
+            style="width: 120px"
+          />
+          <span style="margin-left: 8px; font-size: 12px; color: var(--text-tertiary)">
+            天前的历史记录
+          </span>
+        </div>
+      </div>
+
+      <!-- 按数量清理 -->
+      <div>
+        <n-checkbox v-model:checked="cleanupByCount">
+          按数量清理
+        </n-checkbox>
+        <div v-if="cleanupByCount" style="margin-top: 8px; margin-left: 24px">
+          <span style="font-size: 12px; color: var(--text-tertiary)">每个接口保留最近</span>
+          <n-input-number
+            v-model:value="cleanupKeepCount"
+            :min="1"
+            :max="1000"
+            placeholder="数量"
+            style="width: 100px; margin: 0 8px"
+          />
+          <span style="font-size: 12px; color: var(--text-tertiary)">条</span>
+        </div>
+      </div>
+
+      <!-- 同时清理响应文件 -->
+      <div>
+        <n-checkbox v-model:checked="cleanupFiles">
+          同时清理响应文件（大响应保存在 ~/.apicat/responses/）
+        </n-checkbox>
+      </div>
+
+      <!-- 同时清理用例执行历史 -->
+      <div>
+        <n-checkbox v-model:checked="cleanupTestCaseHistory">
+          同时清理用例执行历史（用例页右侧栏显示的历史记录）
+        </n-checkbox>
+      </div>
+
+      <!-- 警告提示 -->
+      <n-alert v-if="cleanupByDays || cleanupByCount" type="warning" :bordered="false">
+        即将清理{{ cleanupScope === 'current' ? '当前项目' : '所有项目' }}的历史记录，此操作不可恢复
+      </n-alert>
+    </div>
+    <template #action>
+      <n-button @click="showCleanupHistoryModal = false">取消</n-button>
+      <n-button
+        type="error"
+        :disabled="!cleanupByDays && !cleanupByCount"
+        :loading="cleanupLoading"
+        @click="confirmCleanupHistory"
+      >
+        确认清理
+      </n-button>
+    </template>
+  </n-modal>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
-import { NSelect, NButton, NDropdown, NModal, NInput, useDialog, useMessage } from 'naive-ui'
+import { NSelect, NButton, NDropdown, NModal, NInput, NCheckbox, NInputNumber, NAlert, NRadioGroup, NRadio, useDialog, useMessage } from 'naive-ui'
 import { check } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
+import { invoke } from '@tauri-apps/api/core'
 import { useProjectStore } from '../../stores/project'
 import { useEnvironmentStore } from '../../stores/environment'
 import { useThemeStore, type ThemeMode } from '../../stores/theme'
@@ -135,6 +221,17 @@ const themeStudioModalRef = ref<InstanceType<typeof ThemeStudioModal> | null>(nu
 
 const showRenameModal = ref(false)
 const renameInput = ref('')
+const showCleanupHistoryModal = ref(false)
+
+// 清理历史记录状态
+const cleanupScope = ref<'all' | 'current'>('current')
+const cleanupByDays = ref(false)
+const cleanupDays = ref(30)
+const cleanupByCount = ref(false)
+const cleanupKeepCount = ref(50)
+const cleanupFiles = ref(true)
+const cleanupTestCaseHistory = ref(true)
+const cleanupLoading = ref(false)
 
 // 主题三选一菜单项（M3-B）
 // 选中项前缀 ●，未选中前缀 ○，构成单选视觉
@@ -159,6 +256,7 @@ const settingsMenuOptions = computed(() => [
   { label: '🎨 主题工作室…', key: 'themeStudio' },
   { type: 'divider', key: 'd3' },
   { label: `${bridgeEnabled.value ? '🟢' : '⚪'} HTTP Bridge（${bridgeEnabled.value ? '开' : '关'}）`, key: 'bridgeToggle' },
+  { label: '🗑️ 清理历史记录...', key: 'cleanupHistory' },
   { label: '🔄 检查更新...', key: 'checkUpdate' },
 ])
 
@@ -175,6 +273,7 @@ async function handleSettingsMenu(key: string) {
   else if (key === 'skillManager') showSkillManager.value = true
   else if (key === 'themeStudio') themeStudioModalRef.value?.open()
   else if (key === 'checkUpdate') await checkForUpdate()
+  else if (key === 'cleanupHistory') showCleanupHistoryModal.value = true
   else if (key === 'bridgeToggle') {
     bridgeEnabled.value = !bridgeEnabled.value
     await writeSetting('bridgeEnabled', bridgeEnabled.value)
@@ -188,6 +287,42 @@ async function handleSettingsMenu(key: string) {
     const mode = key.slice('theme:'.length) as ThemeMode
     await themeStore.setMode(mode)
   }
+}
+
+// 清理历史记录
+async function confirmCleanupHistory() {
+  if (!cleanupByDays.value && !cleanupByCount.value) {
+    message.warning('请至少选择一种清理策略')
+    return
+  }
+
+  const scopeText = cleanupScope.value === 'current' ? '当前项目' : '所有项目'
+  dialog.warning({
+    title: '确认清理',
+    content: `将清理${scopeText}的历史记录${cleanupFiles.value ? '及响应文件' : ''}${cleanupTestCaseHistory.value ? '及用例执行历史' : ''}，此操作不可恢复。确定继续？`,
+    positiveText: '确认清理',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      cleanupLoading.value = true
+      try {
+        const result = await invoke<{ deleted_records: number; deleted_files: number; deleted_test_case_history: number }>('cleanup_history', {
+          params: {
+            days: cleanupByDays.value ? cleanupDays.value : null,
+            keep_per_request: cleanupByCount.value ? cleanupKeepCount.value : null,
+            project_id: cleanupScope.value === 'current' ? projectStore.currentProjectId : null,
+            cleanup_files: cleanupFiles.value,
+            cleanup_test_case_history: cleanupTestCaseHistory.value,
+          },
+        })
+        message.success(`清理完成：删除 ${result.deleted_records} 条记录，${result.deleted_files} 个文件，${result.deleted_test_case_history} 条用例历史`)
+        showCleanupHistoryModal.value = false
+      } catch (e) {
+        message.error(`清理失败：${e}`)
+      } finally {
+        cleanupLoading.value = false
+      }
+    },
+  })
 }
 
 // ── 自动更新 ──────────────────────────────────────────────

@@ -157,18 +157,48 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Err
             .await?;
     }
 
-    // M3-C 触发器：trg_tch_keep_10
-    // 复合 BEGIN/END 块内部含 ';'，不能写在 0001_init.sql 里（会被 split(';') 拆坏）。
-    // 单独以一条 query 执行；CREATE TRIGGER IF NOT EXISTS 幂等。
+    // 1.0.6：合并 test_case_history 到 request_history
+    // 守卫：request_history 增加 error_message 列
+    let has_err_msg = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM pragma_table_info('request_history') WHERE name='error_message'"
+    ).fetch_one(pool).await?;
+    if has_err_msg == 0 {
+        sqlx::query("ALTER TABLE request_history ADD COLUMN error_message TEXT")
+            .execute(pool).await?;
+    }
+
+    // 数据迁移：test_case_history → request_history（幂等：旧表存在才迁移）
+    let has_old_table = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='test_case_history'"
+    ).fetch_one(pool).await?;
+
+    if has_old_table > 0 {
+        sqlx::query(
+            "INSERT INTO request_history \
+             (request_id, test_case_id, status_code, response_time_ms, \
+              response_body, error_message, created_at) \
+             SELECT tc.request_id, tch.test_case_id, tch.status_code, \
+                    tch.duration_ms, tch.response_preview, tch.error_message, tch.created_at \
+             FROM test_case_history tch \
+             JOIN test_cases tc ON tch.test_case_id = tc.id \
+             WHERE tc.request_id IS NOT NULL"
+        ).execute(pool).await?;
+
+        sqlx::query("DROP TABLE IF EXISTS test_case_history").execute(pool).await?;
+        sqlx::query("DROP TRIGGER IF EXISTS trg_tch_keep_10").execute(pool).await?;
+    }
+
+    // 新触发器：用例执行历史保留 10 条（test_case_id IS NOT NULL 时生效）
     sqlx::query(
         r#"
-        CREATE TRIGGER IF NOT EXISTS trg_tch_keep_10
-        AFTER INSERT ON test_case_history
+        CREATE TRIGGER IF NOT EXISTS trg_rh_keep_10_per_case
+        AFTER INSERT ON request_history
+        WHEN NEW.test_case_id IS NOT NULL
         BEGIN
-          DELETE FROM test_case_history
+          DELETE FROM request_history
           WHERE test_case_id = NEW.test_case_id
             AND id NOT IN (
-              SELECT id FROM test_case_history
+              SELECT id FROM request_history
               WHERE test_case_id = NEW.test_case_id
               ORDER BY created_at DESC, id DESC
               LIMIT 10

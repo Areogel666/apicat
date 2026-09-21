@@ -796,7 +796,9 @@ function mergeParamMeta(list: ParamItem[], base: MetaSource): ParamItem[] {
 }
 
 /** 去掉 type/description/字典引用后比较 JSON 数组，用于 dirty 判定（元数据不参与） */
-function stripMeta(json: string): string {
+function stripMeta(json: string | null | undefined): string {
+  // null/undefined 统一视为空数组，避免 "null" === "[]" 的误判
+  if (json == null || json === '') return '[]'
   try {
     const arr: ParamItem[] = JSON.parse(json)
     if (!Array.isArray(arr)) return json
@@ -1567,9 +1569,15 @@ const resolvedUrl = computed(() => {
 /**
  * 发送前最终解析的完整 URL：
  * 调用 resolveEffectiveUrl 工具函数，与 Sidebar 的 cURL 复制共享同一套拼接规则。
+ * 若 URL 含 {{base_url}} 占位符，先用环境变量替换，再交给 resolveEffectiveUrl 处理
  */
 const effectiveUrl = computed(() => {
-  return resolveEffectiveUrl(resolvedUrl.value, envStore.activeEnv?.base_url)
+  let raw = resolvedUrl.value
+  // 替换 {{base_url}} 占位符（支持带空格的形式）
+  if (envStore.activeEnv?.base_url && /\{\{\s*base_url\s*\}\}/.test(raw)) {
+    raw = raw.replace(/\{\{\s*base_url\s*\}\}/g, envStore.activeEnv.base_url)
+  }
+  return resolveEffectiveUrl(raw, envStore.activeEnv?.base_url)
 })
 
 /** URL 中是否包含 {{var}} 变量，用于控制输入框文字是否透明（有变量才透明以展示高亮层） */
@@ -2008,11 +2016,29 @@ function checkParamsDirty() {
   // 1.0.0 fix:类型/描述/字典引用是「定义级元数据，不参与「参数不同」判定，
   // 否则用例切换时补全元数据会误触发 dirty 提示
   const sameMethod = (activeTc.method ?? method.value) === method.value
-  const sameUrl = (activeTc.url ?? resolvedUrl.value) === resolvedUrl.value
+  // URL 比较：只比较 path 部分，因为 query string 由 queryParams 单独管理
+  // 激活用例时会根据 tc.params 重建 URL，导致 query string 顺序可能与 tc.url 不一致
+  // 因此不能直接比较完整 URL 字符串，而应该分别比较 path 和 params
+  const tcUrlPath = (activeTc.url ?? '').split('?')[0]
+  const currentUrlPath = url.value.split('?')[0]
+  const sameUrl = tcUrlPath === currentUrlPath
   const sameHeaders = stripMeta(activeTc.headers) === stripMeta(JSON.stringify(requestHeaders.value))
   const sameParams = stripMeta(activeTc.params) === stripMeta(JSON.stringify(queryParams.value))
   const sameBodyType = (activeTc.body_type ?? bodyType.value) === bodyType.value
   const sameBody = stripMeta(activeTc.body ?? '') === stripMeta(bodyContent.value)
+
+  // 调试日志：帮助定位误报原因
+  if (!(sameMethod && sameUrl && sameHeaders && sameParams && sameBodyType && sameBody)) {
+    console.log('[checkParamsDirty] 检测到参数差异:', {
+      sameMethod, sameUrl, sameHeaders, sameParams, sameBodyType, sameBody,
+      tcMethod: activeTc.method, currentMethod: method.value,
+      tcUrlPath, currentUrlPath,
+      tcHeaders: stripMeta(activeTc.headers), currentHeaders: stripMeta(JSON.stringify(requestHeaders.value)),
+      tcParams: stripMeta(activeTc.params), currentParams: stripMeta(JSON.stringify(queryParams.value)),
+      tcBodyType: activeTc.body_type, currentBodyType: bodyType.value,
+      tcBody: stripMeta(activeTc.body ?? ''), currentBody: stripMeta(bodyContent.value),
+    })
+  }
 
   paramsDirty.value = !(sameMethod && sameUrl && sameHeaders && sameParams && sameBodyType && sameBody)
 }

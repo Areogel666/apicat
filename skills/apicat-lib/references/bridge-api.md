@@ -236,6 +236,18 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 
 ### GET /list_history?request_id=N（可加 `&test_case_id=N`）
 
+**⚠️ 大响应文件标记**：响应体超过 100KB 时，`response_body` 字段存储的是文件路径标记（格式：`@file:{history_id}`），而非实际内容。完整响应保存在 `~/.apicat/responses/{history_id}.txt`。
+
+检测方式：
+```javascript
+if (record.response_body?.startsWith('@file:')) {
+  // 大响应，需要从文件系统读取
+  const historyId = record.response_body.slice(6)  // 去掉 "@file:" 前缀
+  const filePath = `~/.apicat/responses/${historyId}.txt`
+  // 自行读取文件内容
+}
+```
+
 ## 压测
 
 ### POST /start_stress

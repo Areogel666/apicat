@@ -326,7 +326,12 @@ async function copyAsCurl() {
 
   // 与 MainPanel.effectiveUrl 共享同一套拼接规则：
   // 相对路径 + 激活环境有 base_url → 拼接为完整 URL；否则原样
-  const fullUrl = resolveEffectiveUrl(req.url, envStore.activeEnv?.base_url)
+  // 若 URL 含 {{base_url}} 占位符，先用环境变量替换，再交给 resolveEffectiveUrl 处理
+  let rawUrl = req.url
+  if (envStore.activeEnv?.base_url && /\{\{\s*base_url\s*\}\}/.test(rawUrl)) {
+    rawUrl = rawUrl.replace(/\{\{\s*base_url\s*\}\}/g, envStore.activeEnv.base_url)
+  }
+  const fullUrl = resolveEffectiveUrl(rawUrl, envStore.activeEnv?.base_url)
 
   const curl = buildCurl({
     method: req.method,

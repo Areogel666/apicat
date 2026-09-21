@@ -23,8 +23,13 @@ allowed-tools: Bash, Read, Glob, AskUserQuestion
 | `name` | 接口标题 | 中文名；标题里只有路径时用路径 |
 | `method` | 请求方式行 | **以接口自身的请求方式为准**，别被参数描述里的 `GET`/`POST` 枚举示例带偏 |
 | `url` | 标题或域名行里的路径 | 以 `/` 开头 |
-| `params` | 参数表 | 每行 → `{key, value:"", enabled:true, type, description}`，`type`/`description` 取表格对应列 |
+| `params` | 参数表 | 每行 → `{key, value:"", enabled:true, type, description}`，`type`/`description` 取表格对应列；**表格没有的列要从上下文推断补充** |
 | 枚举候选 | 描述列 | 形如 `` `0`=待支付 `` 的成对写法 → 可建字典 |
+
+**⚠️ 元数据补充规则**：
+- 文档参数表有「类型」「说明」列 → 直接取用
+- 文档没有但能从字段名/示例推断 → **主动补充**（如 `userId` → string, `page` → number）
+- 完全推断不出 → `type` 留空字符串，`description` 留空，**不要编造**
 
 **先把提取结果给用户过一眼**（字段名/路径常需人工修正），再落库。
 
@@ -55,6 +60,23 @@ allowed-tools: Bash, Read, Glob, AskUserQuestion
 ### 4. 更新
 `POST /update_request`，字段：`id`/`name`/`method`/`url`/`params`/`headers`/`bodyType`/`body`/`authType`/`authConfig`/`description`。
 `body_type` 取值：`raw_json`（@RequestBody）| `form_urlencoded`（getParameter）。参数格式见共享约束。
+
+**⚠️ 优先补充元数据**：更新接口时，如果上下文充足（如从文档、代码注释、示例响应中能推断出字段含义），**必须主动补充 `type` 和 `description`**，不要只传 `key`/`value`/`enabled`。
+
+示例：
+```json
+// ❌ 错误：缺少元数据
+"params": "[{\"key\":\"userId\",\"value\":\"\",\"enabled\":true}]"
+
+// ✅ 正确：补充了类型和描述
+"params": "[{\"key\":\"userId\",\"value\":\"\",\"enabled\":true,\"type\":\"string\",\"description\":\"用户 ID\"}]"
+```
+
+推断依据（按优先级）：
+1. 文档参数表的「类型」「说明」列
+2. 字段名语义（如 `userId` → string, `page`/`pageSize` → number）
+3. 示例响应中的值类型
+4. 业务常识（如 `timestamp` → number, `email` → string）
 
 ## 三、数据字典 CRUD
 
