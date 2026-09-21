@@ -18,9 +18,9 @@ pub const TEST_CASE_COLS: &str = "id, request_id, collection_id, name, descripti
     method, url, headers, params, body_type, body, assertions, last_run_at, last_status, \
     last_duration_ms, last_response, starred, enabled, sort_order, created_at, updated_at";
 
-/// test_case_history
-pub const TEST_CASE_HISTORY_COLS: &str = "id, test_case_id, status_code, duration_ms, \
-    response_preview, error_message, created_at";
+/// request_history（1.0.6：合并 test_case_history 后统一使用）
+pub const REQUEST_HISTORY_COLS: &str = "id, request_id, test_case_id, status_code, response_time_ms, \
+    request_snapshot, response_body, is_truncated, response_headers, error_message, created_at";
 
 /// environments
 pub const ENV_COLS: &str = "id, project_id, name, base_url, is_active, created_at";

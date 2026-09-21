@@ -204,18 +204,36 @@ pub async fn run_test_case_impl(
     .execute(pool)
     .await?;
 
-    // 7. 写执行历史
-    sqlx::query(
-        "INSERT INTO test_case_history (test_case_id, status_code, duration_ms, response_preview, error_message) \
-         VALUES (?, ?, ?, ?, ?)",
+    // 7. 写执行历史（1.0.6：合并到 request_history）
+    // 先插入获取 history_id
+    let history_id: i64 = sqlx::query_scalar(
+        "INSERT INTO request_history \
+         (request_id, test_case_id, status_code, response_time_ms, \
+          response_body, is_truncated, error_message) \
+         VALUES (?, ?, ?, ?, ?, ?, ?) \
+         RETURNING id",
     )
+    .bind(request_id)
     .bind(test_case_id)
     .bind(status_code.map(|c| c as i64))
     .bind(elapsed_ms as i64)
-    .bind(&preview)
+    .bind("")  // 占位，稍后更新
+    .bind(0i64)
     .bind(&error_message)
-    .execute(pool)
+    .fetch_one(pool)
     .await?;
+
+    // 保存响应体（超过阈值时存文件）
+    let (stored_body, is_file) = crate::commands::send_request::save_response_body_if_large(
+        history_id,
+        &response_body,
+    )?;
+    sqlx::query("UPDATE request_history SET response_body = ?, is_truncated = ? WHERE id = ?")
+        .bind(&stored_body)
+        .bind(if is_file { 1i64 } else { 0i64 })
+        .bind(history_id)
+        .execute(pool)
+        .await?;
 
     Ok(RunCaseResult {
         test_case_id,

@@ -15,10 +15,10 @@ use std::path::PathBuf;
 use tauri::State;
 
 /// 响应体超过此阈值时，保存到文件系统而非数据库（100KB）
-const RESPONSE_FILE_THRESHOLD: usize = 100 * 1024;
+pub const RESPONSE_FILE_THRESHOLD: usize = 100 * 1024;
 
 /// 获取响应文件存储目录
-fn get_response_dir() -> Result<PathBuf, crate::error::AppError> {
+pub fn get_response_dir() -> Result<PathBuf, crate::error::AppError> {
     #[cfg(target_os = "windows")]
     let home = std::env::var("USERPROFILE").ok();
     #[cfg(not(target_os = "windows"))]
@@ -33,6 +33,23 @@ fn get_response_dir() -> Result<PathBuf, crate::error::AppError> {
         crate::error::AppError::Custom(format!("创建响应文件目录失败: {e}"))
     })?;
     Ok(dir)
+}
+
+/// 保存响应体到文件（超过阈值时），返回 (存储到DB的body, 是否截断)
+/// 供 send_request_impl 和 run_test_case_impl 共用
+pub fn save_response_body_if_large(
+    history_id: i64,
+    body: &str,
+) -> Result<(String, bool), crate::error::AppError> {
+    if body.len() > RESPONSE_FILE_THRESHOLD {
+        let file_path = get_response_dir()?.join(format!("{history_id}.txt"));
+        std::fs::write(&file_path, body).map_err(|e| {
+            crate::error::AppError::Custom(format!("保存响应文件失败: {e}"))
+        })?;
+        Ok((format!("@file:{history_id}"), true))
+    } else {
+        Ok((body.to_string(), false))
+    }
 }
 
 /// 核心逻辑（供 Tauri command 和 HTTP bridge 共用）
@@ -137,70 +154,46 @@ pub async fn send_request_impl(
 
     // 4. 写入 request_history（request_id 为空时跳过，避免写 id=0 的孤儿行）
     if let Some(rid) = request_id {
-        // 4.1 判断响应体是否需要保存到文件系统
-        if resp.body.len() > RESPONSE_FILE_THRESHOLD {
-            // 先插入占位符获取 history_id
-            let history_id: i64 = sqlx::query_scalar(
-                r#"
-                INSERT INTO request_history
-                    (request_id, test_case_id, status_code, response_time_ms, request_snapshot,
-                     response_body, is_truncated, response_headers)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                RETURNING id
-                "#,
-            )
-            .bind(rid)
-            .bind(test_case_id)
-            .bind(resp.status_code as i64)
-            .bind(resp.elapsed_ms as i64)
-            .bind(&snapshot)
-            .bind("")  // 占位，稍后更新
-            .bind(if resp.is_truncated { 1i64 } else { 0i64 })
-            .bind(&resp_headers_json)
-            .fetch_one(pool)
-            .await?;
+        // 先插入占位符获取 history_id
+        let history_id: i64 = sqlx::query_scalar(
+            r#"
+            INSERT INTO request_history
+                (request_id, test_case_id, status_code, response_time_ms, request_snapshot,
+                 response_body, is_truncated, response_headers)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING id
+            "#,
+        )
+        .bind(rid)
+        .bind(test_case_id)
+        .bind(resp.status_code as i64)
+        .bind(resp.elapsed_ms as i64)
+        .bind(&snapshot)
+        .bind("")  // 占位，稍后更新
+        .bind(if resp.is_truncated { 1i64 } else { 0i64 })
+        .bind(&resp_headers_json)
+        .fetch_one(pool)
+        .await?;
 
-            // 保存响应体到文件
-            let file_path = get_response_dir()?.join(format!("{history_id}.txt"));
-            std::fs::write(&file_path, &resp.body).map_err(|e| {
-                crate::error::AppError::Custom(format!("保存响应文件失败: {e}"))
-            })?;
-
-            // 更新数据库记录为文件路径标记
-            let file_marker = format!("@file:{history_id}");
+        // 保存响应体（超过阈值时存文件）
+        let (stored_body, is_file) = save_response_body_if_large(history_id, &resp.body)?;
+        if is_file {
             sqlx::query("UPDATE request_history SET response_body = ? WHERE id = ?")
-                .bind(&file_marker)
+                .bind(&stored_body)
                 .bind(history_id)
                 .execute(pool)
                 .await?;
-
-            // 关键：替换 resp.body 为标记，前端才能显示占位提示而非渲染大响应
-            resp.body = file_marker;
-            resp.history_id = history_id;
+            // 替换 resp.body 为标记，前端才能显示占位提示
+            resp.body = stored_body;
         } else {
-            // 响应体较小，直接存储到数据库
-            let history_id: i64 = sqlx::query_scalar(
-                r#"
-                INSERT INTO request_history
-                    (request_id, test_case_id, status_code, response_time_ms, request_snapshot,
-                     response_body, is_truncated, response_headers)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                RETURNING id
-                "#,
-            )
-            .bind(rid)
-            .bind(test_case_id)
-            .bind(resp.status_code as i64)
-            .bind(resp.elapsed_ms as i64)
-            .bind(&snapshot)
-            .bind(&resp.body)
-            .bind(if resp.is_truncated { 1i64 } else { 0i64 })
-            .bind(&resp_headers_json)
-            .fetch_one(pool)
-            .await?;
-
-            resp.history_id = history_id;
+            sqlx::query("UPDATE request_history SET response_body = ? WHERE id = ?")
+                .bind(&stored_body)
+                .bind(history_id)
+                .execute(pool)
+                .await?;
         }
+
+        resp.history_id = history_id;
     }
     Ok(resp)
 }
