@@ -14,7 +14,7 @@ use std::sync::Arc;
 use tauri::Emitter;
 
 use crate::sql_cols::{
-    COOKIE_COLS, DICT_COLS, ENV_COLS, ENV_VAR_COLS, REQUEST_COLS, TEST_CASE_COLS,
+    COOKIE_COLS, DICT_COLS, ENV_COLS, ENV_VAR_COLS, PROJECT_COLS, REQUEST_COLS, TEST_CASE_COLS,
     TEST_CASE_HISTORY_COLS,
 };
 use crate::types::*;
@@ -207,9 +207,9 @@ pub fn build_router(state: BState) -> Router {
 // ════════════════════════════════════════════════════════════
 
 async fn list_projects(State(s): State<BState>) -> axum::response::Response {
-    match sqlx::query_as::<_, Project>(
-        "SELECT id, name, description, docs_output_dir, p95_threshold_ms, p99_threshold_ms, created_at, updated_at FROM projects ORDER BY created_at DESC",
-    )
+    match sqlx::query_as::<_, Project>(&format!(
+        "SELECT {PROJECT_COLS} FROM projects ORDER BY created_at DESC",
+    ))
     .fetch_all(&s.pool)
     .await
     {
@@ -223,14 +223,8 @@ async fn create_project(State(s): State<BState>, Json(body): Json<Value>) -> axu
     if name.is_empty() {
         return err(StatusCode::BAD_REQUEST, "name is required");
     }
-    match sqlx::query_as::<_, Project>(
-        "INSERT INTO projects (name, description) VALUES (?, ?) \
-         RETURNING id, name, description, docs_output_dir, created_at, updated_at",
-    )
-    .bind(name)
-    .bind(body["description"].as_str())
-    .fetch_one(&s.pool)
-    .await
+    // 走与 UI 相同的 impl，列清单只有一份
+    match crate::commands::project::create_project_impl(&s.pool, name, body["description"].as_str()).await
     {
         Ok(row) => { broadcast(&s, "projects"); ok(row) }
         Err(e) => server_err(e),
@@ -239,17 +233,26 @@ async fn create_project(State(s): State<BState>, Json(body): Json<Value>) -> axu
 
 async fn update_project(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
     let Some(id) = body["id"].as_i64() else { return err(StatusCode::BAD_REQUEST, "id required") };
-    // COALESCE：传了才更新，未传保留原值
-    match sqlx::query_as::<_, Project>(
-        "UPDATE projects SET name=COALESCE(?, name), description=COALESCE(?, description), \
-         docs_output_dir=COALESCE(?, docs_output_dir), updated_at=datetime('now') \
-         WHERE id=? RETURNING id, name, description, docs_output_dir, created_at, updated_at",
-    )
-    .bind(body["name"].as_str())
-    .bind(body["description"].as_str())
-    .bind(get_str(&body, "docsOutputDir", "docs_output_dir"))
+    // 先取当前值，未传字段保留原值（COALESCE 的便利留在协议层，SQL 只有 impl 一份）
+    let cur: Project = match sqlx::query_as::<_, Project>(&format!(
+        "SELECT {PROJECT_COLS} FROM projects WHERE id=?"
+    ))
     .bind(id)
     .fetch_one(&s.pool)
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => return server_err(e),
+    };
+    let desc = body["description"].as_str().or(cur.description.as_deref());
+    let dir = get_str(&body, "docsOutputDir", "docs_output_dir").or(cur.docs_output_dir.as_deref());
+    match crate::commands::project::update_project_impl(
+        &s.pool,
+        id,
+        body["name"].as_str().unwrap_or(&cur.name),
+        desc,
+        dir,
+    )
     .await
     {
         Ok(row) => { broadcast(&s, "projects"); ok(row) }

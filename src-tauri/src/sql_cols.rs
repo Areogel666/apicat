@@ -4,6 +4,10 @@
 //! 加列时漏改任意一处会导致 sqlx 反序列化失败。此处集中一份，两侧共用。
 //! **列顺序必须与 types.rs 中对应 struct 的字段顺序一致**，否则 query_as 会错位。
 
+/// projects
+pub const PROJECT_COLS: &str = "id, name, description, docs_output_dir, p95_threshold_ms, \
+    p99_threshold_ms, created_at, updated_at";
+
 /// api_requests
 pub const REQUEST_COLS: &str = "id, collection_id, name, method, url, params, headers, \
     body_type, body, auth_type, auth_config, description, p95_threshold_ms, p99_threshold_ms, \
