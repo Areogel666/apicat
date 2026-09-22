@@ -19,7 +19,7 @@
           :data="filteredTree"
           :render-label="renderLabel"
           :render-suffix="renderSuffix"
-          :default-expanded-keys="defaultDictKeys"
+          v-model:expanded-keys="expandedKeys"
           block-line
           expand-on-click
           @update:selected-keys="onTreeSelect"
@@ -133,22 +133,37 @@ interface DictNode extends TreeOption {
   dict?: DataDictionary
   item?: DictionaryItem
 }
+// 1.0.5：字典按 code 首字母升序展示（副本排序，不改 store 原顺序）
 const treeData = computed<DictNode[]>(() =>
-  store.dictionaries.map(d => ({
-    key: `dict-${d.id}`,
-    label: `${d.code}（${d.name}）`,
-    dict: d,
-    children: store.itemsMap[d.id]?.map(item => ({
-      key: `item-${item.id}`,
-      label: `${item.value} = ${item.label}${item.description ? ' — ' + item.description : ''}`,
-      isLeaf: true,
-      item,
-    })) ?? [],
-  })),
+  [...store.dictionaries]
+    .sort((a, b) => a.code.localeCompare(b.code))
+    .map(d => ({
+      key: `dict-${d.id}`,
+      label: `${d.code}（${d.name}）`,
+      dict: d,
+      children: store.itemsMap[d.id]?.map(item => ({
+        key: `item-${item.id}`,
+        label: `${item.value} = ${item.label}${item.description ? ' — ' + item.description : ''}`,
+        isLeaf: true,
+        item,
+      })) ?? [],
+    })),
 )
 
-// 1.0.5：默认只展开字典层（字典项收起），树不再默认全展开
-const defaultDictKeys = computed(() => store.dictionaries.map(d => `dict-${d.id}`))
+// 1.0.5：默认只展开字典层（字典项收起）。
+// 必须用「受控展开」而非 default-expanded-keys：本组件 v-show 常驻，n-tree 在启动即挂载，
+// default-* 只在挂载那一刻读一次；dict 是异步加载的，之后新增节点不在初始集合里，naive 视为
+// 展开 → 字典项全开。受控后字典数据到达即把展开集合设为只含字典层。
+const expandedKeys = ref<string[]>([])
+watch(
+  () => store.dictionaries,
+  (dicts) => {
+    if (dicts && dicts.length) {
+      expandedKeys.value = dicts.map(d => `dict-${d.id}`)
+    }
+  },
+  { immediate: true },
+)
 
 // 1.0.4 fix：字典树搜索（按字典 code/name 或字典项 value/label 过滤）
 const dictSearch = ref('')
