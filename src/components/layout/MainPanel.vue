@@ -68,29 +68,13 @@
           </n-button>
         </div>
         <n-button
-          text
-          size="small"
-          :disabled="undoDisabled"
-          title="撤销 (Ctrl+Z)"
-          style="flex-shrink: 0"
-          @click="undo"
-        >↶</n-button>
-        <n-button
-          text
-          size="small"
-          :disabled="redoDisabled"
-          title="重做 (Ctrl+Shift+Z / Ctrl+Y)"
-          style="flex-shrink: 0"
-          @click="redo"
-        >↷</n-button>
-        <n-button
           v-if="requestDirty"
+          text
           size="small"
-          quaternary
           style="flex-shrink: 0"
-          title="放弃未保存修改，回到上次 Ctrl+S 保存的版本（未保存过则为接口原始定义）"
+          title="回到上次保存版（丢弃未保存修改；本会话未保存过则为接口原始定义）"
           @click="restoreToSaved"
-        >↩ 回到上次保存</n-button>
+        >↺</n-button>
         <n-button
           v-if="requestDirty"
           size="medium"
@@ -1422,9 +1406,6 @@ function redo() {
   isInitializing = true
   try { applyDraftToEditor(next) } finally { nextTick(() => { isInitializing = false }) }
 }
-
-const undoDisabled = computed(() => { const h = activeHistory(); return !h || h.undo.length === 0 })
-const redoDisabled = computed(() => { const h = activeHistory(); return !h || h.redo.length === 0 })
 
 // URL 编辑完成（失焦/回车）记一步；method 选择同样记一步（Auth 不入栈，已即时落库）
 function onUrlEdit() { pushUndo() }
