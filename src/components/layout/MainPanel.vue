@@ -534,6 +534,20 @@
       </div>
     </n-modal>
 
+    <!-- 1.0.5 A2：退出用例前三选一（编辑区参数已修改且未存用例）-->
+    <n-modal v-model:show="showDeactivateModal" preset="card" title="退出用例" style="width: 440px">
+      <div class="deactivate-modal__tip">
+        当前参数与用例「{{ activeCaseName }}」不同。退出后编辑区将回到接口原始参数，未保存的修改不会进入该用例。
+      </div>
+      <template #footer>
+        <div class="deactivate-modal__actions">
+          <n-button size="small" @click="cancelDeactivate">取消</n-button>
+          <n-button size="small" quaternary type="warning" @click="confirmDeactivateDiscard">丢弃修改</n-button>
+          <n-button size="small" type="primary" @click="confirmDeactivateSave">保存到用例</n-button>
+        </div>
+      </template>
+    </n-modal>
+
     <!-- 分栏拖拽分隔条 -->
     <ResizableSplitter
       direction="vertical"
@@ -549,6 +563,7 @@
       :active-id="testCaseStore.activeTestCaseId"
       :params-dirty="paramsDirty"
       @activate="handleActivateTestCase"
+      @deactivate="handleDeactivateTestCase"
       @create="handleCreateTestCase"
       @rename="handleRenameTestCase"
       @delete="handleDeleteTestCase"
@@ -585,7 +600,7 @@ import { parseUrl, buildUrl, resolveEffectiveUrl, hasUnresolvedPlaceholder } fro
 import { buildCurl } from '../../utils/curlBuilder'
 import { parseKvText, toKvText, parseJsonToParams, toJsonText } from '../../utils/paramParser'
 import { copyText } from '../../utils/clipboard'
-import { useRequestStore } from '../../stores/request'
+import { useRequestStore, type RequestDraft } from '../../stores/request'
 import { useResponseStore } from '../../stores/response'
 import { useHistoryStore } from '../../stores/history'
 import { useEnvironmentStore } from '../../stores/environment'
@@ -605,7 +620,7 @@ import StressResultPanel from '../stress/StressResultPanel.vue'
 import StressTab from '../stress/StressTab.vue'
 import ResizableSplitter from '../common/ResizableSplitter.vue'
 import ParamRow from '../io/ParamRow.vue'
-import type { ParamItem, ParsedUrl, StressConfig } from '../../types'
+import type { ApiRequest, ParamItem, ParsedUrl, StressConfig } from '../../types'
 
 type ParamMode = 'table' | 'kv' | 'json'
 
@@ -1190,6 +1205,96 @@ function flushPersist(id: number) {
   })
 }
 
+// ── 编辑区快照 / 恢复（切接口与用例 toggle 共用）──────────────
+// ⚠️ 1.0.4 fix：参数数组必须深拷贝（JSON round-trip）后再入草稿。
+// 若浅拷贝（[...arr]），元素对象仍是共享引用 —— A 的参数对象与草稿里的
+// 是同一个，来回切接口时 A 的类型/描述会经由此共享引用“透”到 B 相同位置参数
+// （特征：B 该位没描述被 A 覆盖，有描述则不覆盖）。深拷贝后各接口草稿完全隔离。
+const deepCopyParams = (arr: ParamItem[]): ParamItem[] => JSON.parse(JSON.stringify(arr ?? []))
+
+/** 把当前编辑区状态快照为草稿结构（切走接口写 draftCache 与进入用例前快照共用） */
+function snapshotEditor(): RequestDraft {
+  return {
+    method: method.value,
+    url: url.value,
+    pathParamValues: { ...pathParamValues.value },
+    queryParams: deepCopyParams(queryParams.value),
+    requestHeaders: deepCopyParams(requestHeaders.value),
+    bodyType: bodyType.value,
+    bodyContent: bodyContent.value,
+    formDataParams: deepCopyParams(formDataParams.value),
+    urlencodedParams: deepCopyParams(urlencodedParams.value),
+    queryMode: queryMode.value,
+    queryKvText: queryKvText.value,
+    queryJsonText: queryJsonText.value,
+    headerMode: headerMode.value,
+    headerKvText: headerKvText.value,
+    headerJsonText: headerJsonText.value,
+    urlencodedMode: urlencodedMode.value,
+    urlencodedKvText: urlencodedKvText.value,
+  }
+}
+
+/** 从草稿快照完整恢复编辑区（切接口 2a 与 deactivate 返回接口编辑区共用） */
+function applyDraftToEditor(draft: RequestDraft) {
+  // ⚠️ 1.0.4 fix：恢复也必须深拷贝 —— 直接赋草稿数组会把「另一个接口的草稿数组引用」
+  // 当成本接口编辑区（若某条路径误把 A 的数据存进 B 的草稿）。深拷贝后编辑区对象
+  // 永远独立，物理上与其它接口无关。此前的浅拷贝恢复是最大嫌疑。
+  url.value = draft.url
+  method.value = draft.method
+  bodyType.value = draft.bodyType
+  bodyContent.value = draft.bodyContent
+  queryParams.value = deepCopyParams(draft.queryParams)
+  requestHeaders.value = deepCopyParams(draft.requestHeaders)
+  formDataParams.value = deepCopyParams(draft.formDataParams)
+  urlencodedParams.value = deepCopyParams(draft.urlencodedParams)
+  // UI 模式状态跟随草稿
+  queryMode.value = draft.queryMode
+  queryKvText.value = draft.queryKvText
+  queryJsonText.value = draft.queryJsonText
+  headerMode.value = draft.headerMode
+  headerKvText.value = draft.headerKvText
+  headerJsonText.value = draft.headerJsonText
+  urlencodedMode.value = draft.urlencodedMode
+  urlencodedKvText.value = draft.urlencodedKvText
+  // pathParamValues：URL 已从草稿恢复，parsedUrl 重算时会基于同样的 URL
+  // 产生同样的 key 集合，直接赋值即可完整还原 value。
+  pathParamValues.value = { ...draft.pathParamValues }
+}
+
+/** 从接口定义（DB）初始化编辑区，清空所有临时调试状态（切接口 2b 与 deactivate 兜底共用） */
+function applyRequestToEditor(req: ApiRequest) {
+  url.value = req.url
+  method.value = req.method
+  bodyType.value = req.body_type || 'none'
+  bodyContent.value = req.body || ''
+  // 加载 form-data 字段
+  if (req.body_type === 'form_data') {
+    try { formDataParams.value = JSON.parse(req.body || '[]') } catch { formDataParams.value = [] }
+  } else {
+    formDataParams.value = []
+  }
+  if (req.body_type === 'form_urlencoded') {
+    urlencodedParams.value = parseUrlencodedBody(req.body)
+  } else {
+    urlencodedParams.value = []
+  }
+  // 解析存储的 params/headers JSON
+  try { queryParams.value = JSON.parse(req.params) } catch { queryParams.value = [] }
+  try { requestHeaders.value = JSON.parse(req.headers) } catch { requestHeaders.value = [] }
+  // 重置 UI 模式为默认 table（仅无草稿时）
+  queryMode.value = 'table'
+  queryKvText.value = ''
+  queryJsonText.value = ''
+  headerMode.value = 'table'
+  headerKvText.value = ''
+  headerJsonText.value = ''
+  urlencodedMode.value = 'table'
+  urlencodedKvText.value = ''
+  // 关键：清空 pathParamValues，由后续 watch(parsedUrl) 根据新 URL 重建 key 集合
+  pathParamValues.value = {}
+}
+
 // ── 监听激活接口变化，同步到编辑区 ───────────────────────────
 let isInitializing = false
 watch(() => requestStore.activeRequest, async (req, oldReq) => {
@@ -1199,30 +1304,10 @@ watch(() => requestStore.activeRequest, async (req, oldReq) => {
   //    dirty 标记的唯一职责是控制"保存按钮亮起 / Ctrl+S 触发落库"，
   //    与"切 Tab 时是否保留编辑态"完全解耦。
   if (oldReq) {
-    // ⚠️ 1.0.4 fix：参数数组必须深拷贝（JSON round-trip）后再入草稿。
-    // 若浅拷贝（[...arr]），元素对象仍是共享引用 —— A 的参数对象与草稿里的
-    // 是同一个，来回切接口时 A 的类型/描述会经由此共享引用“透”到 B 相同位置参数
-    // （特征：B 该位没描述被 A 覆盖，有描述则不覆盖）。深拷贝后各接口草稿完全隔离。
-    const deep = (arr: ParamItem[]): ParamItem[] => JSON.parse(JSON.stringify(arr ?? []))
-    requestStore.draftCache[oldReq.id] = {
-      method: method.value,
-      url: url.value,
-      pathParamValues: { ...pathParamValues.value },
-      queryParams: deep(queryParams.value),
-      requestHeaders: deep(requestHeaders.value),
-      bodyType: bodyType.value,
-      bodyContent: bodyContent.value,
-      formDataParams: deep(formDataParams.value),
-      urlencodedParams: deep(urlencodedParams.value),
-      queryMode: queryMode.value,
-      queryKvText: queryKvText.value,
-      queryJsonText: queryJsonText.value,
-      headerMode: headerMode.value,
-      headerKvText: headerKvText.value,
-      headerJsonText: headerJsonText.value,
-      urlencodedMode: urlencodedMode.value,
-      urlencodedKvText: urlencodedKvText.value,
-    }
+    // 1.0.5：切走接口时进入用例前的接口编辑态快照随之失效
+    //（跨接口后 toggle 返回无意义；切回本接口走既有草稿/DB 恢复路径）
+    preCaseEditorSnapshot.value = null
+    requestStore.draftCache[oldReq.id] = snapshotEditor()
     // 1.0.4 fix：切走即落库，锁定离开的接口 oldReq.id。
     // 此刻 queryParams 等仍是 oldReq 的编辑区内容（尚未被新接口覆盖），
     // 落库目标明确为 oldReq.id —— 类型/描述只会写回本接口，绝不串到目标接口。
@@ -1235,67 +1320,12 @@ watch(() => requestStore.activeRequest, async (req, oldReq) => {
   if (req) {
     const draft = requestStore.draftCache[req.id]
     if (draft) {
-      // 2a. 从草稿恢复：所有编辑状态完整还原
-      // ⚠️ 1.0.4 fix：恢复也必须深拷贝 —— 直接赋草稿数组会把「另一个接口的草稿数组引用」
-      // 当成本接口编辑区（若某条路径误把 A 的数据存进 B 的草稿）。深拷贝后编辑区对象
-      // 永远独立，物理上与其它接口无关。此前的浅拷贝恢复是最大嫌疑。
-      const deep = (arr: ParamItem[]): ParamItem[] => JSON.parse(JSON.stringify(arr ?? []))
-      url.value = draft.url
-      method.value = draft.method
-      bodyType.value = draft.bodyType
-      bodyContent.value = draft.bodyContent
-      queryParams.value = deep(draft.queryParams)
-      requestHeaders.value = deep(draft.requestHeaders)
-      formDataParams.value = deep(draft.formDataParams)
-      urlencodedParams.value = deep(draft.urlencodedParams)
-      // UI 模式状态跟随草稿
-      queryMode.value = draft.queryMode
-      queryKvText.value = draft.queryKvText
-      queryJsonText.value = draft.queryJsonText
-      headerMode.value = draft.headerMode
-      headerKvText.value = draft.headerKvText
-      headerJsonText.value = draft.headerJsonText
-      urlencodedMode.value = draft.urlencodedMode
-      urlencodedKvText.value = draft.urlencodedKvText
-      // pathParamValues：先清空再赋值，配合后续 watch(parsedUrl) 的合并逻辑。
-      // 由于 URL 已从 draft 恢复，parsedUrl 重算时会基于同样的 URL 产生同样的 key 集合，
-      // 此处直接赋值即可完整还原 value。
-      pathParamValues.value = { ...draft.pathParamValues }
+      // 2a. 从草稿恢复：所有编辑状态完整还原（深拷贝语义见 applyDraftToEditor）
+      applyDraftToEditor(draft)
       isDraft = true
     } else {
       // 2b. 从 DB 加载：按接口原始定义初始化，清空所有临时调试状态
-      url.value = req.url
-      method.value = req.method
-      bodyType.value = req.body_type || 'none'
-      bodyContent.value = req.body || ''
-      // 加载 form-data 字段
-      if (req.body_type === 'form_data') {
-        try { formDataParams.value = JSON.parse(req.body || '[]') } catch { formDataParams.value = [] }
-      } else {
-        formDataParams.value = []
-      }
-
-      if (req.body_type === 'form_urlencoded') {
-        urlencodedParams.value = parseUrlencodedBody(req.body)
-      } else {
-        urlencodedParams.value = []
-      }
-
-      // 解析存储的 params/headers JSON
-      try { queryParams.value = JSON.parse(req.params) } catch { queryParams.value = [] }
-      try { requestHeaders.value = JSON.parse(req.headers) } catch { requestHeaders.value = [] }
-
-      // 重置 UI 模式为默认 table（仅无草稿时）
-      queryMode.value = 'table'
-      queryKvText.value = ''
-      queryJsonText.value = ''
-      headerMode.value = 'table'
-      headerKvText.value = ''
-      headerJsonText.value = ''
-      urlencodedMode.value = 'table'
-      urlencodedKvText.value = ''
-      // 关键：清空 pathParamValues，由后续 watch(parsedUrl) 根据新 URL 重建 key 集合
-      pathParamValues.value = {}
+      applyRequestToEditor(req)
     }
 
     paramsDirty.value = false
@@ -2025,10 +2055,28 @@ function checkParamsDirty() {
 }
 
 // ── 用例操作 handlers ──────────────────────────────────────────
+// ── 1.0.5：用例上下文 toggle（再次点击已激活用例 = 回到接口编辑区）──
+// 进入用例前的接口编辑态快照：deactivate 时据此返回。
+// 存独立 ref 而非 draftCache —— 切走接口的既有草稿语义保持不变，
+// toggle 的返回路径不受用例参数污染。
+const preCaseEditorSnapshot = ref<RequestDraft | null>(null)
+const showDeactivateModal = ref(false)
+
+const activeCaseName = computed(() => {
+  const id = testCaseStore.activeTestCaseId
+  if (id == null) return ''
+  const cases = testCaseStore.getByRequestId(requestStore.activeRequest?.id ?? 0)
+  return cases.find(c => c.id === id)?.name ?? ''
+})
+
 async function handleActivateTestCase(id: number) {
   const cases = testCaseStore.getByRequestId(requestStore.activeRequest?.id ?? 0)
   const tc = cases.find(c => c.id === id)
   if (!tc) return
+  // 从接口态进入用例态时，快照当前接口编辑态，供 deactivate 返回（A+A2）
+  if (testCaseStore.activeTestCaseId === null) {
+    preCaseEditorSnapshot.value = snapshotEditor()
+  }
   isInitializing = true
   testCaseStore.activeTestCaseId = id
   // 1.0.4 fix：用例快照缺的「类型/描述」用接口参数同 key 补全（避免切用例即丢失）
@@ -2096,6 +2144,62 @@ async function handleActivateTestCase(id: number) {
     // queryParams 已从 tc.params 加载完毕，防止 watcher 反向重写 URL
     syncingFromParams = true
     nextTick(() => { syncingFromParams = false })
+  })
+}
+
+// ── 1.0.5：退出用例上下文（A+A2：再次点击已激活用例）────────────
+function handleDeactivateTestCase() {
+  // A2：有未保存修改 → 三选一（保存到用例 / 丢弃 / 取消）
+  if (paramsDirty.value) {
+    showDeactivateModal.value = true
+    return
+  }
+  deactivateToRaw()
+}
+
+function cancelDeactivate() {
+  showDeactivateModal.value = false
+}
+
+async function confirmDeactivateSave() {
+  showDeactivateModal.value = false
+  try {
+    await handleSaveToActive()
+    deactivateToRaw()
+  } catch (e) {
+    // 保存失败则不退出，留在用例上下文，避免修改悬空丢失
+    message.error(`保存到用例失败：${e}`)
+  }
+}
+
+function confirmDeactivateDiscard() {
+  showDeactivateModal.value = false
+  deactivateToRaw()
+}
+
+/** 退出用例上下文：编辑区回到接口编辑态（进入用例前快照优先，兜底接口定义），
+ *  清激活用例，响应/History 切回 raw 桶 */
+function deactivateToRaw() {
+  const reqId = requestStore.activeRequestId
+  const activeReq = requestStore.activeRequest
+  if (reqId == null || !activeReq) return
+  isInitializing = true
+  testCaseStore.activeTestCaseId = null
+  const snap = preCaseEditorSnapshot.value
+  if (snap) {
+    applyDraftToEditor(snap)
+  } else {
+    // 快照缺失（异常路径）：退回接口定义
+    applyRequestToEditor(activeReq)
+  }
+  preCaseEditorSnapshot.value = null
+  // 1.0.4 语义：raw 桶 = 无激活用例的接口调试上下文
+  responseStore.setCurrent(reqId, null)
+  historyStore.loadHistory(reqId, null).catch(() => {})
+  paramsDirty.value = false
+  // 与 handleActivateTestCase 同款收尾：等 URL/参数同步完再放开 watcher
+  nextTick(() => {
+    isInitializing = false
   })
 }
 
@@ -2571,5 +2675,16 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
   display: flex;
   align-items: center;
   justify-content: center;
+}
+/* 1.0.5 A2：退出用例三选一弹窗 */
+.deactivate-modal__tip {
+  font-size: var(--font-size-base);
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.deactivate-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
 }
 </style>

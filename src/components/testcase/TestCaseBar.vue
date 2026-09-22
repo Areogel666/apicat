@@ -81,6 +81,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   activate: [id: number]
+  // 1.0.5：再次点击已激活用例 = 取消激活，切回接口编辑区（toggle 出口）
+  deactivate: []
   create: [name: string]
   rename: [id: number, name: string]
   delete: [id: number]
@@ -119,7 +121,12 @@ function handleTabClick(id: number) {
   if (renamingId.value === id) return
   if (clickTimer) clearTimeout(clickTimer)
   clickTimer = setTimeout(() => {
-    emit('activate', id)
+    // 1.0.5 toggle：再次点击已激活用例 = 取消激活，切回接口编辑区
+    if (id === props.activeId) {
+      emit('deactivate')
+    } else {
+      emit('activate', id)
+    }
     clickTimer = null
   }, 200)
 }
