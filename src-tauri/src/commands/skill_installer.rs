@@ -23,10 +23,19 @@ fn builtin_skills_dir(app: &tauri::AppHandle) -> Result<PathBuf, crate::error::A
         return Ok(PathBuf::from(stripped));
     }
     // 生产模式：Tauri 资源目录
+    // 注意：tauri.conf.json 的 resources 声明为 "../skills/"（相对 src-tauri），
+    // bundler 会把父级 ".." 重命名为 "_up_" 目录（见 tauri-utils resource_relpath：
+    // ParentDir → _up_），即技能实际落在 {resource_dir}/_up_/skills。
+    // 若配置将来改成不带 ".." 的写法，则落在 {resource_dir}/skills。两个候选都查。
     if let Ok(res_dir) = app.path().resource_dir() {
-        let res = res_dir.join("skills");
-        if res.exists() {
-            return Ok(res);
+        let candidates = [
+            res_dir.join("_up_").join("skills"), // "../skills/" → _up_/skills（当前配置）
+            res_dir.join("skills"),              // 兜底：平铺 resources/skills
+        ];
+        for res in candidates {
+            if res.exists() {
+                return Ok(res);
+            }
         }
     }
     Err(crate::error::AppError::Custom(
@@ -204,23 +213,24 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<(), crate::error::AppEr
 /// 删除链接（junction / symlink / 目录）
 fn remove_link(dest: &Path) -> Result<(), crate::error::AppError> {
     let Ok(meta) = dest.symlink_metadata() else { return Ok(()) };
-    // junction 在 Rust 里 is_symlink() 返回 false（它是 reparse point 但不是 symlink），
-    // 但 is_dir() 返回 true。需要先尝试 remove_dir（对 junction 是「删链接」而非「删内容」），
-    // 失败再用 remove_dir_all（真实目录）。
+    // Windows 分支说明：
+    // junction 在 Rust 的 symlink_metadata 下 is_dir() 返回 false（reparse point，is_symlink()
+    // 也返回 false），不能靠 is_dir() 分流。用三段式尝试，不依赖任何元数据判定：
+    //   remove_dir     → 删 junction / symlink→目录 / 空目录 的链接本身
+    //   remove_file    → 删普通文件 / symlink→文件
+    //   remove_dir_all → 删真实非空目录
+    // 每一种类型恰好命中其中一步，顺序不可调换。
     #[cfg(target_os = "windows")]
     {
-        if meta.is_dir() {
-            // 先试 remove_dir：junction 和空目录都能删；非空真实目录会失败
-            if std::fs::remove_dir(dest).is_ok() {
-                return Ok(());
-            }
-            // 真实非空目录
-            std::fs::remove_dir_all(dest)
-                .map_err(|e| crate::error::AppError::Custom(format!("删除目录失败: {e}")))?;
-        } else {
-            std::fs::remove_file(dest)
-                .map_err(|e| crate::error::AppError::Custom(format!("删除文件失败: {e}")))?;
+        let _ = &meta; // meta 仅用于上方存在性检查；Windows 删除不依赖元数据
+        if std::fs::remove_dir(dest).is_ok() {
+            return Ok(());
         }
+        if std::fs::remove_file(dest).is_ok() {
+            return Ok(());
+        }
+        std::fs::remove_dir_all(dest)
+            .map_err(|e| crate::error::AppError::Custom(format!("删除目录失败: {e}")))?;
         Ok(())
     }
     #[cfg(not(target_os = "windows"))]
