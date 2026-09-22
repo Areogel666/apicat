@@ -22,13 +22,19 @@
       </n-tooltip>
       <span v-if="overridden" class="fdd-ovr" title="此接口已对该字段换绑/解绑，例外优先于项目规则">ⓘ</span>
     </template>
-    <!-- 手写描述：始终标记追加在尾部（有字典时跟在枚举信息后） -->
-    <span v-if="manual" class="fdd-manual">◇ 手写：{{ manual }}</span>
+    <!-- 手写描述：始终标记追加在尾部（有字典时跟在枚举信息后）；超长省略 + 悬停看全文 -->
+    <n-tooltip v-if="manual && manualTruncated" trigger="hover" placement="top-end">
+      <template #trigger>
+        <span ref="manualRef" class="fdd-manual">◇ 手写：{{ manual }}</span>
+      </template>
+      <div class="fdd-manual-full">{{ manual }}</div>
+    </n-tooltip>
+    <span v-else-if="manual" ref="manualRef" class="fdd-manual">◇ 手写：{{ manual }}</span>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { NTooltip } from 'naive-ui'
 import { useDictionaryStore } from '../../stores/dictionary'
 import { useRequestStore } from '../../stores/request'
@@ -74,6 +80,19 @@ const overridden = computed(() => {
   return dictStore.fieldOverrides.some(o =>
     o.request_id === requestStore.activeRequestId && o.field_name === props.field)
 })
+
+// ── 手写描述截断检测：省略生效时才弹全文 Tooltip（不截断则普通展示，悬停不干扰） ──
+const manualRef = ref<HTMLElement | null>(null)
+const manualTruncated = ref(false)
+watch(
+  () => props.manual,
+  async () => {
+    await nextTick()
+    const el = manualRef.value
+    manualTruncated.value = !!el && el.scrollWidth > el.clientWidth + 1
+  },
+  { immediate: true },
+)
 </script>
 
 <style scoped>
@@ -116,7 +135,16 @@ const overridden = computed(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex-shrink: 0;
+  /* 允许收缩并参与省略号截断（flex-shrink:0 会保持内容宽、溢出被父级剪掉不出省略号） */
+  flex-shrink: 1;
+  min-width: 0;
+}
+.fdd-manual-full {
+  max-width: 320px;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  word-break: break-all;
+  white-space: normal;
 }
 .fdd-ovr {
   color: var(--color-warning);
