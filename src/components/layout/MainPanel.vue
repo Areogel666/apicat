@@ -15,7 +15,7 @@
       <!-- URL 栏 -->
       <div class="url-bar">
         <div class="url-input-combo">
-          <n-dropdown :options="methodOptions" trigger="click" @select="(k) => method = String(k)">
+          <n-dropdown :options="methodOptions" trigger="click" @select="selectMethod">
             <div class="method-trigger" :style="{ color: methodColor }">
               {{ method }} <span style="font-size: 10px; margin-left: 2px">▾</span>
             </div>
@@ -42,6 +42,7 @@
               :bordered="false"
               style="background: transparent"
               @keyup.enter="handleSend"
+              @change="onUrlEdit"
             />
             <!-- 预览模式：只读显示真实发送 URL（占位符已替换 + base_url 已拼接） -->
             <n-input
@@ -66,6 +67,30 @@
             {{ urlPreview ? '✏️' : '👁' }}
           </n-button>
         </div>
+        <n-button
+          text
+          size="small"
+          :disabled="undoDisabled"
+          title="撤销 (Ctrl+Z)"
+          style="flex-shrink: 0"
+          @click="undo"
+        >↶</n-button>
+        <n-button
+          text
+          size="small"
+          :disabled="redoDisabled"
+          title="重做 (Ctrl+Shift+Z / Ctrl+Y)"
+          style="flex-shrink: 0"
+          @click="redo"
+        >↷</n-button>
+        <n-button
+          v-if="requestDirty && savedSnapshotExists"
+          size="small"
+          quaternary
+          style="flex-shrink: 0"
+          title="放弃未保存修改，回到上次 Ctrl+S 保存的版本"
+          @click="restoreToSaved"
+        >↩ 回到上次保存</n-button>
         <n-button
           v-if="requestDirty"
           size="medium"
@@ -185,7 +210,7 @@
               </div>
               <div v-for="(q, idx) in sortedQueryParams" :key="rowKey(idx, q)" class="param-row-wrap">
                 <ParamRow :item="q" :type-options="typeOptions" key-placeholder="Key" value-placeholder="Value"
-                  @remove="queryParams.splice(queryParams.indexOf(q), 1)"
+                  @remove="removeQueryParam(q)"
                   @pick-dict="openDictPicker" />
               </div>
               <n-button size="small" dashed style="margin-top:4px; width:100%" @click="addQueryParam">
@@ -260,7 +285,7 @@
               </div>
               <div v-for="(h, idx) in sortedHeaders" :key="rowKey(idx, h)" class="param-row-wrap">
                 <ParamRow :item="h" :type-options="typeOptions" key-placeholder="Header 名" value-placeholder="值"
-                  @remove="requestHeaders.splice(requestHeaders.indexOf(h), 1)"
+                  @remove="removeHeader(h)"
                   @pick-dict="openDictPicker" />
               </div>
               <n-button size="small" dashed style="margin-top:4px; width:100%" @click="addHeader">
@@ -334,7 +359,7 @@
                 </div>
                 <div v-for="(f, idx) in sortedUrlencoded" :key="rowKey(idx, f)" class="param-row-wrap">
                   <ParamRow :item="f" :type-options="typeOptions" key-placeholder="字段名" value-placeholder="值"
-                    @remove="urlencodedParams.splice(urlencodedParams.indexOf(f), 1)"
+                    @remove="removeUrlencodedField(f)"
                     @pick-dict="openDictPicker" />
                 </div>
                 <n-button size="small" dashed style="margin-top:4px; width:100%" @click="addUrlencodedField">
@@ -369,7 +394,7 @@
               </div>
               <div v-for="(f, idx) in sortedFormData" :key="rowKey(idx, f)" class="param-row-wrap">
                 <ParamRow :item="f" :type-options="typeOptions" key-placeholder="字段名" value-placeholder="值"
-                  @remove="formDataParams.splice(formDataParams.indexOf(f), 1)"
+                  @remove="removeFormDataField(f)"
                   @pick-dict="openDictPicker" />
               </div>
               <n-button size="small" dashed style="margin-top:4px; width:100%" @click="addFormDataField">
@@ -1006,6 +1031,7 @@ async function unbindFieldDict() {
 const formDataParams = ref<ParamItem[]>([])
 
 function addFormDataField() {
+  pushUndo()
   formDataParams.value.push({ key: '', value: '', enabled: true })
 }
 
@@ -1033,6 +1059,7 @@ const urlencodedMode = ref<'table' | 'kv'>('table')
 const urlencodedKvText = ref('')
 
 function addUrlencodedField() {
+  pushUndo()
   urlencodedParams.value.push({ key: '', value: '', enabled: true })
 }
 
@@ -1344,6 +1371,93 @@ function applyRequestToEditor(req: ApiRequest) {
 
 // ── 监听激活接口变化，同步到编辑区 ───────────────────────────
 let isInitializing = false
+
+// ── 编辑撤销 / 重做（1.0.5）─────────────────────────────────
+// 结构级撤销：对 RequestDraft（snapshotEditor 粒度）压栈；文本输入在 ParamRow 内直接
+// 变异行对象，走浏览器原生撤销，不进栈。栈按接口分列，切接口保留各自历史，深度 20。
+const HISTORY_MAX = 20
+const editorHistories = ref<Record<number, { undo: RequestDraft[]; redo: RequestDraft[] }>>({})
+
+/** 本接口的撤销/重做栈（不存在则惰性建） */
+function activeHistory() {
+  const id = requestStore.activeRequestId
+  if (id == null) return null
+  if (!editorHistories.value[id]) editorHistories.value[id] = { undo: [], redo: [] }
+  return editorHistories.value[id]
+}
+
+/** 结构变更前调用：快照当前编辑态入撤销栈、清空重做栈 */
+function pushUndo() {
+  const h = activeHistory()
+  if (!h) return
+  h.undo.push(snapshotEditor())
+  if (h.undo.length > HISTORY_MAX) h.undo.shift()
+  h.redo = []
+}
+
+function undo() {
+  const h = activeHistory()
+  if (!h || !h.undo.length) return
+  h.redo.push(snapshotEditor())
+  const prev = h.undo.pop()!
+  isInitializing = true
+  try { applyDraftToEditor(prev) } finally { nextTick(() => { isInitializing = false }) }
+}
+
+function redo() {
+  const h = activeHistory()
+  if (!h || !h.redo.length) return
+  h.undo.push(snapshotEditor())
+  const next = h.redo.pop()!
+  isInitializing = true
+  try { applyDraftToEditor(next) } finally { nextTick(() => { isInitializing = false }) }
+}
+
+const undoDisabled = computed(() => { const h = activeHistory(); return !h || h.undo.length === 0 })
+const redoDisabled = computed(() => { const h = activeHistory(); return !h || h.redo.length === 0 })
+
+// URL 编辑完成（失焦/回车）记一步；method 选择同样记一步（Auth 不入栈，已即时落库）
+function onUrlEdit() { pushUndo() }
+function selectMethod(k: string | number) { pushUndo(); method.value = String(k) }
+
+// ── 草稿恢复（1.0.5）：回到上次 Ctrl+S 版本 ─────────────────
+// 仅 Ctrl+S/💾（handleSaveRequest）才记录快照 —— flushPersist 切走时静默落库不是
+// 用户认定的「保存」语义。按接口存，切接口保留。
+const savedSnapshots = ref<Record<number, RequestDraft>>({})
+const savedSnapshotExists = computed(() =>
+  requestStore.activeRequestId != null && savedSnapshots.value[requestStore.activeRequestId] != null)
+
+function restoreToSaved() {
+  const id = requestStore.activeRequestId
+  if (id == null) return
+  const snap = savedSnapshots.value[id]
+  if (!snap) return
+  isInitializing = true
+  try { applyDraftToEditor(snap) } finally { nextTick(() => { isInitializing = false }) }
+  message.info('已恢复到上次保存的版本')
+}
+
+// ── 结构删除操作（带撤销快照） ───────────────────────────────
+function removeQueryParam(q: ParamItem) {
+  pushUndo()
+  const i = queryParams.value.indexOf(q)
+  if (i >= 0) queryParams.value.splice(i, 1)
+}
+function removeHeader(h: ParamItem) {
+  pushUndo()
+  const i = requestHeaders.value.indexOf(h)
+  if (i >= 0) requestHeaders.value.splice(i, 1)
+}
+function removeUrlencodedField(f: ParamItem) {
+  pushUndo()
+  const i = urlencodedParams.value.indexOf(f)
+  if (i >= 0) urlencodedParams.value.splice(i, 1)
+}
+function removeFormDataField(f: ParamItem) {
+  pushUndo()
+  const i = formDataParams.value.indexOf(f)
+  if (i >= 0) formDataParams.value.splice(i, 1)
+}
 watch(() => requestStore.activeRequest, async (req, oldReq) => {
   // 1. 保存旧接口的草稿
   //    注意：无条件保存，不依赖 requestDirty —— 因为 pathParamValues 等
@@ -1684,10 +1798,12 @@ function escapeHtmlChars(s: string): string {
 
 // ── 辅助函数 ─────────────────────────────────────────────────
 function addQueryParam() {
+  pushUndo()
   queryParams.value.push({ key: '', value: '', enabled: true })
 }
 
 function addHeader() {
+  pushUndo()
   requestHeaders.value.push({ key: '', value: '', enabled: true })
 }
 
@@ -2381,6 +2497,8 @@ async function handleSaveRequest() {
     delete newCache[req.id]
     requestStore.draftCache = newCache
     requestDirty.value = false
+    // 草稿恢复基准：记录本次 Ctrl+S 的编辑区快照（不透传 Auth，Auth 已即时落库）
+    savedSnapshots.value[req.id] = snapshotEditor()
     // 短暂显示绿色已保存小点
     requestStore.markSaved(req.id)
 
@@ -2395,11 +2513,32 @@ async function handleSaveRequest() {
   }
 }
 
-// Ctrl+S 快捷键保存
+// Ctrl+S 保存 / Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y 撤销重做快捷键
+function isEditable(el: EventTarget | null): boolean {
+  const t = el as HTMLElement | null
+  return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
+}
+
 function onKeyDown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
     e.preventDefault()
     if (requestDirty.value) handleSaveRequest()
+    return
+  }
+  const key = e.key.toLowerCase()
+  const mod = e.ctrlKey || e.metaKey
+  // 撤销/重做：聚焦输入框时交给原生撤销，不做应用级接管
+  if (mod && key === 'z') {
+    if (isEditable(e.target)) return
+    e.preventDefault()
+    if (e.shiftKey) redo()
+    else undo()
+    return
+  }
+  if (mod && key === 'y') {
+    if (isEditable(e.target)) return
+    e.preventDefault()
+    redo()
   }
 }
 onMounted(() => document.addEventListener('keydown', onKeyDown))
