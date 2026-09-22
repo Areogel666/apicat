@@ -38,54 +38,51 @@
         </div>
       </div>
 
-      <!-- 行内联预览面板（点击行展开，再次点击收起）-->
-      <div v-if="previewId !== null" class="preview-panel">
-        <div class="preview-header">
-          <span class="preview-title">历史响应预览</span>
-          <n-button size="tiny" quaternary @click="closePreview">✕ 收起</n-button>
-        </div>
+      <!-- 历史响应预览抽屉（右侧滑出；teleport 挂 body，不受 tab 区裁剪，内容全高可滚）-->
+      <n-drawer v-model:show="showPreviewDrawer" :width="560" placement="right">
+        <n-drawer-content title="历史响应预览" closable>
+          <n-spin :show="previewLoading" size="small">
+            <div v-if="previewError" class="preview-error">{{ previewError }}</div>
 
-        <n-spin :show="previewLoading" size="small">
-          <div v-if="previewError" class="preview-error">{{ previewError }}</div>
+            <template v-else-if="previewRecord">
+              <div class="preview-meta">
+                <n-tag size="tiny" :type="statusTagType(previewRecord.status_code)">
+                  {{ previewRecord.status_code ?? '—' }}
+                </n-tag>
+                <span class="preview-meta-text">{{ previewRecord.response_time_ms ?? '—' }}ms</span>
+                <span class="preview-meta-text">{{ formatTime(previewRecord.created_at) }}</span>
+                <n-button
+                  v-if="isLargeResponse(previewRecord.response_body)"
+                  size="tiny"
+                  secondary
+                  type="primary"
+                  @click="openPreviewFile"
+                >
+                  📂 打开文件位置
+                </n-button>
+              </div>
 
-          <template v-else-if="previewRecord">
-            <div class="preview-meta">
-              <n-tag size="tiny" :type="statusTagType(previewRecord.status_code)">
-                {{ previewRecord.status_code ?? '—' }}
-              </n-tag>
-              <span class="preview-meta-text">{{ previewRecord.response_time_ms ?? '—' }}ms</span>
-              <span class="preview-meta-text">{{ formatTime(previewRecord.created_at) }}</span>
-              <n-button
-                v-if="isLargeResponse(previewRecord.response_body)"
-                size="tiny"
-                secondary
-                type="primary"
-                @click="openPreviewFile"
-              >
-                📂 打开文件位置
-              </n-button>
-            </div>
-
-            <n-tabs v-model:value="previewTab" type="line" size="small" class="preview-tabs">
-              <n-tab-pane name="body" tab="Body">
-                <pre class="preview-body">{{ previewBodyText(previewRecord) || '（空响应体）' }}</pre>
-              </n-tab-pane>
-              <n-tab-pane name="headers" tab="Headers">
-                <div v-if="!previewHeadersList(previewRecord).length" class="preview-empty">（无 Headers）</div>
-                <div v-else class="preview-headers">
-                  <div v-for="([k, v], i) in previewHeadersList(previewRecord)" :key="i" class="preview-header-row">
-                    <span class="preview-header-key">{{ k }}</span>
-                    <span class="preview-header-val">{{ v }}</span>
+              <n-tabs v-model:value="previewTab" type="line" size="small" class="preview-tabs">
+                <n-tab-pane name="body" tab="Body">
+                  <pre class="preview-body">{{ previewBodyText(previewRecord) || '（空响应体）' }}</pre>
+                </n-tab-pane>
+                <n-tab-pane name="headers" tab="Headers">
+                  <div v-if="!previewHeadersList(previewRecord).length" class="preview-empty">（无 Headers）</div>
+                  <div v-else class="preview-headers">
+                    <div v-for="([k, v], i) in previewHeadersList(previewRecord)" :key="i" class="preview-header-row">
+                      <span class="preview-header-key">{{ k }}</span>
+                      <span class="preview-header-val">{{ v }}</span>
+                    </div>
                   </div>
-                </div>
-              </n-tab-pane>
-              <n-tab-pane name="meta" tab="请求快照">
-                <pre class="preview-body">{{ prettyBody(previewRecord.request_snapshot) || '（无请求快照）' }}</pre>
-              </n-tab-pane>
-            </n-tabs>
-          </template>
-        </n-spin>
-      </div>
+                </n-tab-pane>
+                <n-tab-pane name="meta" tab="请求快照">
+                  <pre class="preview-body">{{ prettyBody(previewRecord.request_snapshot) || '（无请求快照）' }}</pre>
+                </n-tab-pane>
+              </n-tabs>
+            </template>
+          </n-spin>
+        </n-drawer-content>
+      </n-drawer>
 
       <!-- Diff 按钮（选中恰好 2 条时激活）-->
       <div class="history-actions">
@@ -122,7 +119,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { NEmpty, NCheckbox, NTag, NButton, NModal, NSpin, NTabs, NTabPane } from 'naive-ui'
+import { NEmpty, NCheckbox, NTag, NButton, NModal, NSpin, NTabs, NTabPane, NDrawer, NDrawerContent } from 'naive-ui'
 import { invoke } from '@tauri-apps/api/core'
 import type { HistoryRecord } from '../../types'
 
@@ -195,6 +192,12 @@ const previewLoading = ref(false)
 const previewTab = ref<'body' | 'headers' | 'meta'>('body')
 const previewRecord = ref<HistoryRecord | null>(null)
 const previewError = ref('')
+
+// 抽屉显隐与 previewId 联动：关闭（✕/Esc/遮罩）时走 closePreview 清状态
+const showPreviewDrawer = computed({
+  get: () => previewId.value !== null,
+  set: (v) => { if (!v) closePreview() },
+})
 
 function isLargeResponse(body?: string | null): boolean {
   return !!body && body.startsWith('@file:')
@@ -338,67 +341,18 @@ function prettyBody(body?: string | null): string {
   border-left: 2px solid var(--color-primary);
 }
 
-/* 行内联预览面板 */
-.preview-panel {
-  flex-shrink: 0;
-  border-top: 1px solid var(--border-base);
-  background: var(--bg-elevated-secondary, var(--bg-elevated));
-  padding: var(--spacing-sm) 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-  max-height: 45%;
-  overflow: hidden;
-  min-height: 0;
-}
-
-.preview-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 var(--spacing-xs);
-  flex-shrink: 0;
-}
-
-.preview-title {
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
+/* 预览抽屉内容（n-drawer-content 自带标题栏与整体滚动，内容自然高度） */
 .preview-meta {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  padding: var(--spacing-xs);
+  padding: 0 0 var(--spacing-sm);
   flex-wrap: wrap;
-  flex-shrink: 0;
 }
 
 .preview-meta-text {
   font-size: var(--font-size-sm);
   color: var(--text-tertiary);
-}
-
-.preview-tabs {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  padding: 0 var(--spacing-xs);
-}
-
-.preview-tabs :deep(.n-tabs-pane-wrapper) {
-  flex: 1;
-  overflow: hidden;
-  min-height: 0;
-}
-
-.preview-tabs :deep(.n-tab-pane) {
-  height: 100%;
-  overflow: auto;
-  min-height: 0;
 }
 
 .preview-body {
@@ -412,8 +366,6 @@ function prettyBody(body?: string | null): string {
   color: var(--text-primary);
   background: var(--bg-base, transparent);
   border-radius: var(--border-radius-sm, 4px);
-  max-height: 100%;
-  overflow: auto;
 }
 
 .preview-headers {

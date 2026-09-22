@@ -205,18 +205,22 @@ pub async fn run_test_case_impl(
     .await?;
 
     // 7. 写执行历史（合并到 request_history）
-    // 先插入获取 history_id
+    // request_snapshot 必须写（NOT NULL 无默认值，漏写必 1299）——
+    // 存实际发送的参数快照（变量替换后），与 send_request_impl 同款，供历史回填复用
+    let history_snapshot = serde_json::to_string(&send_params)
+        .unwrap_or_else(|_| "{}".to_string());
     let history_id: i64 = sqlx::query_scalar(
         "INSERT INTO request_history \
          (request_id, test_case_id, status_code, response_time_ms, \
-          response_body, is_truncated, error_message) \
-         VALUES (?, ?, ?, ?, ?, ?, ?) \
+          request_snapshot, response_body, is_truncated, error_message) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?) \
          RETURNING id",
     )
     .bind(request_id)
     .bind(test_case_id)
     .bind(status_code.map(|c| c as i64))
     .bind(elapsed_ms as i64)
+    .bind(&history_snapshot)
     .bind("")  // 占位，稍后更新
     .bind(0i64)
     .bind(&error_message)

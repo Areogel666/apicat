@@ -1178,13 +1178,58 @@ const requestDirty = ref(false)
 // 真正的 checkParamsDirty 函数定义仍保留在文件后半部 (就近 TestCase 相关代码)。
 const paramsDirty = ref(false)
 
-/** 标记当前激活接口为有未保存修改状态 */
+/** 归一化 JSON 字符串（parse→stringify），消除空白/键序差异后比较 */
+function normJson(s: string | null | undefined): string {
+  try { return JSON.stringify(JSON.parse(s || '[]')) } catch { return s || '' }
+}
+
+/** 当前编辑区落库字段的签名（与 update_request 的内容字段对齐） */
+function editorSignature(): string {
+  // form_data 的落库形态是 formDataParams 的 JSON 序列化（与 syncFormData 输出一致）
+  const bodySig = bodyType.value === 'form_data'
+    ? JSON.stringify(formDataParams.value)
+    : bodyType.value === 'form_urlencoded'
+      ? urlencodedStorageBody()
+      : bodyContent.value
+  return JSON.stringify([
+    method.value,
+    url.value,
+    JSON.stringify(queryParams.value),
+    JSON.stringify(requestHeaders.value),
+    bodyType.value,
+    bodySig,
+  ])
+}
+
+/** 接口落库状态的签名（比较基准 = store 里的 api_requests 值） */
+function storedSignature(req: ApiRequest): string {
+  const bodySig = (req.body_type === 'form_data' || req.body_type === 'form_urlencoded')
+    ? normJson(req.body)
+    : (req.body || '')
+  return JSON.stringify([
+    req.method,
+    req.url,
+    normJson(req.params),
+    normJson(req.headers),
+    req.body_type || 'none',
+    bodySig,
+  ])
+}
+
+/** 标记当前激活接口的 dirty 状态。
+ *  1.0.5 修：改为「签名比较」派生而非事件置位——切回原值（如 Body 类型点出去又点回来）
+ *  时编辑区与落库值一致，必须清脏，否则出现「什么都没改却显示待保存」的误报。 */
 function markRequestDirty() {
   if (isInitializing) return
-  const reqId = requestStore.activeRequest?.id
-  if (reqId == null) return
-  requestDirty.value = true
-  requestStore.dirtyRequestIds.add(reqId)
+  const req = requestStore.activeRequest
+  if (req == null) return
+  const dirty = editorSignature() !== storedSignature(req)
+  requestDirty.value = dirty
+  if (dirty) {
+    requestStore.dirtyRequestIds.add(req.id)
+  } else {
+    requestStore.dirtyRequestIds.delete(req.id)
+  }
 }
 
 // ── 1.0.4 fix：参数元数据（类型/描述/字典引用）自动落库 ─────────
