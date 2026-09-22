@@ -29,7 +29,9 @@
     "targets": "all",
     "createUpdaterArtifacts": true,
     "resources": [
-      "../skills/"
+      {
+        "../skills/": "skills/"
+      }
     ],
     "icon": [
       "icons/32x32.png",
