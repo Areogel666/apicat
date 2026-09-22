@@ -14,16 +14,9 @@
     />
     <!-- 解析失败 或 用户切到 raw 模式 → 显示原始文本 -->
     <pre v-if="viewMode === 'raw' || parsedJson === null" class="json-content"><code>{{ body }}</code></pre>
-    <!-- 美化模式：vue-json-pretty 折叠树 -->
+    <!-- 美化模式：自研折叠树（字段命中响应字典时值旁挂字典色微标签） -->
     <div v-else class="json-tree-wrapper">
-      <VueJsonPretty
-        :data="parsedJson"
-        :deep="expandLevel"
-        :show-length="true"
-        :show-line="true"
-        :collapsed-on-click-brackets="true"
-        :show-icon="true"
-      />
+      <JsonTree :data="parsedJson" :deep="expandLevel" :decorate="decorateField" />
     </div>
   </div>
 </template>
@@ -31,8 +24,10 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useMessage } from 'naive-ui'
-import VueJsonPretty from 'vue-json-pretty'
-import 'vue-json-pretty/lib/styles.css'
+import { useDictionaryStore } from '../../../stores/dictionary'
+import { useRequestStore } from '../../../stores/request'
+import { matchDictMarker, type DictMarker } from './jsonTreeUtils'
+import JsonTree from './JsonTree.vue'
 import SearchBar from '../SearchBar.vue'
 import { useTextSearch } from '../../../composables/useTextSearch'
 import type { ViewMode } from '../useResponseFormat'
@@ -67,6 +62,24 @@ const emit = defineEmits<{
 }>()
 
 const message = useMessage()
+
+// ── 响应字段字典命中（1.0.5：复用现有字段绑定规则表，仅字段名精确匹配） ──
+const dictStore = useDictionaryStore()
+const requestStore = useRequestStore()
+
+/** 字段值命中字典 item 时返回微标签（未绑定字典或未命中 → null 不渲染标记） */
+function decorateField(key: string, value: unknown): DictMarker | null {
+  return matchDictMarker(
+    k => dictStore.dictIdForField(k, requestStore.activeRequestId),
+    id => {
+      const d = dictStore.dictById(id)
+      return d ? `${d.code}（${d.name}）` : `#${id}`
+    },
+    id => dictStore.itemsMap[id] ?? [],
+    key,
+    value,
+  )
+}
 
 // vue-json-pretty 的 :deep prop —— 控制初始渲染的展开层级
 // 运行时改成 999 触发全展开（该组件没 expose expandAll 方法）
@@ -190,7 +203,7 @@ onBeforeUnmount(() => {
   color: var(--text-primary);
 }
 
-/* vue-json-pretty 折叠树容器 */
+/* 自研 JSON 树容器（树内字号/主题色在 JsonTree.vue 内管理） */
 .json-tree-wrapper {
   flex: 1;
   overflow: auto;
@@ -199,19 +212,8 @@ onBeforeUnmount(() => {
   border-radius: 4px;
   font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
   font-size: 12.5px;
-  line-height: 1.6;
+  line-height: 1.7;
 }
-
-/* 覆盖 vue-json-pretty 默认主题色，与 Naive UI 融合 */
-:deep(.vjs-tree) {
-  font-size: 12.5px !important;
-  font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace !important;
-}
-:deep(.vjs-tree .vjs-key)           { color: var(--json-key); }
-:deep(.vjs-tree .vjs-value-string)  { color: var(--json-string); }
-:deep(.vjs-tree .vjs-value-number)  { color: var(--json-number); }
-:deep(.vjs-tree .vjs-value-boolean) { color: var(--json-boolean); }
-:deep(.vjs-tree .vjs-value-null)    { color: var(--json-null); }
 
 /* 1.0.4：自实现搜索条定位 + 高亮标记 */
 .json-renderer-root {

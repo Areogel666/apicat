@@ -38,6 +38,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { NTooltip } from 'naive-ui'
 import { useDictionaryStore } from '../../stores/dictionary'
 import { useRequestStore } from '../../stores/request'
+import { looseEq } from '../response/formatters/jsonTreeUtils'
 import type { DictionaryItem } from '../../types'
 
 const props = withDefaults(defineProps<{
@@ -55,18 +56,6 @@ const requestStore = useRequestStore()
 const dictId = computed(() => dictStore.dictIdForField(props.field, requestStore.activeRequestId))
 const dictionary = computed(() => dictStore.dictById(dictId.value))
 const items = computed<DictionaryItem[]>(() => (dictId.value != null ? (dictStore.itemsMap[dictId.value] ?? []) : []))
-
-/** 数字与字符串互通：0 === "0"；空串/空白不参与数值比较，避免空值误命中 value=0 */
-function looseEq(a: string, b: string): boolean {
-  if (a == null || b == null) return a === b
-  const ta = a.trim()
-  const tb = b.trim()
-  if (ta === tb) return true
-  if (ta === '' || tb === '') return false
-  const na = Number(ta)
-  const nb = Number(tb)
-  return Number.isFinite(na) && Number.isFinite(nb) && na === nb
-}
 
 function isHit(it: DictionaryItem): boolean {
   return looseEq(props.value, it.value)
