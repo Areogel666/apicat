@@ -23,15 +23,21 @@
           title="接口文档"
           @click="leftPanel = 'docs'"
         >📄</button>
+        <!-- 1.0.5：折叠/展开左侧栏（三栏统一） -->
+        <button
+          class="activity-item activity-toggle"
+          :title="collapsed ? '展开左侧栏' : '收起左侧栏'"
+          @click="collapsed = !collapsed"
+        >{{ collapsed ? '▶' : '◀' }}</button>
       </div>
-      <!-- 左右面板均常驻(v-show)，切换时保留全部浏览状态 -->
-      <div class="side-pane" v-show="leftPanel === 'interface'">
+      <!-- 左右面板均常驻(v-show)，切换时保留全部浏览状态；折叠时整栏收起 -->
+      <div class="side-pane" v-show="leftPanel === 'interface' && !collapsed">
         <Sidebar :style="{ width: sidebarWidth + 'px' }" />
       </div>
-      <div class="side-pane" v-show="leftPanel === 'dictionary'">
+      <div class="side-pane" v-show="leftPanel === 'dictionary' && !collapsed">
         <DictionarySidebar :style="{ width: sidebarWidth + 'px' }" />
       </div>
-      <div class="side-pane" v-show="leftPanel === 'docs'">
+      <div class="side-pane" v-show="leftPanel === 'docs' && !collapsed">
         <DocsSidebar
           ref="docsSidebarRef"
           :style="{ width: sidebarWidth + 'px' }"
@@ -39,6 +45,7 @@
         />
       </div>
       <ResizableSplitter
+        v-show="!collapsed"
         direction="horizontal"
         :default-size="sidebarWidth"
         :min-size="160"
@@ -54,7 +61,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import TopBar from './TopBar.vue'
 import Sidebar from './Sidebar.vue'
 import DictionarySidebar from './DictionarySidebar.vue'
@@ -74,6 +81,10 @@ interface DocFile {
 }
 
 const sidebarWidth = ref(Number(localStorage.getItem('layout.sidebarWidth') ?? 240))
+
+// 1.0.5：左侧栏折叠收起（接口树/字典树/文档三栏统一），状态持久化
+const collapsed = ref(localStorage.getItem('layout.sidebarCollapsed') === '1')
+watch(collapsed, v => localStorage.setItem('layout.sidebarCollapsed', v ? '1' : '0'))
 
 // 左侧内容面板切换（接口树 / 字典树 / 文档）
 const leftPanel = ref<'interface' | 'dictionary' | 'docs'>('interface')
@@ -140,5 +151,9 @@ function onSidebarResize(size: number) {
 .activity-item.active {
   background: var(--bg-selected);
   color: var(--color-primary);
+}
+.activity-toggle {
+  margin-top: auto; /* 折叠按钮沉底，与上方 Tab 隔开 */
+  font-size: 13px;
 }
 </style>
