@@ -14,6 +14,7 @@
         :options="dictFilterOptions"
         size="small"
         clearable
+        filterable
         placeholder="按字典筛选"
         class="rules-dictfilter"
       />
@@ -172,8 +173,11 @@ const filteredOverrides = computed(() =>
 )
 
 // ── 字典选项 ───────────────────────────────────────────────
+// 字典选项：按 code（label 前缀）字母升序，供筛选与新建下拉共用
 const dictOptions = computed(() =>
-  store.dictionaries.map(d => ({ label: `${d.code}（${d.name}）`, value: d.id })))
+  store.dictionaries
+    .map(d => ({ label: `${d.code}（${d.name}）`, value: d.id }))
+    .sort((a, b) => a.label.localeCompare(b.label)))
 const dictFilterOptions = dictOptions
 
 function dictNameOf(id: number): string {

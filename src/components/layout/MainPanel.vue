@@ -872,9 +872,11 @@ const bindScope = ref<'rule' | 'override'>('rule')
 const dictSearchText = ref('')
 const filteredDicts = computed(() => {
   const kw = dictSearchText.value.trim().toLowerCase()
-  if (!kw) return dictionaryStore.dictionaries
-  return dictionaryStore.dictionaries.filter(d =>
-    d.code.toLowerCase().includes(kw) || d.name.toLowerCase().includes(kw))
+  const list = !kw
+    ? dictionaryStore.dictionaries
+    : dictionaryStore.dictionaries.filter(d =>
+        d.code.toLowerCase().includes(kw) || d.name.toLowerCase().includes(kw))
+  return [...list].sort((a, b) => a.code.localeCompare(b.code))
 })
 
 const ruleBoundDictId = computed(() =>
