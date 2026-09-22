@@ -20,6 +20,16 @@
             <div class="preview-error-icon">⚠️</div>
             <div>{{ previewError }}</div>
           </div>
+          <!-- 非 md 类型防御提示（docs 扫描只列 .md，此分支平时不触发）-->
+          <div v-else-if="unsupportedType" class="preview-unsupported">
+            <div class="preview-unsupported__icon">📄</div>
+            <div class="preview-unsupported__text">该文件类型暂不支持预览</div>
+            <div class="preview-unsupported__name">{{ file.name }}</div>
+            <n-button size="small" secondary type="primary" @click="openFile">
+              用系统默认程序打开
+            </n-button>
+          </div>
+          <!-- 空文件分支：unsupported 时也会命中下面，已提前短路 -->
           <MarkdownRenderer v-else-if="content" :body="content" />
           <div v-else class="preview-hint">该文件为空</div>
         </n-spin>
@@ -77,6 +87,12 @@ const message = useMessage()
 const content = ref('')
 const loading = ref(false)
 const previewError = ref('')
+const unsupportedType = ref(false)
+
+/** 是否可预览：仅 .md（大小写不敏感）。docs 扫描只认 md，此判定是防御性的。 */
+function isPreviewableMd(name: string): boolean {
+  return name.toLowerCase().endsWith('.md')
+}
 
 // 切换文件时异步读取内容。用请求序号防竞态：快速切换文件时
 // 只有最后一次请求的结果生效，避免旧文件内容覆盖新文件。
@@ -87,7 +103,13 @@ watch(
     const seq = ++readSeq
     content.value = ''
     previewError.value = ''
+    unsupportedType.value = false
     if (!path) return
+    const fname = props.file?.name ?? ''
+    if (!isPreviewableMd(fname)) {
+      unsupportedType.value = true
+      return
+    }
     loading.value = true
     try {
       const text = await invoke<string>('read_doc_file', { path })
@@ -199,11 +221,42 @@ function revealFile() {
   flex-direction: column;
 }
 
+/* n-spin 的 slot 容器需参与 flex 链路，否则内部 overflow:auto 的滚动区
+   会按内容高度膨胀、不自滚（滚动失效根因）。 */
+.preview-spin :deep(.n-spin-content) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .preview-hint {
   padding: 24px 16px;
   text-align: center;
   color: var(--text-tertiary);
   font-size: 13px;
+}
+
+.preview-unsupported {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px 16px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+.preview-unsupported__icon {
+  font-size: 32px;
+  opacity: 0.5;
+}
+.preview-unsupported__name {
+  max-width: 80%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .preview-error {

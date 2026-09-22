@@ -51,6 +51,7 @@ const rendered = computed(() => {
  */
 .markdown-preview-wrapper {
   flex: 1;
+  min-height: 0; /* 放在 flex 父链中时不基于内容膨胀（滚动失效修复的关键一环） */
   overflow: auto;
   padding: 16px 20px;
   background: var(--bg-surface);
