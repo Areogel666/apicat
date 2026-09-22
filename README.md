@@ -44,6 +44,12 @@ ApiCat is a modern desktop application for API debugging and testing, powered by
 - **Test Assertions**: Test cases can declare assertions (`status_code` / JSON Path); running a case gives a clear pass/fail verdict.
 - **Stress Report Preview & Thresholds**: Built-in Markdown report generator shared by the app and the Bridge, with in-app preview and Markdown/HTML export. P95/P99 reference lines are configurable per project with per-request overrides.
 - **API Docs Panel**: A third sidebar tab browsing your local API documentation directory — open files directly or reveal them in the file explorer.
+- **Response Dictionary Translation**: A hand-rolled JSON tree renders responses with color-coded micro-labels next to values that hit a bound dictionary item (`value ▸ meaning`, hover for dict name + description) — read-only translation, no schema changes.
+- **Request Editor Undo/Redo**: Structural undo/redo (add/remove rows, sorting, clear, paste, URL/method) with a per-request stack (depth 20); edit area shows a "⚠ unsaved" indicator with one-click restore to the last Ctrl+S version.
+- **History Merged & Inline Preview**: `test_case_history` merged into `request_history`; click a history row for inline response preview (aligned with live rendering); large response bodies stored as files with save-as.
+- **Dictionary Management Rework**: Two-tab management page; sidebar rows show dict code/name on two lines with item description on hover; binding dropdowns sorted by code with search.
+- **Collapsible Sidebar**: A consistent collapse button across all three sidebar tabs — collapse to full-width content, state persisted.
+- **Docs Markdown Preview**: In-app Markdown preview for doc files (scrolling fixed), plus a defensive placeholder for unsupported file types.
 
 ### 🚀 Quick Start (For Users)
 
@@ -116,6 +122,12 @@ ApiCat 是一款基于 Tauri 2.0 + Rust + Vue 3 的轻量、高性能、无跨�
 - **用例断言**：测试用例可声明断言（`status_code` / JSON Path），运行后给出明确的通过/失败判定。
 - **压测报告预览与参考线**：Markdown 报告生成器在 Rust 侧下沉，App 与 Bridge 共用同一真源；支持应用内预览与 Markdown/HTML 导出；P95/P99 参考线可按项目配置、按接口覆盖。
 - **接口文档面板**：侧边栏第三个 Tab，浏览本地接口文档目录，双击打开文件或在文件管理器中定位。
+- **响应字段字典翻译**：自研 JSON 树渲染响应，字段值命中已绑定字典项时值旁显示 `value ▸ 含义` 字典色微标签（hover 看字典名 + 描述）——只读翻译，不加数据模型。
+- **接口编辑撤销/重做**：结构级 undo/redo（加删行、排序、清空、粘贴、URL/method），按接口分栈（深 20）；编辑区「⚠ 未保存」标记 + 一键回到上次 Ctrl+S 版本。
+- **历史记录增强**：`test_case_history` 并入 `request_history`；点击历史行行内预览响应（对齐实时渲染）；大响应体文件化存储 + 另存为。
+- **字典管理改版**：管理页双 Tab；左侧栏两行化（code 主 / name 弱化）+ 字典项描述悬停；绑定下拉按 code 排序 + 可搜索。
+- **左侧栏折叠**：接口/字典/文档三栏统一折叠按钮，折叠后编辑区全宽，状态持久化。
+- **文档 Markdown 预览**：文档面板内直接预览 Markdown（含滚动修复）；非 md 类型给出防御占位。
 
 ### 🚀 快速使用
 

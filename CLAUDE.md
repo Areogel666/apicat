@@ -39,18 +39,25 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 
 - 断言 JSON 形状：`{status_code, json_path}`，运行结果给出通过/失败判定。
 - Bridge `create_test_case` 的 `case_type` **必填**（缺省返回 400，防止 7 种用例类型被静默全标成 happy_path）；UI 侧默认 happy_path。
-- 不能删除最后一个收藏用例（IPC 与 Bridge 共用同一约束）。
+- ~~收藏用例~~ 概念已随 1.0.5 移除（DB 迁移 DROP COLUMN starred）；用例无收藏/置顶，仅按最近使用排序。
 
 ### 历史列表契约
 
 - 前端 `list_history` 只取元数据（body/snapshot/headers 三个大字段为 NULL），diff / 回填用 `get_history_record(id)` 单条补拉。
 - **Bridge 的 `list_history` 仍返回全量字段**——外部技能脚本依赖此契约，勿「顺手统一」。
+- `test_case_history` 表已合并进 `request_history`（用例历史同表，`test_case_id` 不为空）；由触发器 `trg_rh_keep_10_per_case` 按用例保留最近 10 条。
+- **大响应落文件**：发送时超阈值则 body 存文件，`response_body` 为路径标记 + `is_truncated=1`；取回用 `open_response_file`，导出用 `export_response_file`，`cleanup_history` 可连带清理文件。
 
 ### 压测
 
 - **引擎不做 `{{var}}` 替换**（与正常发送的 Rust 侧 `replace_variables` 不同）；UI 从用例发起压测时预替换 `{{base_url}}`，最终 URL 仍含 `{{...}}` 或无激活环境 → `message.warning` 提示，不静默发压测。
 - **报告真源是 Rust `build_stress_report_markdown`**（App 预览/导出与 Bridge 共用），改报告只改这一处。
 - **参考线阈值**：项目级默认（`projects.p95/p99_threshold_ms`，500/1000）+ 接口级覆盖（`api_requests`，null=继承）。压测启动时生效值快照写入 `stress_runs.config_json`；报告只读 config_json → 常量默认，不回查项目/接口表（旧记录无字段 → 用默认值，改阈值不影响历史报告）。
+
+### 编辑撤销 / 草稿恢复
+
+- **结构级 undo/redo**：`MainPanel.vue` 的 `pushUndo()` 在 add/remove/splice/排序/URL/method 生效前调用，按 requestId 分栈、栈深 20。文本输入不 pushUndo（走原生撤销）——新增结构操作必须前置 pushUndo，否则 ctrl+z 撤销会跳过它。执行 undo/redo 包 `isInitializing`，防 watcher 连锁。
+- **回到上次保存**：Ctrl+S 成功后深拷贝存 `savedSnapshots[req.id]`；编辑区「⚠ 未保存」时点「回到上次保存版」应用快照，`isInitializing` 包住，不推入 undo 栈。
 
 ## Rust 侧加字段清单
 
