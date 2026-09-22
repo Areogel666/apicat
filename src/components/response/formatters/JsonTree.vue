@@ -134,7 +134,10 @@ const JsonTree = defineComponent({
   <JsonTree :node="props.data" :deep-init="props.deep" :decorate="props.decorate" />
 </template>
 
-<style scoped>
+<style>
+/* 注意：必须非 scoped —— 树内容由 h() 动态生成 vnode，scoped 选择器不会作用到
+   这些节点（scope 属性只加在模板书写的元素上），会导致缩进/行号/颜色全部失效。
+   .jt-* 类名足够唯一，无跨组件冲突。 */
 .json-tree {
   counter-reset: jtLine;
   color: var(--text-primary);
@@ -195,15 +198,16 @@ const JsonTree = defineComponent({
 .jt-children {
   padding-left: 16px;
 }
-/* 字典命中微标签：值旁小型字典色标签，原生 title 悬停展示全信息 */
+/* 字典命中微标签：主色系胶囊标签，与响应体普通文本明显区分（一眼可辨是「标注」） */
 .jt-mark {
-  margin-left: 4px;
-  padding: 0 4px;
+  margin-left: 6px;
+  padding: 0 5px;
   font-size: 11px;
-  line-height: 1.5;
-  border-radius: 3px;
-  background: var(--color-primary-soft, rgba(37, 124, 245, 0.15));
+  line-height: 1.6;
+  border-radius: 999px;
+  background: var(--color-primary-soft);
   color: var(--color-primary);
+  font-weight: 600;
   white-space: nowrap;
   cursor: help;
   user-select: text;
