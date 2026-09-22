@@ -84,11 +84,11 @@
           @click="redo"
         >↷</n-button>
         <n-button
-          v-if="requestDirty && savedSnapshotExists"
+          v-if="requestDirty"
           size="small"
           quaternary
           style="flex-shrink: 0"
-          title="放弃未保存修改，回到上次 Ctrl+S 保存的版本"
+          title="放弃未保存修改，回到上次 Ctrl+S 保存的版本（未保存过则为接口原始定义）"
           @click="restoreToSaved"
         >↩ 回到上次保存</n-button>
         <n-button
@@ -803,8 +803,18 @@ const sortedUrlencoded = computed(() => sortedList(urlencodedParams.value, 'urle
 const sortedFormData = computed(() => sortedList(formDataParams.value, 'formdata'))
 
 // 行 key 带接口作用域：切接口后强制重建行节点，杜绝 Vue 复用上一接口的行 DOM 导致残留
-function rowKey(idx: number, p: ParamItem): string {
-  return `${requestStore.activeRequestId ?? 0}-${idx}-${p.key}`
+// 参数行稳定身份：WeakMap 给每个行对象分配自增 id，用作 v-for :key。
+// 不能用「idx + key」当 key —— 一改字段名 key 就变，行被销毁重建、输入框失焦。
+// WeakMap 映射不落库（持久化 JSON 不含该字段），切接口深拷贝产生新对象 → 自动分配新 id。
+const paramRowIds = new WeakMap<object, number>()
+let paramRowIdSeq = 1
+function rowKey(_idx: number, p: ParamItem): string {
+  let id = paramRowIds.get(p)
+  if (id == null) {
+    id = paramRowIdSeq++
+    paramRowIds.set(p, id)
+  }
+  return `${requestStore.activeRequestId ?? 0}-row-${id}`
 }
 
 // ── 1.0.4 fix：用例切换不丢「类型/描述」 ──────────────────────
@@ -1424,16 +1434,17 @@ function selectMethod(k: string | number) { pushUndo(); method.value = String(k)
 // 仅 Ctrl+S/💾（handleSaveRequest）才记录快照 —— flushPersist 切走时静默落库不是
 // 用户认定的「保存」语义。按接口存，切接口保留。
 const savedSnapshots = ref<Record<number, RequestDraft>>({})
-const savedSnapshotExists = computed(() =>
-  requestStore.activeRequestId != null && savedSnapshots.value[requestStore.activeRequestId] != null)
 
 function restoreToSaved() {
-  const id = requestStore.activeRequestId
-  if (id == null) return
-  const snap = savedSnapshots.value[id]
-  if (!snap) return
+  const req = requestStore.activeRequest
+  if (!req) return
+  // 有本会话 Ctrl+S 快照 → 回快照；没有（从未保存过）→ 回 DB 原始定义
+  const snap = requestStore.activeRequestId != null ? savedSnapshots.value[requestStore.activeRequestId] : null
   isInitializing = true
-  try { applyDraftToEditor(snap) } finally { nextTick(() => { isInitializing = false }) }
+  try {
+    if (snap) applyDraftToEditor(snap)
+    else applyRequestToEditor(req)
+  } finally { nextTick(() => { isInitializing = false }) }
   message.info('已恢复到上次保存的版本')
 }
 
@@ -2772,12 +2783,14 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
   z-index: 0;
 }
 
-/* {{variable}} 标记样式 —— 使用警告色（橙）token 统一 */
+/* {{variable}} 标记样式 —— 使用警告色（橙）token 统一。
+   关键：padding 必须为 0 —— 有横向 padding 时高亮层每个变量比输入框真实文本
+   宽几像素，光标/选区在 input 内的位置会与上层高亮的视觉位置错位。 */
 .url-highlight-layer :deep(.url-var) {
   background: rgba(250, 140, 22, 0.18);
   color: var(--color-warning);
   border-radius: 3px;
-  padding: 1px 2px;
+  padding: 0;
   font-style: normal;
 }
 
