@@ -468,18 +468,19 @@ watch(currentProjectId, (pid) => {
   font-size: var(--font-size-sm);
 }
 
-/* 1.0.5：字典节点两行（code 主 / name 副）+ 字典项单行 + 描述 ⓘ 悬停 */
+/* 1.0.5：字典节点两行（code 主标识 / name 描述说明）+ 字典项单行 + 描述 ⓘ 悬停
+   层次：code 用主色+加粗（标识符），name 用弱色+小号（描述说明），区分清晰 */
 .dict-node {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
   padding: 3px 0;
   min-width: 0;
 }
 .dict-node__code {
   font-size: var(--font-size-base);
   line-height: 1.5;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -487,8 +488,9 @@ watch(currentProjectId, (pid) => {
 }
 .dict-node__name {
   font-size: var(--font-size-sm);
-  line-height: 1.5;
-  color: var(--text-tertiary);
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--text-tertiary); /* 描述说明：弱色弱化，不与 code 争抢 */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

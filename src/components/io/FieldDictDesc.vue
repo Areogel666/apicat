@@ -130,6 +130,11 @@ watch(
 }
 .fdd-manual-full {
   max-width: 320px;
+  /* 与枚举 Tooltip 一致：内容块自带主题背景+边框，避免浅/深主题下气泡底色与文字冲突 */
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
   font-size: var(--font-size-sm);
   color: var(--text-primary);
   word-break: break-all;
