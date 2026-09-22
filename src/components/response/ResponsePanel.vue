@@ -40,6 +40,9 @@
             <n-button type="primary" @click="openResponseFile">
               📂 打开文件位置
             </n-button>
+            <n-button secondary type="primary" @click="saveResponseFile">
+              ⬇️ 另存为…
+            </n-button>
           </div>
           <JsonViewer
             v-else-if="resp"
@@ -114,6 +117,26 @@ async function openResponseFile() {
     await invoke('open_response_file', { historyId: resp.value.history_id })
   } catch (e) {
     message.error(`打开文件失败：${e}`)
+  }
+}
+
+// 大包体另存为（Rust 侧文件复制，不读回内存，几百 MB 也安全）
+async function saveResponseFile() {
+  if (!resp.value?.history_id) {
+    message.error('无法获取历史记录 ID')
+    return
+  }
+  const { save } = await import('@tauri-apps/plugin-dialog')
+  const dest = await save({
+    defaultPath: `response_${resp.value.history_id}.txt`,
+    filters: [{ name: '文本文件', extensions: ['txt'] }],
+  })
+  if (!dest) return
+  try {
+    await invoke('export_response_file', { historyId: resp.value.history_id, destPath: dest })
+    message.success('已保存')
+  } catch (e) {
+    message.error(`保存失败：${e}`)
   }
 }
 

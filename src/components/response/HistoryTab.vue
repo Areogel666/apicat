@@ -51,20 +51,26 @@
                 </n-tag>
                 <span class="preview-meta-text">{{ previewRecord.response_time_ms ?? '—' }}ms</span>
                 <span class="preview-meta-text">{{ formatTime(previewRecord.created_at) }}</span>
-                <n-button
-                  v-if="isLargeResponse(previewRecord.response_body)"
-                  size="tiny"
-                  secondary
-                  type="primary"
-                  @click="openPreviewFile"
-                >
-                  📂 打开文件位置
-                </n-button>
               </div>
 
               <n-tabs v-model:value="previewTab" type="line" size="small" class="preview-tabs">
                 <n-tab-pane name="body" tab="Body">
-                  <pre class="preview-body">{{ previewBodyText(previewRecord) || '（空响应体）' }}</pre>
+                  <!-- 大响应（@file:）：不渲染内容，提供打开位置 + 另存为 -->
+                  <div v-if="isLargeResponse(previewRecord.response_body)" class="preview-large">
+                    <div class="preview-large-icon">📄</div>
+                    <div class="preview-large-text">大响应已保存到文件系统，不在此渲染</div>
+                    <div class="preview-large-actions">
+                      <n-button size="small" secondary type="primary" @click="openPreviewFile">📂 打开文件位置</n-button>
+                      <n-button size="small" type="primary" @click="savePreviewFile">⬇️ 另存为…</n-button>
+                    </div>
+                  </div>
+                  <JsonViewer
+                    v-else
+                    class="preview-json"
+                    :body="previewRecord.response_body ?? ''"
+                    :content-type="previewContentType"
+                    :is-truncated="previewRecord.is_truncated === 1"
+                  />
                 </n-tab-pane>
                 <n-tab-pane name="headers" tab="Headers">
                   <div v-if="!previewHeadersList(previewRecord).length" class="preview-empty">（无 Headers）</div>
@@ -119,9 +125,12 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { NEmpty, NCheckbox, NTag, NButton, NModal, NSpin, NTabs, NTabPane, NDrawer, NDrawerContent } from 'naive-ui'
+import { NEmpty, NCheckbox, NTag, NButton, NModal, NSpin, NTabs, NTabPane, NDrawer, NDrawerContent, useMessage } from 'naive-ui'
 import { invoke } from '@tauri-apps/api/core'
 import type { HistoryRecord } from '../../types'
+import JsonViewer from './JsonViewer.vue'
+
+const message = useMessage()
 
 defineProps<{
   records: HistoryRecord[]
@@ -203,22 +212,30 @@ function isLargeResponse(body?: string | null): boolean {
   return !!body && body.startsWith('@file:')
 }
 
-// body 预览截断上限：内联预览只为「扫一眼」，超长截断 + 提示
-const PREVIEW_BODY_LIMIT = 20000
+// body 渲染复用 JsonViewer（与实时响应预览逻辑一致），不再做前端字符截断；
+// 大响应（@file:）与底层 2MB 截断分别由占位块 / is_truncated 警告条处理
 
-function previewBodyText(rec: HistoryRecord): string {
-  if (!rec.response_body) return ''
-  if (isLargeResponse(rec.response_body)) {
-    return '⚠️ 大响应已保存到文件系统，点击「打开文件位置」查看完整内容'
-  }
-  let text = rec.response_body
-  if (text.length > PREVIEW_BODY_LIMIT) {
-    text = text.slice(0, PREVIEW_BODY_LIMIT) + `\n…（已截断，共 ${rec.response_body.length} 字符）`
-  }
+/** 响应 Content-Type（从响应头提取，供 JsonViewer 识别格式） */
+const previewContentType = computed(() => {
+  if (!previewRecord.value) return ''
+  const hit = previewHeadersList(previewRecord.value).find(([k]) => k.toLowerCase() === 'content-type')
+  return hit ? hit[1] : ''
+})
+
+/** 大包体另存为（Rust 侧文件复制，不读回内存，几百 MB 也安全） */
+async function savePreviewFile() {
+  if (!previewRecord.value) return
+  const { save } = await import('@tauri-apps/plugin-dialog')
+  const dest = await save({
+    defaultPath: `response_${previewRecord.value.id}.txt`,
+    filters: [{ name: '文本文件', extensions: ['txt'] }],
+  })
+  if (!dest) return
   try {
-    return JSON.stringify(JSON.parse(text), null, 2)
-  } catch {
-    return text
+    await invoke('export_response_file', { historyId: previewRecord.value.id, destPath: dest })
+    message.success('已保存')
+  } catch (e) {
+    message.error(`保存失败：${e}`)
   }
 }
 
@@ -348,6 +365,33 @@ function prettyBody(body?: string | null): string {
   gap: var(--spacing-sm);
   padding: 0 0 var(--spacing-sm);
   flex-wrap: wrap;
+}
+
+/* 大响应占位 */
+.preview-large {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xl) var(--spacing-md);
+}
+.preview-large-icon {
+  font-size: 36px;
+  opacity: 0.6;
+}
+.preview-large-text {
+  font-size: var(--font-size-base);
+  color: var(--text-secondary);
+}
+.preview-large-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-xs);
+}
+
+/* JsonViewer 占满抽屉可视高度（抽屉整体滚动由 n-drawer-content 承担） */
+.preview-json {
+  height: calc(100vh - 200px);
 }
 
 .preview-meta-text {

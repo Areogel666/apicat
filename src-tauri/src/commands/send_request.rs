@@ -254,11 +254,9 @@ pub async fn list_history(
     Ok(rows)
 }
 
-/// 打开响应文件所在位置（资源管理器定位）
-#[tauri::command]
-pub async fn open_response_file(history_id: i64) -> CmdResult<()> {
-    // 文件名格式：{history_id}_{status}_{timestamp}.txt
-    // 需要模糊匹配，因为 status 和 timestamp 未知
+/// 按 history_id 查找大响应文件（文件名格式：{history_id}_{status}_{timestamp}.txt，
+/// status 与 timestamp 未知，需模糊匹配）。open_response_file / export_response_file 共用。
+fn find_response_file(history_id: i64) -> Result<PathBuf, crate::error::AppError> {
     let response_dir = get_response_dir()?;
     let mut found_path = None;
 
@@ -273,12 +271,18 @@ pub async fn open_response_file(history_id: i64) -> CmdResult<()> {
         }
     }
 
-    let file_path = found_path.ok_or_else(|| {
+    found_path.ok_or_else(|| {
         crate::error::AppError::Custom(format!(
             "响应文件不存在: history_id={}",
             history_id
         ))
-    })?;
+    })
+}
+
+/// 打开响应文件所在位置（资源管理器定位）
+#[tauri::command]
+pub async fn open_response_file(history_id: i64) -> CmdResult<()> {
+    let file_path = find_response_file(history_id)?;
 
     // 复用 docs.rs 的 reveal_in_explorer 逻辑
     #[cfg(target_os = "windows")]
@@ -305,6 +309,16 @@ pub async fn open_response_file(history_id: i64) -> CmdResult<()> {
             .map_err(|e| crate::error::AppError::Custom(format!("打开文件管理器失败: {e}")))?;
     }
 
+    Ok(())
+}
+
+/// 将大响应文件另存到用户指定路径（文件复制，不读回内存——几百 MB 的包体也安全）
+#[tauri::command]
+pub async fn export_response_file(history_id: i64, dest_path: String) -> CmdResult<()> {
+    let file_path = find_response_file(history_id)?;
+    std::fs::copy(&file_path, &dest_path).map_err(|e| {
+        crate::error::AppError::Custom(format!("保存响应文件失败: {e}"))
+    })?;
     Ok(())
 }
 
