@@ -19,7 +19,7 @@
           :data="filteredTree"
           :render-label="renderLabel"
           :render-suffix="renderSuffix"
-          default-expand-all
+          :default-expanded-keys="defaultDictKeys"
           block-line
           expand-on-click
           @update:selected-keys="onTreeSelect"
@@ -147,6 +147,9 @@ const treeData = computed<DictNode[]>(() =>
   })),
 )
 
+// 1.0.5：默认只展开字典层（字典项收起），树不再默认全展开
+const defaultDictKeys = computed(() => store.dictionaries.map(d => `dict-${d.id}`))
+
 // 1.0.4 fix：字典树搜索（按字典 code/name 或字典项 value/label 过滤）
 const dictSearch = ref('')
 const filteredTree = computed<DictNode[]>(() => {
@@ -161,26 +164,27 @@ const filteredTree = computed<DictNode[]>(() => {
 })
 
 // 1.0.5：节点自定义渲染——字典两行（code 主 / name 副），字典项单行 + 描述 ⓘ 悬停
+// 注意：render 函数 h() 生成的 vnode 不带组件 scopeId，对应样式只能放「非 scoped」块（dsb-* 前缀防泄漏）。
 function renderLabel(info: { option: TreeOption }) {
   const opt = info.option as DictNode
   const key = String(opt.key)
   if (key.startsWith('dict-') && opt.dict) {
     const d = opt.dict
-    return h('div', { class: 'dict-node' }, [
-      h('div', { class: 'dict-node__code' }, d.code),
-      h('div', { class: 'dict-node__name' }, d.name || ' '),
+    return h('div', { class: 'dsb-node' }, [
+      h('div', { class: 'dsb-node__code' }, d.code),
+      h('div', { class: 'dsb-node__name' }, d.name || ' '),
     ])
   }
   if (opt.item) {
     const it = opt.item
-    return h('div', { class: 'dict-item' }, [
-      h('span', { class: 'dict-item__kv' }, [
+    return h('div', { class: 'dsb-item' }, [
+      h('span', { class: 'dsb-item__kv' }, [
         h('code', {}, it.value),
         ` = ${it.label}`,
       ]),
       it.description
         ? h(NTooltip, { trigger: 'hover', placement: 'top' }, {
-            trigger: () => h('span', { class: 'dict-item__desc-icon' }, 'ⓘ'),
+            trigger: () => h('span', { class: 'dsb-item__desc-icon' }, 'ⓘ'),
             default: () => it.description ?? '',
           })
         : null,
@@ -468,63 +472,8 @@ watch(currentProjectId, (pid) => {
   font-size: var(--font-size-sm);
 }
 
-/* 1.0.5：字典节点两行（code 主标识 / name 描述说明）+ 字典项单行 + 描述 ⓘ 悬停
-   层次：code 用主色+加粗（标识符），name 用弱色+小号（描述说明），区分清晰 */
-.dict-node {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 3px 0;
-  min-width: 0;
-}
-.dict-node__code {
-  font-size: var(--font-size-base);
-  line-height: 1.5;
-  font-weight: 600;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.dict-node__name {
-  font-size: var(--font-size-sm);
-  font-weight: 400;
-  line-height: 1.4;
-  color: var(--text-tertiary); /* 描述说明：弱色弱化，不与 code 争抢 */
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.dict-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  font-size: var(--font-size-sm);
-  line-height: var(--row-height); /* 单行高度随主题紧凑/宽松档位 */
-}
-.dict-item__kv {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.dict-item__kv code {
-  font-size: 0.92em;
-  color: var(--color-primary);
-  background: var(--bg-hover);
-  border-radius: 3px;
-  padding: 0 3px;
-}
-.dict-item__desc-icon {
-  flex-shrink: 0;
-  color: var(--text-tertiary);
-  font-size: 12px;
-  cursor: help;
-}
+/* 字典树 render 节点的样式（dsb-*）在文件末尾「非 scoped」样式块：
+   原因：h() 生成的 vnode 无组件 scopeId，scoped 选择器匹配不上，必须全局类。 */
 .dict-form {
   display: flex;
   flex-direction: column;
@@ -551,5 +500,65 @@ watch(currentProjectId, (pid) => {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+</style>
+
+<style>
+/* 1.0.5：字典树 render 节点样式 —— 必须非 scoped（h() vnode 无组件 scopeId），
+   dsb-* 前缀防止全局类泄漏。 */
+.dsb-node {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 3px 0;
+  min-width: 0;
+}
+.dsb-node__code {
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dsb-node__name {
+  font-size: var(--font-size-sm);
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--text-tertiary); /* 描述说明：弱色弱化，不与 code 争抢 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dsb-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: var(--font-size-sm);
+  line-height: var(--row-height); /* 单行高度随主题紧凑/宽松档位 */
+}
+.dsb-item__kv {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dsb-item__kv code {
+  font-size: 0.92em;
+  color: var(--color-primary);
+  background: var(--bg-hover);
+  border-radius: 3px;
+  padding: 0 3px;
+}
+.dsb-item__desc-icon {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  cursor: help;
 }
 </style>
