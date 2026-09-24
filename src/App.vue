@@ -3,36 +3,25 @@
     <n-dialog-provider>
       <n-message-provider>
         <AppLayout />
-        <!-- 1.0.6：首启技能引导 —— 检测到 agent 目录但未装技能时自动弹出 -->
-        <SkillManager v-model:show="showSkillGuide" />
+        <!-- 1.0.6：启动期一次性检查（须在 provider 子树内，故独立成子组件） -->
+        <StartupChecks />
       </n-message-provider>
     </n-dialog-provider>
   </n-config-provider>
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
-import { NConfigProvider, NMessageProvider, NDialogProvider, zhCN, dateZhCN, useDialog, useMessage } from 'naive-ui'
+import { onMounted, onUnmounted } from 'vue'
+import { NConfigProvider, NMessageProvider, NDialogProvider, zhCN, dateZhCN } from 'naive-ui'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import { invoke } from '@tauri-apps/api/core'
 import AppLayout from './components/layout/AppLayout.vue'
-import SkillManager from './components/settings/SkillManager.vue'
+import StartupChecks from './components/layout/StartupChecks.vue'
 import { useProjectStore } from './stores/project'
 import { useThemeStore } from './stores/theme'
 import { useCollectionStore } from './stores/collection'
 import { useRequestStore } from './stores/request'
 import { useDictionaryStore } from './stores/dictionary'
 import { useTestCaseStore } from './stores/testCase'
-import { checkForUpdateAtStartup, skillGuideShown, markSkillGuideShown } from './stores/startupChecks'
-
-interface SkillTarget {
-  id: string
-  name: string
-  path: string
-  agent_installed: boolean
-  skills_installed: boolean
-  installed_skills: string[]
-}
 
 const projectStore = useProjectStore()
 const themeStore = useThemeStore()
@@ -40,13 +29,6 @@ const collectionStore = useCollectionStore()
 const requestStore = useRequestStore()
 const dictionaryStore = useDictionaryStore()
 const testCaseStore = useTestCaseStore()
-
-// 1.0.6：启动检查更新 / 首启引导需要 dialog + message 实例
-const dialog = useDialog()
-const message = useMessage()
-
-// 1.0.6：首启技能引导弹窗
-const showSkillGuide = ref(false)
 
 let bridgeUnlisten: UnlistenFn | null = null
 
@@ -88,28 +70,7 @@ onMounted(async () => {
     }
     // stress 由压测面板自行处理
   })
-
-  // 1.0.6：启动期一次性检查（并行跑，互不阻塞）
-  checkForUpdateAtStartup({ dialog, message })
-  checkSkillGuideOnStartup()
 })
-
-/**
- * 1.0.6：首启技能引导 —— 检测到存在 agent 目录但技能未装（且未提示过）→ 弹窗引导安装。
- * 静默失败：get_skill_targets 异常不打断启动。
- */
-async function checkSkillGuideOnStartup() {
-  try {
-    if (await skillGuideShown()) return
-    const targets = await invoke<SkillTarget[]>('get_skill_targets')
-    const needsGuide = targets.some(t => t.agent_installed && !t.skills_installed)
-    if (!needsGuide) return
-    await markSkillGuideShown() // 先标记再弹，关掉后不重复打扰
-    showSkillGuide.value = true
-  } catch (e) {
-    console.debug('[startup] 技能引导检测跳过:', e)
-  }
-}
 
 onUnmounted(() => {
   bridgeUnlisten?.()
