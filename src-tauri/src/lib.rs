@@ -40,6 +40,7 @@ use commands::{
 };
 use db::{init_db, AppDb};
 use tauri::Manager;
+use tauri_plugin_window_state::StateFlags;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -50,6 +51,13 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        // 窗口状态记忆：只记尺寸与最大化，刻意不记 POSITION ——
+        // 不还原位置就不会出现「外接屏拔掉后窗口落在可见区域外」的问题，省掉一段越界兜底逻辑。
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(StateFlags::SIZE | StateFlags::MAXIMIZED)
+                .build(),
+        )
         .setup(|app| {
             // Tauri 2.x setup 是同步回调，block_on 在当前线程完成 DB 初始化
             let pool = tauri::async_runtime::block_on(init_db(app))?;
