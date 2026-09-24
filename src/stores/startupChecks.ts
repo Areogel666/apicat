@@ -28,8 +28,14 @@ const KEY_SKILL_GUIDE_SHOWN = 'startup.skillGuideShown'
 export async function checkForUpdateAtStartup(params: {
   dialog: DialogLike
   message: MessageLike
+  /**
+   * 返回 true 表示当前已有模态在屏（如技能引导弹窗）。
+   * 此时本次不弹更新框、也不写「已提示」标记 —— 让位给已有模态，留到下次启动再提示，
+   * 避免两个模态叠加（首启 + 恰好有新版本是真实可复现的场景）。
+   */
+  isBlocked?: () => boolean
 }): Promise<void> {
-  const { dialog, message } = params
+  const { dialog, message, isBlocked } = params
   try {
     const currentVersion = await getVersion()
     const lastShown = await readSetting<string>(KEY_LAST_CHECKED_VERSION)
@@ -37,6 +43,8 @@ export async function checkForUpdateAtStartup(params: {
 
     const update = await check()
     if (!update) return // 已是最新，不打扰
+
+    if (isBlocked?.()) return // 已有模态在屏 → 让位，下次启动再说
 
     dialog.info({
       title: `发现新版本 ${update.version}`,

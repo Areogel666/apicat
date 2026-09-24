@@ -28,10 +28,12 @@ const message = useMessage()
 // 1.0.6：首启技能引导弹窗
 const showSkillGuide = ref(false)
 
-onMounted(() => {
-  // 启动期一次性检查（并行跑，互不阻塞）
-  checkForUpdateAtStartup({ dialog, message })
-  checkSkillGuideOnStartup()
+onMounted(async () => {
+  // 串行，不并行：两个检查都会弹模态，并行会在「首启 + 恰有新版本」时叠成两层弹窗。
+  // 技能引导先跑（纯本地检测，瞬时返回），更新检查随后跑；更新检查弹框前会看引导弹窗是否开着，
+  // 开着就让位（不写「已提示」标记，下次启动再提示）。
+  await checkSkillGuideOnStartup()
+  checkForUpdateAtStartup({ dialog, message, isBlocked: () => showSkillGuide.value })
 })
 
 /**

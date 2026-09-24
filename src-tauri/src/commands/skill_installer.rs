@@ -110,11 +110,7 @@ pub async fn get_skill_targets() -> CmdResult<Vec<SkillTarget>> {
 pub fn repair_skill_links(app: &tauri::AppHandle) {
     let Ok(src) = builtin_skills_dir(app) else { return };
     let Ok(home) = home_dir() else { return };
-
-    // AppImage：挂载点每次启动都变，且安装结果是**副本**（见 create_link 的 AppImage 分支）——
-    // 副本不像软链那样自动跟随 App 更新，故每次启动无条件刷新一遍
-    // （4 个技能合计不到 10 个小文件，开销可忽略）。
-    let in_appimage = std::env::var_os("APPDIR").is_some();
+    let version = app.package_info().version.to_string();
 
     for (id, skills_dir) in [
         ("claude", home.join(".claude").join("skills")),
@@ -136,15 +132,24 @@ pub fn repair_skill_links(app: &tauri::AppHandle) {
             if dest.symlink_metadata().is_err() {
                 continue;
             }
-            // 悬空判定：链接本身在（symlink_metadata 成功）但目标不存在（exists 跟随链接后为 false）
-            let dangling = !dest.exists();
-            if dangling || in_appimage {
-                eprintln!(
-                    "[skill_installer] {}: {} → 重建",
-                    if dangling { "检测到悬空链接" } else { "AppImage 刷新副本" },
-                    dest.display()
-                );
-                match create_link(&src.join(skill), &dest) {
+
+            // 需要重建的两种情况：
+            //   1) 链接悬空 —— 链接本身在（symlink_metadata 成功）但目标不存在（exists 跟随链接后为 false）
+            //      （App 被移动/更新到新路径时）
+            //   2) 副本版本过期 —— 副本不会像链接那样自动跟随 App，需比对「出厂版本」标记
+            let reason = if !dest.exists() {
+                Some("检测到悬空链接")
+            } else if !is_link(&dest) {
+                let marked = std::fs::read_to_string(dest.join(COPY_VERSION_MARKER)).ok();
+                let stale = marked.as_deref().map(str::trim) != Some(version.as_str());
+                if stale { Some("副本版本过期") } else { None }
+            } else {
+                None // 有效链接：自动跟随 App 资源目录，无需处理
+            };
+
+            if let Some(reason) = reason {
+                eprintln!("[skill_installer] {reason}: {} → 重建", dest.display());
+                match create_link(&src.join(skill), &dest, &version) {
                     Ok(method) => repaired.push(format!("{skill}:{method}")),
                     Err(e) => eprintln!("[skill_installer] 重建 {skill} 失败: {e}"),
                 }
@@ -156,8 +161,19 @@ pub fn repair_skill_links(app: &tauri::AppHandle) {
     }
 }
 
+/// 复制式安装的版本标记文件名（记录该副本由哪个 App 版本产出）。
+/// 副本不会像链接那样自动跟随 App 资源目录，故用它判断是否需要刷新。
+const COPY_VERSION_MARKER: &str = ".apicat-skills-version";
+
+/// 是否为「链接式」安装（Unix symlink / Windows junction）。
+/// 链接自动跟随 App 资源目录的更新，无需版本刷新；只有副本才需要。
+/// 用 read_link 判定：对 symlink 与 junction 均返回 Ok，对真实目录/副本返回 Err（本机实测）。
+fn is_link(path: &Path) -> bool {
+    std::fs::read_link(path).is_ok()
+}
+
 /// 在目录上建链接（junction / symlink），失败回退复制
-fn create_link(src: &Path, dest: &Path) -> Result<String, crate::error::AppError> {
+fn create_link(src: &Path, dest: &Path, version: &str) -> Result<String, crate::error::AppError> {
     // 确保父目录存在
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent)
@@ -194,7 +210,7 @@ fn create_link(src: &Path, dest: &Path) -> Result<String, crate::error::AppError
     // 例外 —— AppImage：每次启动挂载到**新的**临时目录（/tmp/.mount_XXXX/），软链到挂载点内的
     // 资源会随 App 退出立刻悬空，导致 Claude Code 在 ApiCat 未运行时读不到技能。
     // 检测到 AppImage（运行时注入 APPDIR 环境变量）时跳过软链，直接走下面的文件复制，让安装自包含。
-    // 副本的“过期”问题由 repair_skill_links 在每次启动时刷新解决。
+    // 副本的“过期”问题由 repair_skill_links 依据副本内的版本标记（COPY_VERSION_MARKER）刷新解决。
     #[cfg(not(target_os = "windows"))]
     {
         if std::env::var_os("APPDIR").is_none() {
@@ -205,8 +221,11 @@ fn create_link(src: &Path, dest: &Path) -> Result<String, crate::error::AppError
         }
     }
 
-    // 回退：文件复制
+    // 回退 / AppImage：文件复制
     copy_dir_recursive(src, dest)?;
+    // 副本携带「出厂版本」，供 repair_skill_links 在 App 升级后判断是否需要刷新。
+    // 写失败不报错：标记缺失会在下次启动被判为「版本过期」从而自动重刷，自愈。
+    let _ = std::fs::write(dest.join(COPY_VERSION_MARKER), version);
     Ok("copy".to_string())
 }
 
@@ -271,6 +290,7 @@ fn remove_link(dest: &Path) -> Result<(), crate::error::AppError> {
 pub async fn install_skills(app: tauri::AppHandle, target_id: String) -> CmdResult<String> {
     let src = builtin_skills_dir(&app)?;
     let home = home_dir()?;
+    let version = app.package_info().version.to_string();
     let dest = match target_id.as_str() {
         "claude" => home.join(".claude").join("skills"),
         "codex" => home.join(".codex").join("skills"),
@@ -286,7 +306,7 @@ pub async fn install_skills(app: tauri::AppHandle, target_id: String) -> CmdResu
             )));
         }
         let skill_dest = dest.join(skill);
-        let method = create_link(&skill_src, &skill_dest)?;
+        let method = create_link(&skill_src, &skill_dest, &version)?;
         methods.push(format!("{skill}:{method}"));
     }
     Ok(methods.join(", "))
