@@ -22,15 +22,17 @@ fn builtin_skills_dir(app: &tauri::AppHandle) -> Result<PathBuf, crate::error::A
         let stripped = s.strip_prefix(r"\\?\").map(|x| x.to_string()).unwrap_or_else(|| s.to_string());
         return Ok(PathBuf::from(stripped));
     }
-    // 生产模式：Tauri 资源目录
-    // 注意：tauri.conf.json 的 resources 声明为 "../skills/"（相对 src-tauri），
-    // bundler 会把父级 ".." 重命名为 "_up_" 目录（见 tauri-utils resource_relpath：
-    // ParentDir → _up_），即技能实际落在 {resource_dir}/_up_/skills。
-    // 若配置将来改成不带 ".." 的写法，则落在 {resource_dir}/skills。两个候选都查。
+    // 生产模式：Tauri 资源目录（三平台一致：
+    //   Windows = {InstallDir}\resources；macOS = .app/Contents/Resources；Linux = /usr/lib/{exe}/…）
+    //
+    // 落点取决于 tauri.conf.json 的 resources 写法：
+    //   · 当前用 map 形式 {"../skills/": "skills/"} → 显式指定目标，落 {resource_dir}/skills
+    //   · 早期数组形式 ["../skills/"] → bundler 把父级 ".." 重命名为 "_up_"，落 {resource_dir}/_up_/skills
+    // 两个候选都探测，兼容已发布的旧安装包（改 map 前打包的那批）。顺序：先当前写法，后旧写法。
     if let Ok(res_dir) = app.path().resource_dir() {
         let candidates = [
-            res_dir.join("_up_").join("skills"), // "../skills/" → _up_/skills（当前配置）
-            res_dir.join("skills"),              // 兜底：平铺 resources/skills
+            res_dir.join("skills"),              // 当前配置（map 形式）
+            res_dir.join("_up_").join("skills"), // 旧包兼容（数组形式）
         ];
         for res in candidates {
             if res.exists() {
@@ -109,12 +111,20 @@ pub fn repair_skill_links(app: &tauri::AppHandle) {
     let Ok(src) = builtin_skills_dir(app) else { return };
     let Ok(home) = home_dir() else { return };
 
+    // AppImage：挂载点每次启动都变，且安装结果是**副本**（见 create_link 的 AppImage 分支）——
+    // 副本不像软链那样自动跟随 App 更新，故每次启动无条件刷新一遍
+    // （4 个技能合计不到 10 个小文件，开销可忽略）。
+    let in_appimage = std::env::var_os("APPDIR").is_some();
+
     for (id, skills_dir) in [
         ("claude", home.join(".claude").join("skills")),
         ("codex", home.join(".codex").join("skills")),
     ] {
-        // 该目标下是否装过技能（任一技能目录存在即视为装过）
-        let any_installed = SKILL_NAMES.iter().any(|s| skills_dir.join(s).exists());
+        // 该目标下是否装过技能：以「链接/目录**本身**存在」为准。
+        // 不能用 exists() —— 它跟随链接看目标，悬空链接会返回 false，导致下面的修复永远不触发。
+        let any_installed = SKILL_NAMES
+            .iter()
+            .any(|s| skills_dir.join(s).symlink_metadata().is_ok());
         if !any_installed {
             continue;
         }
@@ -122,15 +132,18 @@ pub fn repair_skill_links(app: &tauri::AppHandle) {
         let mut repaired = Vec::new();
         for skill in SKILL_NAMES {
             let dest = skills_dir.join(skill);
-            if !dest.exists() {
+            // 链接/目录本身不存在 → 该技能没装过，跳过
+            if dest.symlink_metadata().is_err() {
                 continue;
             }
-            // 检查链接是否有效：junction 的目标是否存在
-            // 对于 junction/symlink，exists() 会跟随链接检查目标；目标不存在时 exists() 返回 false
-            // 但 symlink_metadata() 仍返回 Ok（链接本身还在）
-            if dest.symlink_metadata().is_ok() && !dest.exists() {
-                // 链接悬空，重建
-                eprintln!("[skill_installer] 检测到悬空链接: {} → 重建", dest.display());
+            // 悬空判定：链接本身在（symlink_metadata 成功）但目标不存在（exists 跟随链接后为 false）
+            let dangling = !dest.exists();
+            if dangling || in_appimage {
+                eprintln!(
+                    "[skill_installer] {}: {} → 重建",
+                    if dangling { "检测到悬空链接" } else { "AppImage 刷新副本" },
+                    dest.display()
+                );
                 match create_link(&src.join(skill), &dest) {
                     Ok(method) => repaired.push(format!("{skill}:{method}")),
                     Err(e) => eprintln!("[skill_installer] 重建 {skill} 失败: {e}"),
@@ -138,7 +151,7 @@ pub fn repair_skill_links(app: &tauri::AppHandle) {
             }
         }
         if !repaired.is_empty() {
-            eprintln!("[skill_installer] {id} 技能链接已修复: {}", repaired.join(", "));
+            eprintln!("[skill_installer] {id} 技能已修复: {}", repaired.join(", "));
         }
     }
 }
@@ -177,11 +190,18 @@ fn create_link(src: &Path, dest: &Path) -> Result<String, crate::error::AppError
     }
 
     // macOS/Linux: symlink
+    //
+    // 例外 —— AppImage：每次启动挂载到**新的**临时目录（/tmp/.mount_XXXX/），软链到挂载点内的
+    // 资源会随 App 退出立刻悬空，导致 Claude Code 在 ApiCat 未运行时读不到技能。
+    // 检测到 AppImage（运行时注入 APPDIR 环境变量）时跳过软链，直接走下面的文件复制，让安装自包含。
+    // 副本的“过期”问题由 repair_skill_links 在每次启动时刷新解决。
     #[cfg(not(target_os = "windows"))]
     {
-        use std::os::unix::fs::symlink;
-        if symlink(src, dest).is_ok() {
-            return Ok("symlink".to_string());
+        if std::env::var_os("APPDIR").is_none() {
+            use std::os::unix::fs::symlink;
+            if symlink(src, dest).is_ok() {
+                return Ok("symlink".to_string());
+            }
         }
     }
 
