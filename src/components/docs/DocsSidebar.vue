@@ -216,6 +216,9 @@ watch(() => projectStore.currentProjectId, refresh)
   display: flex;
   flex-direction: column;
   height: 100%;
+  border-right: 1px solid var(--border-base);
+  background: var(--bg-surface);
+  flex-shrink: 0;
   overflow: hidden;
 }
 
