@@ -2,8 +2,9 @@
  * 启动期一次性检查（1.0.6）
  *
  * 统一收编「启动时要做的轻量检查」，一次启动各跑一遍、尽量安静不打扰：
- * - 检查更新（同一版本只提示 1 次，服务器不可达时静默）
- * - 首启技能引导（检测到 agent 目录但技能未装时弹窗，提示过不再打扰）
+ * - 检查更新（同一**目标版本**只提示 1 次；服务器不可达时静默）
+ * - 首启技能引导（技能**完全没装过**且有 agent 目录可用时弹窗；
+ *   标记按 App 版本记 —— 同版本不重复，App 升级后若仍完全没装会再提示一次）
  *
  * flag 统一存 `app-settings.json`（经 _persistedSettings，自动落盘，失败不抛）。
  */
@@ -17,13 +18,15 @@ type DialogLike = ReturnType<typeof useDialog>
 type MessageLike = ReturnType<typeof useMessage>
 
 const KEY_LAST_CHECKED_VERSION = 'startup.lastShownUpdateVersion'
-const KEY_SKILL_GUIDE_SHOWN = 'startup.skillGuideShown'
+/** 存的是「提示时所在的 App 版本」（字符串），而非布尔 —— 用于 App 升级后重新评估 */
+const KEY_SKILL_GUIDE_SHOWN = 'startup.skillGuideShownVersion'
 
 /**
  * 启动时检查更新。
- * - 同一版本只提示 1 次：记录「上次已提示过的新版本号」，本轮当前版本与之相同则跳过
+ * - 同一「目标版本」只提示 1 次：记录上次**提示过的新版本号**（如 1.0.7），
+ *   下次 check 到的目标版本与之相同则跳过 —— 既不会重复烦，出了更新的版本（1.0.8）
+ *   仍会再提示一次（那是新消息）
  * - check() 失败（服务器不可达 / release 为草稿）→ 静默，不打扰用户
- * - 只有 handler 提供 dialog/message（手动入口传入；启动流程传入后弹窗即可复用同一逻辑）
  */
 export async function checkForUpdateAtStartup(params: {
   dialog: DialogLike
@@ -37,12 +40,13 @@ export async function checkForUpdateAtStartup(params: {
 }): Promise<void> {
   const { dialog, message, isBlocked } = params
   try {
-    const currentVersion = await getVersion()
-    const lastShown = await readSetting<string>(KEY_LAST_CHECKED_VERSION)
-    if (lastShown === currentVersion) return // 同一版本已提示过
-
+    // 先查再比对：必须知道「最新版本是什么」才能判断该版本是否提示过，
+    // 因此不能提前 return 省掉这次请求（一次启动一个小 GET，与主流应用做法一致）
     const update = await check()
     if (!update) return // 已是最新，不打扰
+
+    const lastPrompted = await readSetting<string>(KEY_LAST_CHECKED_VERSION)
+    if (lastPrompted === update.version) return // 这个目标版本已提示过
 
     if (isBlocked?.()) return // 已有模态在屏 → 让位，下次启动再说
 
@@ -66,20 +70,21 @@ export async function checkForUpdateAtStartup(params: {
         }
       },
     })
-    // 无论点没点「立即更新」，都算已提示过该版本，避免每天/每次启动重复弹
-    await writeSetting(KEY_LAST_CHECKED_VERSION, currentVersion)
+    // 记录「已提示过的目标版本」：同版本不再重复提示，出了更新的版本会再提示
+    await writeSetting(KEY_LAST_CHECKED_VERSION, update.version)
   } catch (e) {
     // 更新服务器不可达：静默（前端更新检查不应打断启动）
     console.debug('[startup] 检查更新跳过（无法连接更新服务器）:', e)
   }
 }
 
-/** 首启技能引导是否已提示过 */
-export async function skillGuideShown(): Promise<boolean> {
-  return (await readSetting<boolean>(KEY_SKILL_GUIDE_SHOWN)) === true
+/** 首启技能引导是否「当前 App 版本已提示过」 */
+export async function skillGuideShownThisVersion(): Promise<boolean> {
+  const current = await getVersion()
+  return (await readSetting<string>(KEY_SKILL_GUIDE_SHOWN)) === current
 }
 
-/** 标记首启技能引导已提示过 */
+/** 标记首启技能引导已在当前 App 版本提示过（App 升级后若技能仍完全没装，会再提示一次） */
 export async function markSkillGuideShown(): Promise<void> {
-  await writeSetting(KEY_SKILL_GUIDE_SHOWN, true)
+  await writeSetting(KEY_SKILL_GUIDE_SHOWN, await getVersion())
 }

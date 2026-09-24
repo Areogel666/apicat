@@ -11,7 +11,7 @@ import { onMounted, ref } from 'vue'
 import { useDialog, useMessage } from 'naive-ui'
 import { invoke } from '@tauri-apps/api/core'
 import SkillManager from '../settings/SkillManager.vue'
-import { checkForUpdateAtStartup, skillGuideShown, markSkillGuideShown } from '../../stores/startupChecks'
+import { checkForUpdateAtStartup, skillGuideShownThisVersion, markSkillGuideShown } from '../../stores/startupChecks'
 
 interface SkillTarget {
   id: string
@@ -37,16 +37,21 @@ onMounted(async () => {
 })
 
 /**
- * 1.0.6：首启技能引导 —— 检测到存在 agent 目录但技能未装（且未提示过）→ 弹窗引导安装。
+ * 1.0.6：首启技能引导 —— 两个条件同时满足才弹窗：
+ *   1) 有 agent 目录可用（否则无处可装，弹窗无意义）
+ *   2) 技能**完全没装过**（所有目标都没有任何 apicat 技能）——
+ *      而非「任一目标没装就提示」（只装了 Claude Code 的人不该被反复提示 Codex）
+ * 标记按 App 版本记：同版本不重复提示，App 升级后若仍完全没装会再提示一次。
  * 静默失败：get_skill_targets 异常不打断启动。
  */
 async function checkSkillGuideOnStartup() {
   try {
-    if (await skillGuideShown()) return
+    if (await skillGuideShownThisVersion()) return
     const targets = await invoke<SkillTarget[]>('get_skill_targets')
-    const needsGuide = targets.some(t => t.agent_installed && !t.skills_installed)
-    if (!needsGuide) return
-    await markSkillGuideShown() // 先标记再弹，关掉后不重复打扰
+    const anyAgentAvailable = targets.some(t => t.agent_installed)
+    const anySkillInstalled = targets.some(t => t.skills_installed)
+    if (!anyAgentAvailable || anySkillInstalled) return
+    await markSkillGuideShown() // 先标记再弹，关掉后本版本内不重复打扰
     showSkillGuide.value = true
   } catch (e) {
     console.debug('[startup] 技能引导检测跳过:', e)
