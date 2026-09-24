@@ -17,6 +17,13 @@
         @update:model-value="onFormatChange"
       />
       <n-button size="tiny" quaternary @click="copyContent">📋 复制</n-button>
+      <!-- 1.0.6：JSON 树「全展开 / 全收起」切换（仅美化模式有意义；按当前状态显示将执行的动作） -->
+      <n-button
+        v-if="effectiveFormat === 'json' && viewMode === 'pretty'"
+        size="tiny"
+        quaternary
+        @click="toggleTreeExpand"
+      >{{ treeExpandAll === true ? '⊟ 收起全部' : '⊞ 展开全部' }}</n-button>
       <div class="toolbar-spacer" />
       <ViewModeSwitch
         :model-value="viewMode"
@@ -32,6 +39,7 @@
       :body="body"
       :view-mode="viewMode"
       :is-hovering="isHovering"
+      v-model:expand-all="treeExpandAll"
       @fallback-to-raw="onFallbackToRaw"
     />
     <!-- Markdown: raw 走 CodeRenderer 高亮源码，preview 走 MarkdownRenderer -->
@@ -167,6 +175,20 @@ function onFallbackToRaw() {
   if (activeId.value == null) return
   responseStore.setViewMode(activeId.value, 'raw')
 }
+
+// 1.0.6：JSON 树「全展开 / 全收起」切换
+// null = 未干预（用 JsonRenderer 的默认层级）；true = 全展开；false = 全收起
+const treeExpandAll = ref<boolean | null>(null)
+
+/** 按钮永远显示「将执行的动作」：全展开态→收起全部，其余→展开全部 */
+function toggleTreeExpand() {
+  treeExpandAll.value = treeExpandAll.value === true ? false : true
+}
+
+// 换响应 / 切格式 / 切视图时归零，新内容回到默认展开层级
+watch([() => props.body, effectiveFormat, viewMode], () => {
+  treeExpandAll.value = null
+})
 
 /** XML/HTML pretty 模式下的格式化 body；raw 模式或非 XML 时返回原 body */
 const xmlDisplayBody = computed(() => {

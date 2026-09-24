@@ -16,7 +16,7 @@
     <pre v-if="viewMode === 'raw' || parsedJson === null" class="json-content"><code>{{ body }}</code></pre>
     <!-- 美化模式：自研折叠树（字段命中响应字典时值旁挂字典色微标签） -->
     <div v-else class="json-tree-wrapper">
-      <JsonTree :data="parsedJson" :deep="expandLevel" :decorate="decorateField" />
+      <JsonTree :data="parsedJson" :deep="effectiveDeep" :decorate="decorateField" />
     </div>
   </div>
 </template>
@@ -54,11 +54,15 @@ const props = defineProps<{
   viewMode: ViewMode  // 'raw' | 'pretty'
   /** 是否在响应区域内（由父组件维护鼠标悬停状态传入） */
   isHovering: boolean
+  /** 外部「全展开 / 全收起」覆盖：true=全展开 false=全收起 null/undefined=用默认层级 */
+  expandAll?: boolean | null
 }>()
 
 const emit = defineEmits<{
   /** 当需要 fallback 到 raw 模式时通知父组件同步 viewMode */
   'fallback-to-raw': []
+  /** 搜索需要全展开时，回清外部「全收起」覆盖（否则它会把树压住） */
+  'update:expandAll': [v: boolean | null]
 }>()
 
 const message = useMessage()
@@ -84,6 +88,17 @@ function decorateField(key: string, value: unknown): DictMarker | null {
 // vue-json-pretty 的 :deep prop —— 控制初始渲染的展开层级
 // 运行时改成 999 触发全展开（该组件没 expose expandAll 方法）
 const expandLevel = ref(3)
+
+// 1.0.6：实际传给 JsonTree 的展开层级 —— 外部「全展开/全收起」优先，否则用默认/搜索层级
+const effectiveDeep = computed(() =>
+  props.expandAll == null ? expandLevel.value : (props.expandAll ? 999 : 0),
+)
+
+/** 搜索需要全展开：先清掉外部「全收起」覆盖，否则它会把树压成收起态、字段名搜不到 */
+function forceExpandForSearch() {
+  emit('update:expandAll', null)
+  expandLevel.value = 999
+}
 
 // 1.0.4：原生 find 探测 —— Linux webkit2gtk 不实现 window.find
 const nativeFindAvailable = typeof (window as any).find === 'function'
@@ -126,9 +141,7 @@ function handleKeydown(e: KeyboardEvent) {
 
   // 1.0.4：Linux（无原生 find）→ 直接打开自实现搜索条并全展开，保证可搜字段名
   if (!nativeFindAvailable) {
-    if (expandLevel.value < 999) {
-      expandLevel.value = 999
-    }
+    forceExpandForSearch()
     openSearch()
     return
   }
@@ -149,7 +162,7 @@ function handleKeydown(e: KeyboardEvent) {
   }
 
   // 首次 Ctrl+F：全展开所有节点
-  expandLevel.value = 999
+  forceExpandForSearch()
   nextTick(() => {
     message.info('已展开所有节点，再次 Ctrl+F 切换为原始模式并搜索')
   })
