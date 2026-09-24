@@ -34,14 +34,13 @@ let bridgeUnlisten: UnlistenFn | null = null
 
 // 应用启动：
 // 1. 主题先初始化（避免首屏闪白；读偏好 → 写 <html data-theme>）
-// 2. 再加载项目列表
-// 3. 最后恢复上次打开的项目（M3-A，必须在 loadProjects 后才能校验目标 id）
+// 2. 项目初始化：加载列表 + 恢复上次打开的项目（M3-A）。
+//    两者必须在同一段持久化暂停区间内跑完，否则默认选中会冲掉已存的项目 id —— 见 initProjects()
 //
 // Sidebar.vue 已有 loadSeq 防竞态机制，currentProjectId 变更触发的侧边栏加载会被自动管理。
 onMounted(async () => {
   await themeStore.init()
-  await projectStore.loadProjects()
-  await projectStore.restoreLastProject()
+  await projectStore.initProjects()
 
   // 1.0.5：监听 HTTP Bridge 写操作广播，按需 reload 对应 store
   bridgeUnlisten = await listen<{ kind: string }>('bridge-data-changed', async (event) => {

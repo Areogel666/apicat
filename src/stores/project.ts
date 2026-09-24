@@ -82,6 +82,24 @@ export const useProjectStore = defineStore('project', () => {
     }
   }
 
+  /**
+   * 启动序列：加载项目列表 → 恢复上次打开的项目。App 启动时必须走这个入口。
+   *
+   * 整体暂停持久化是必须的：loadProjects() 会给 currentProjectId 兜底选中 projects[0]
+   * （list_projects 按 created_at DESC 排序 → 即创建时间最新的项目），watch 随即把它写进
+   * lastOpenedProjectId；restoreLastProject() 紧接着读同一个 key，读到的就是刚写进去的值 ——
+   * 「记住上次打开的项目」于是恒等于「打开最新创建的项目」。
+   */
+  async function initProjects() {
+    _pauseAutoPersist.value = true
+    try {
+      await loadProjects()
+      await restoreLastProject()
+    } finally {
+      _pauseAutoPersist.value = false
+    }
+  }
+
   async function createProject(name: string, description?: string) {
     const project = await invoke<Project>('create_project', { name, description: description ?? null })
     projects.value.unshift(project)
@@ -118,6 +136,7 @@ export const useProjectStore = defineStore('project', () => {
     sidebarReloadTick,
     loadProjects,
     restoreLastProject,
+    initProjects,
     createProject,
     updateProject,
     deleteProject,
