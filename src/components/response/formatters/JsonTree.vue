@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, h, defineComponent } from 'vue'
+import { reactive, h, defineComponent, watch } from 'vue'
 import type { VNode } from 'vue'
 import type { DictMarker } from './jsonTreeUtils'
 
@@ -34,8 +34,22 @@ const JsonTree = defineComponent({
     decorate: { type: Function, default: null },
   },
   setup(props) {
-    // reactive Set：render 中 has() 建立依赖，toggle 增删自动触发重渲染
-    const collapsedPaths = reactive(new Set<string>())
+    // 显式展开状态：path -> 是否展开（用户点击产生的，优先级高于默认深度）
+    //
+    // 为什么不能只用「collapsedPaths + depth < deepInit」：
+    //   expanded = depth < deepInit && !collapsed 里，depth < deepInit 对深于默认层级的节点
+    //   恒为 false —— 此时 toggle() 改 collapsedPaths 也不会改变结果，表现为「点击无法展开」，
+    //   只有 Ctrl+F 把 deepInit 顶到 999 后才恢复正常。故必须让显式状态优先、默认深度兜底。
+    const explicitExpanded = reactive(new Map<string, boolean>())
+
+    /** 当前是否展开：显式状态优先，否则按默认深度 */
+    function isExpanded(path: string, depth: number): boolean {
+      const v = explicitExpanded.get(path)
+      return v !== undefined ? v : depth < props.deepInit
+    }
+
+    // deepInit 变化（Ctrl+F 全展开 / 退出搜索回到默认）时清空显式状态，回到默认视图
+    watch(() => props.deepInit, () => explicitExpanded.clear())
 
     function isObj(v: unknown): boolean {
       return v !== null && typeof v === 'object' && !Array.isArray(v)
@@ -61,10 +75,9 @@ const JsonTree = defineComponent({
       return 'jt-null'
     }
 
-    /** 整行点击 = 折叠/展开切换（含 bracket） */
-    function toggle(path: string) {
-      if (collapsedPaths.has(path)) collapsedPaths.delete(path)
-      else collapsedPaths.add(path)
+    /** 整行点击 = 折叠/展开切换（含 bracket）：记录与该节点当前状态相反的显式状态 */
+    function toggle(path: string, depth: number) {
+      explicitExpanded.set(path, !isExpanded(path, depth))
     }
 
     function renderNode(value: unknown, key: string | null, path: string, depth: number): VNode {
@@ -89,11 +102,11 @@ const JsonTree = defineComponent({
 
       const bracketOpen = isArr(value) ? '[' : '{'
       const bracketClose = isArr(value) ? ']' : '}'
-      const expanded = depth < props.deepInit && !collapsedPaths.has(path)
+      const expanded = isExpanded(path, depth)
 
       // 折叠态：`{ … N }` 一行
       if (!expanded) {
-        return h('div', { class: 'jt-line jt-collapsed', onClick: () => toggle(path) }, [
+        return h('div', { class: 'jt-line jt-collapsed', onClick: () => toggle(path, depth) }, [
           prefix(),
           h('span', { class: 'jt-bracket' }, bracketOpen),
           h('span', { class: 'jt-ellipsis' }, `… ${countOf(value)} 项 `),
@@ -114,12 +127,12 @@ const JsonTree = defineComponent({
       }
 
       return h('div', { class: 'jt-collapsible' }, [
-        h('div', { class: 'jt-line jt-line-open', onClick: () => toggle(path) }, [
+        h('div', { class: 'jt-line jt-line-open', onClick: () => toggle(path, depth) }, [
           prefix(),
           h('span', { class: 'jt-bracket' }, bracketOpen),
         ]),
         h('div', { class: 'jt-children' }, children),
-        h('div', { class: 'jt-line jt-line-close', onClick: () => toggle(path) }, [
+        h('div', { class: 'jt-line jt-line-close', onClick: () => toggle(path, depth) }, [
           h('span', { class: 'jt-bracket' }, bracketClose),
         ]),
       ])
