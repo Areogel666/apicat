@@ -16,8 +16,11 @@ use tauri::State;
 
 /// 响应体超过此阈值时，保存到文件系统而非数据库（1MB）
 ///
-/// 2026-09：由 100KB 提到 1MB —— 100KB 太小，普通列表类响应就被迫走「另存为」而无法内联查看；
-/// 上层 `http/client.rs` 的 MAX_BODY_SIZE(2MB) 才是硬截断上限，本阈值须显著低于它才有意义。
+/// 分层约定（2026-09 定）：
+///   ≤1MB          → 内联渲染（响应区 / History 预览）
+///   1MB–32MB      → 完整落文件，DB 存 `@file:{history_id}` 标记，前端只给「另存为」
+///   >32MB         → 仍截断到 32MB（`client.rs` MAX_BODY_SIZE 安全兜底），置 is_truncated
+/// 原为 100KB：太小，普通列表类响应就被迫走「另存为」而无法内联查看。
 /// 若 1MB 在低配机器上仍见渲染卡顿，可回调到 512KB（前端只认 `@file:` 前缀，改此常量即全局生效）。
 pub const RESPONSE_FILE_THRESHOLD: usize = 1024 * 1024;
 

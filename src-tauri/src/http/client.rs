@@ -3,7 +3,14 @@ use reqwest::{Method};
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
-const MAX_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB，设计文档 §10.5
+/// 响应体内存保留上限（安全兜底）。
+///
+/// 2026-09：由 2MB 提到 32MB。原 2MB 是「响应体全部存 SQLite」时代的保护，但 1.0.5 起
+/// 超过 RESPONSE_FILE_THRESHOLD(1MB) 的响应改为落文件系统，此时该上限会**连带截断落盘内容**
+/// —— 10MB 的响应存进文件的也只有前 2MB，超出部分永久丢失。
+/// 现在 1MB–32MB 全量落文件（覆盖几乎所有真实接口响应），仅超过 32MB 才截断并置 is_truncated，
+/// 以保住「病态大响应不把内存打爆」的兜底（`resp.bytes()` 本身已全量读入内存，本上限只约束保留时长）。
+const MAX_BODY_SIZE: usize = 32 * 1024 * 1024; // 32MB
 
 /// 前端传入的请求参数（扁平结构，易于 Tauri IPC 序列化）
 #[derive(Debug, Serialize, Deserialize, Clone)]  // Serialize 用于 serde_json::to_string 生成 request_snapshot
