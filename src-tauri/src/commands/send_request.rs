@@ -14,8 +14,12 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use tauri::State;
 
-/// 响应体超过此阈值时，保存到文件系统而非数据库（100KB）
-pub const RESPONSE_FILE_THRESHOLD: usize = 100 * 1024;
+/// 响应体超过此阈值时，保存到文件系统而非数据库（1MB）
+///
+/// 2026-09：由 100KB 提到 1MB —— 100KB 太小，普通列表类响应就被迫走「另存为」而无法内联查看；
+/// 上层 `http/client.rs` 的 MAX_BODY_SIZE(2MB) 才是硬截断上限，本阈值须显著低于它才有意义。
+/// 若 1MB 在低配机器上仍见渲染卡顿，可回调到 512KB（前端只认 `@file:` 前缀，改此常量即全局生效）。
+pub const RESPONSE_FILE_THRESHOLD: usize = 1024 * 1024;
 
 /// 获取响应文件存储目录
 pub fn get_response_dir() -> Result<PathBuf, crate::error::AppError> {
