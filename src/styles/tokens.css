@@ -72,6 +72,19 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
   --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.10);
   --shadow-lg: 0 6px 16px rgba(0, 0, 0, 0.12);
+
+  /* === 5. 折叠把手（门把手式）=== */
+  --handle-bg:       #ffffff;
+  --handle-bg-hover: rgba(24, 160, 88, 0.12);
+  --handle-border:   #d0d0d0;
+  --handle-grip:     #b8b8b8;
+  --handle-accent:   #18a058;
+
+  --handle-w:      10px;   /* 把手宽 */
+  --handle-h:      44px;   /* 把手高 */
+  --handle-radius: 6px;    /* 把手圆角（> 半宽则钳制为胶囊） */
+  --handle-grip-w: 6px;    /* 握纹宽（横向棱线） */
+  --handle-grip-h: 2px;    /* 握纹高 */
 }
 
 [data-theme="dark"] {
@@ -118,6 +131,13 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.40);
   --shadow-md: 0 2px 12px rgba(0, 0, 0, 0.48);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.56);
+
+  /* 折叠把手（深色） */
+  --handle-bg:       #2a2a30;
+  --handle-bg-hover: rgba(99, 205, 150, 0.16);
+  --handle-border:   #3a3a40;
+  --handle-grip:     #6a6a74;
+  --handle-accent:   #63cd96;
 }
 
 /* ====== 1.0.3 新增：响应渲染器语义 token ====== */

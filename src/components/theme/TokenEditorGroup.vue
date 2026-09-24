@@ -128,6 +128,17 @@ const groups: GroupDef[] = [
       { key: '--color-info', description: '信息' },
     ],
   },
+  {
+    key: 'handle',
+    label: '折叠把手',
+    tokens: [
+      { key: '--handle-bg', description: '把手底色' },
+      { key: '--handle-bg-hover', description: '悬停底色' },
+      { key: '--handle-border', description: '把手描边' },
+      { key: '--handle-grip', description: '握纹（常态）' },
+      { key: '--handle-accent', description: '悬停强调（描边 / 握纹）' },
+    ],
+  },
 ]
 
 // 通过 resolvedTokens 读当前生效值（computed 保持响应式，修改后自动刷新）

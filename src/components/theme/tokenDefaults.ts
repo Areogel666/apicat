@@ -50,6 +50,17 @@ export const DEFAULT_LIGHT_TOKENS: Record<string, string> = {
   '--radius-sm': '4px',
   '--radius-md': '6px',
   '--radius-lg': '10px',
+  /* 折叠把手 */
+  '--handle-bg':       '#ffffff',
+  '--handle-bg-hover': 'rgba(24, 160, 88, 0.12)',
+  '--handle-border':   '#d0d0d0',
+  '--handle-grip':     '#b8b8b8',
+  '--handle-accent':   '#18a058',
+  '--handle-w':        '10px',
+  '--handle-h':        '44px',
+  '--handle-radius':   '6px',
+  '--handle-grip-w':   '6px',
+  '--handle-grip-h':   '2px',
 }
 
 /** Dark 模式下的全部 ~40 个 token 默认值 */
@@ -90,4 +101,15 @@ export const DEFAULT_DARK_TOKENS: Record<string, string> = {
   '--radius-sm': '4px',
   '--radius-md': '6px',
   '--radius-lg': '10px',
+  /* 折叠把手（形态与 light 一致，色值另给） */
+  '--handle-bg':       '#2a2a30',
+  '--handle-bg-hover': 'rgba(99, 205, 150, 0.16)',
+  '--handle-border':   '#3a3a40',
+  '--handle-grip':     '#6a6a74',
+  '--handle-accent':   '#63cd96',
+  '--handle-w':        '10px',
+  '--handle-h':        '44px',
+  '--handle-radius':   '6px',
+  '--handle-grip-w':   '6px',
+  '--handle-grip-h':   '2px',
 }
