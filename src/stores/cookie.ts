@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { CookieItem } from '../types'
+import { nowUtcString } from '../utils/time'
 
 export type CookieScope = 'global' | 'project' | 'env'
 
@@ -110,11 +111,9 @@ export const useCookieStore = defineStore('cookie', () => {
    * - 无过期时间：expires_at 为空（会话 cookie，Q23-A 落库但永不过期，只能手动清）
    */
   async function cleanupCookies(opts: { expired?: boolean; session?: boolean }) {
-    const now = new Date()
-    const pad = (n: number) => String(n).padStart(2, '0')
-    const nowStr = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())} ${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}:${pad(now.getUTCSeconds())}`
+    const now = nowUtcString()
     const doomed = cookies.value.filter(c => {
-      if (opts.expired && c.expires_at && c.expires_at <= nowStr) return true
+      if (opts.expired && c.expires_at && c.expires_at <= now) return true
       if (opts.session && !c.expires_at) return true
       return false
     })

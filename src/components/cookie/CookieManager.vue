@@ -61,6 +61,7 @@ import { useProjectStore } from '../../stores/project'
 import { useEnvironmentStore } from '../../stores/environment'
 import CookieTable from './CookieTable.vue'
 import AddCookieForm from './AddCookieForm.vue'
+import { nowUtcString } from '../../utils/time'
 
 const props = defineProps<{ show: boolean }>()
 const emit = defineEmits<{ 'update:show': [value: boolean] }>()
@@ -119,16 +120,10 @@ const visibleCookies = computed(() => {
 })
 
 const expiredCount = computed(() => {
-  const now = nowStr()
+  const now = nowUtcString()
   return cookieStore.cookies.filter(c => c.expires_at && c.expires_at <= now).length
 })
 const sessionCount = computed(() => cookieStore.cookies.filter(c => !c.expires_at).length)
-
-function nowStr() {
-  const n = new Date()
-  const p = (x: number) => String(x).padStart(2, '0')
-  return `${n.getUTCFullYear()}-${p(n.getUTCMonth() + 1)}-${p(n.getUTCDate())} ${p(n.getUTCHours())}:${p(n.getUTCMinutes())}:${p(n.getUTCSeconds())}`
-}
 
 async function reload() {
   // 固定拉全量，筛选交给 visibleCookies（见其注释）

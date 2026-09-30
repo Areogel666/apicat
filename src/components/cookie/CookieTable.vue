@@ -9,6 +9,8 @@
         <span style="flex:1.6">值</span>
         <span style="width:56px">路径</span>
         <span style="width:104px">过期</span>
+        <span style="width:36px; text-align:center" title="HttpOnly（仅展示，不参与匹配）">Http</span>
+        <span style="width:36px; text-align:center" title="Secure（仅展示，不参与匹配）">Sec</span>
         <span style="width:44px; text-align:center">启用</span>
         <span style="width:32px"></span>
       </div>
@@ -24,6 +26,8 @@
         <span class="cell" style="flex:1.6" :title="c.value">{{ c.value }}</span>
         <span class="cell" style="width:56px">{{ c.path }}</span>
         <span class="cell" style="width:104px" :title="expiryTitle(c)">{{ expiryText(c) }}</span>
+        <span class="cell flag" style="width:36px; text-align:center">{{ c.http_only ? '✓' : '' }}</span>
+        <span class="cell flag" style="width:36px; text-align:center">{{ c.secure ? '✓' : '' }}</span>
         <div style="width:44px; display:flex; justify-content:center">
           <n-checkbox
             :checked="c.enabled === 1"
@@ -39,6 +43,7 @@
 <script setup lang="ts">
 import { NEmpty, NCheckbox, NButton } from 'naive-ui'
 import type { CookieItem } from '../../types'
+import { nowUtcString } from '../../utils/time'
 
 defineProps<{ cookies: CookieItem[] }>()
 const emit = defineEmits<{
@@ -53,7 +58,7 @@ function scopeLabel(c: CookieItem) {
 }
 
 function isExpired(c: CookieItem) {
-  return !!c.expires_at && c.expires_at <= nowStr()
+  return !!c.expires_at && c.expires_at <= nowUtcString()
 }
 
 function expiryText(c: CookieItem) {
@@ -64,12 +69,6 @@ function expiryText(c: CookieItem) {
 function expiryTitle(c: CookieItem) {
   if (!c.expires_at) return '会话 cookie：永不过期，需手动清理'
   return c.expires_at
-}
-
-function nowStr() {
-  const n = new Date()
-  const p = (x: number) => String(x).padStart(2, '0')
-  return `${n.getUTCFullYear()}-${p(n.getUTCMonth() + 1)}-${p(n.getUTCDate())} ${p(n.getUTCHours())}:${p(n.getUTCMinutes())}:${p(n.getUTCSeconds())}`
 }
 </script>
 
@@ -102,4 +101,5 @@ function nowStr() {
 }
 .cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 4px; }
 .scope { color: var(--text-tertiary); font-size: 11px; }
+.flag { color: var(--text-tertiary); font-size: 11px; }
 </style>
