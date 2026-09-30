@@ -51,7 +51,12 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_requests?collection_id=$CI
 
 用例参数以接口定义为基础。读接口详情：`GET /get_request?id=$RID`。
 
-参数形状沿用接口的 `params` JSON 字符串，例如 `[{"key": "userId", "value": "test-user-001", "enabled": true}]`；POST 则 `body_type="raw_json"` + body 为 JSON 字符串。
+**参数形状**：params/headers/body 的元素必须含 `type`/`description` 元数据：
+```json
+[{"key": "userId", "value": "test-user-001", "enabled": true, "type": "string", "description": "用户 ID"}]
+```
+
+POST 则 `bodyType="json_table"` + body 为 `ParamItem[]` JSON 字符串（与接口定义一致）。
 
 **核心原则「参数要全」**：Happy Path 须含全部 optional 业务参数（用户与设备标识等），不只 required。
 
@@ -61,15 +66,19 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_requests?collection_id=$CI
 
 每接口 × 每类型一条。组装 `create_test_case` 请求体：
 
+**⚠️ URL 不加 `{{base_url}}`**——用纯路径（与接口定义一致），环境切换由 ApiCat 环境配置处理。
+
+**⚠️ params/headers/body 元素必须含 `type`/`description`**——从接口定义的同名字段继承。
+
 ```jsonc
 {
   "requestId": 5,
   "collectionId": 2,
   "name": "[缺必填] 缺少 userId",
   "method": "GET",
-  "url": "{{base_url}}/api/user/info",
-  "headers": "[{\"key\":\"Authorization\",\"value\":\"Bearer x\",\"enabled\":true}]",
-  "params": "[{\"key\":\"page\",\"value\":\"1\",\"enabled\":true}]",
+  "url": "/api/user/info",
+  "headers": "[{\"key\":\"Authorization\",\"value\":\"Bearer x\",\"enabled\":true,\"type\":\"string\",\"description\":\"鉴权 token\"}]",
+  "params": "[{\"key\":\"page\",\"value\":\"1\",\"enabled\":true,\"type\":\"number\",\"description\":\"页码\"}]",
   "bodyType": null,
   "body": null,
   "caseType": "missing_required",

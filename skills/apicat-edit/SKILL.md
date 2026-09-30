@@ -59,18 +59,32 @@ allowed-tools: Bash, Read, Glob, AskUserQuestion
 
 ### 4. 更新
 `POST /update_request`，字段：`id`/`name`/`method`/`url`/`params`/`headers`/`bodyType`/`body`/`authType`/`authConfig`/`description`。
-`body_type` 取值：`raw_json`（@RequestBody）| `form_urlencoded`（getParameter）。参数格式见共享约束。
+
+**body_type 取值**：
+- `json_table` — **POST JSON 接口首选**（结构化字段表格，含 type/description 元数据）
+- `raw_json` — 纯 JSON 文本（无字段级元数据）
+- `form_urlencoded` — 表单 k=v
+- `form_data` — 文件上传
+- `none` / `raw_text`
+
+**⚠️ POST JSON 接口的参数写法**：
+- **body 参数写 `body`**（bodyType=`json_table`，body 存 `ParamItem[]` JSON 字符串），**不写 `params`**
+- `params` 是 URL query 参数，POST 业务参数放 params 会被拼到 URL 上——这是错的
+- GET 接口的 query 参数才写 `params`
+
+```json
+// ❌ 错误：POST 参数写进 params（会拼到 URL 上）
+"params": "[{\"key\":\"packageName\",\"value\":\"com.test\",\"enabled\":true,\"type\":\"string\",\"description\":\"包名\"}]"
+"bodyType": "raw_json"
+"body": "{\"packageName\":\"com.test\"}"
+
+// ✅ 正确：POST 参数写进 body（json_table 结构化存储）
+"params": "[]"
+"bodyType": "json_table"
+"body": "[{\"key\":\"packageName\",\"value\":\"com.test\",\"enabled\":true,\"type\":\"string\",\"description\":\"包名（必填）\"}]"
+```
 
 **⚠️ 优先补充元数据**：更新接口时，如果上下文充足（如从文档、代码注释、示例响应中能推断出字段含义），**必须主动补充 `type` 和 `description`**，不要只传 `key`/`value`/`enabled`。
-
-示例：
-```json
-// ❌ 错误：缺少元数据
-"params": "[{\"key\":\"userId\",\"value\":\"\",\"enabled\":true}]"
-
-// ✅ 正确：补充了类型和描述
-"params": "[{\"key\":\"userId\",\"value\":\"\",\"enabled\":true,\"type\":\"string\",\"description\":\"用户 ID\"}]"
-```
 
 推断依据（按优先级）：
 1. 文档参数表的「类型」「说明」列

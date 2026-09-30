@@ -93,9 +93,14 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 ```
 
 ### POST /update_request
+`bodyType` 取值：`none` | `raw_json` | `json_table` | `raw_text` | `form_urlencoded` | `form_data`
+- **`json_table`**：POST JSON 首选——body 存 `ParamItem[]` JSON 字符串（含 type/description），UI 显示字段表格，发送时序列化为 JSON 对象
+- **`raw_json`**：纯 JSON 文本（无字段级元数据）
+- **`params`** 是 URL query 参数（任何 method 都有）；POST 业务参数写 `body` 不写 `params`
+
 ```bash
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"id": 5, "name": "新名字", "method": "POST", "url": "/api/x", "params": "[]", "headers": "[]", "bodyType": "raw_json", "body": "{}", "authType": "none", "authConfig": "{}", "description": ""}' \
+  -d '{"id": 5, "name": "新名字", "method": "POST", "url": "/api/x", "params": "[]", "headers": "[]", "bodyType": "json_table", "body": "[{\"key\":\"userId\",\"value\":\"test\",\"enabled\":true,\"type\":\"string\",\"description\":\"用户 ID\"}]", "authType": "none", "authConfig": "{}", "description": ""}' \
   "$BASE/update_request"
 ```
 
@@ -122,9 +127,11 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_test_cases?request_id=5&la
 
 ### POST /create_test_case
 可选 `description`（缺省落 NULL）与 `source`（缺省 `'manual'`；AI 脚本传 `'ai_generated'`）。
+
+**⚠️ URL 用纯路径**（不加 `{{base_url}}`）；**params/headers/body 元素含 `type`/`description`**。
 ```bash
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"requestId": 5, "collectionId": 2, "name": "Happy Path", "description": "备注", "source": "ai_generated", "method": "GET", "url": "{{base_url}}/api/x", "headers": "[]", "params": "[{\"key\":\"userId\",\"value\":\"test\",\"enabled\":true}]", "bodyType": null, "body": null, "caseType": "happy_path", "assertions": "[{\"type\":\"status_code\",\"operator\":\"eq\",\"expected\":\"200\"}]"}' \
+  -d '{"requestId": 5, "collectionId": 2, "name": "Happy Path", "description": "备注", "source": "ai_generated", "method": "GET", "url": "/api/x", "headers": "[]", "params": "[{\"key\":\"userId\",\"value\":\"test\",\"enabled\":true,\"type\":\"string\",\"description\":\"用户 ID\"}]", "bodyType": null, "body": null, "caseType": "happy_path", "assertions": "[{\"type\":\"status_code\",\"operator\":\"eq\",\"expected\":\"200\"}]"}' \
   "$BASE/create_test_case"
 ```
 

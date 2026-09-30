@@ -303,6 +303,7 @@
             <n-radio-group v-model:value="bodyType" size="small" style="margin-bottom: 8px">
               <n-radio-button value="none">None</n-radio-button>
               <n-radio-button value="raw_json">JSON</n-radio-button>
+              <n-radio-button value="json_table">JSON Table</n-radio-button>
               <n-radio-button value="raw_text">Text</n-radio-button>
               <n-radio-button value="form_urlencoded">URL Encoded</n-radio-button>
               <n-radio-button value="form_data">Form Data</n-radio-button>
@@ -362,8 +363,8 @@
               />
             </template>
 
-            <!-- form-data KV 表格 -->
-            <template v-if="bodyType === 'form_data'">
+            <!-- form-data / json_table KV 表格 -->
+            <template v-if="bodyType === 'form_data' || bodyType === 'json_table'">
               <n-empty v-if="!formDataParams.length" description="暂无字段" size="small" />
               <!-- 1.0.4：表头行（值紧随字段名） -->
               <div v-else class="param-row param-row--header">
@@ -676,6 +677,8 @@ const autoHeaders = computed<Array<{key: string; value: string}>>(() => {
   )
   if (!userHasContentType) {
     if (bodyType.value === 'raw_json') {
+      result.push({ key: 'Content-Type', value: 'application/json' })
+    } else if (bodyType.value === 'json_table') {
       result.push({ key: 'Content-Type', value: 'application/json' })
     } else if (bodyType.value === 'form_urlencoded') {
       result.push({ key: 'Content-Type', value: 'application/x-www-form-urlencoded' })
@@ -1029,9 +1032,9 @@ function addFormDataField() {
   formDataParams.value.push({ key: '', value: '', enabled: true })
 }
 
-/** 当 bodyType 为 form_data 时，将 formDataParams 序列化到 bodyContent */
+/** 当 bodyType 为 form_data / json_table 时，将 formDataParams 序列化到 bodyContent */
 function syncFormData() {
-  if (bodyType.value === 'form_data') {
+  if (bodyType.value === 'form_data' || bodyType.value === 'json_table') {
     bodyContent.value = JSON.stringify(formDataParams.value)
   }
 }
@@ -1208,8 +1211,8 @@ function normJson(s: string | null | undefined): string {
 
 /** 当前编辑区落库字段的签名（与 update_request 的内容字段对齐） */
 function editorSignature(): string {
-  // form_data 的落库形态是 formDataParams 的 JSON 序列化（与 syncFormData 输出一致）
-  const bodySig = bodyType.value === 'form_data'
+  // form_data / json_table 的落库形态是 formDataParams 的 JSON 序列化（与 syncFormData 输出一致）
+  const bodySig = bodyType.value === 'form_data' || bodyType.value === 'json_table'
     ? JSON.stringify(formDataParams.value)
     : bodyType.value === 'form_urlencoded'
       ? urlencodedStorageBody()
@@ -1226,7 +1229,7 @@ function editorSignature(): string {
 
 /** 接口落库状态的签名（比较基准 = store 里的 api_requests 值） */
 function storedSignature(req: ApiRequest): string {
-  const bodySig = (req.body_type === 'form_data' || req.body_type === 'form_urlencoded')
+  const bodySig = (req.body_type === 'form_data' || req.body_type === 'form_urlencoded' || req.body_type === 'json_table')
     ? normJson(req.body)
     : (req.body || '')
   return JSON.stringify([
@@ -1260,7 +1263,7 @@ function markRequestDirty() {
 //  - 无定时窗口 → 不存在把 A 的数据写进 B 的任何可能（问题 1.0.4-2 根治）
 //  - 离开即保存 → 重启不丢；不干预 Ctrl+S / dirty 语义
 function flushPersist(id: number) {
-  if (bodyType.value === 'form_data') syncFormData()
+  if (bodyType.value === 'form_data' || bodyType.value === 'json_table') syncFormData()
   // form_urlencoded 落库用结构化 JSON（含类型/描述），发送时才编码 k=v
   const persistBody = bodyType.value === 'form_urlencoded' ? urlencodedStorageBody() : bodyContent.value
   void requestStore.persistParams(id, {
@@ -1336,8 +1339,8 @@ function applyRequestToEditor(req: ApiRequest) {
   method.value = req.method
   bodyType.value = req.body_type || 'none'
   bodyContent.value = req.body || ''
-  // 加载 form-data 字段
-  if (req.body_type === 'form_data') {
+  // 加载 form-data / json_table 字段
+  if (req.body_type === 'form_data' || req.body_type === 'json_table') {
     try { formDataParams.value = JSON.parse(req.body || '[]') } catch { formDataParams.value = [] }
   } else {
     formDataParams.value = []
@@ -1837,6 +1840,7 @@ watch(url, () => {
     urlParams.forEach((val, key) => {
       const existing = queryParams.value.find(p => p.key === key)
       newParams.push({
+        ...existing,  // 保留 type/description/descriptionDictRef 元数据
         key,
         value: val,
         enabled: existing ? existing.enabled : true
@@ -1906,8 +1910,8 @@ watch(bodyType, (newType, oldType) => {
     return
   }
 
-  // textarea 类 → Form Data
-  if ((oldType === 'raw_json' || oldType === 'raw_text') && newType === 'form_data') {
+  // textarea 类 → Form Data / JSON Table
+  if ((oldType === 'raw_json' || oldType === 'raw_text') && (newType === 'form_data' || newType === 'json_table')) {
     const text = bodyContent.value.trim()
     if (!text) return
     const params = parseTextToParams(text, formDataParams.value)
@@ -1915,12 +1919,12 @@ watch(bodyType, (newType, oldType) => {
     return
   }
 
-  // table → table ：URL Encoded ↔ Form Data
-  if (oldType === 'form_urlencoded' && newType === 'form_data') {
+  // table → table ：URL Encoded ↔ Form Data / JSON Table
+  if (oldType === 'form_urlencoded' && (newType === 'form_data' || newType === 'json_table')) {
     formDataParams.value = urlencodedParams.value.map(f => ({ ...f }))
     return
   }
-  if (oldType === 'form_data' && newType === 'form_urlencoded') {
+  if ((oldType === 'form_data' || oldType === 'json_table') && newType === 'form_urlencoded') {
     urlencodedParams.value = formDataParams.value.map(f => ({ ...f }))
     if (urlencodedMode.value === 'kv') {
       urlencodedKvText.value = urlencodedParams.value.filter(f => f.key).map(f => `${f.key}: ${f.value}`).join('\n')
@@ -1931,7 +1935,7 @@ watch(bodyType, (newType, oldType) => {
   // ===== Step 2：切换到 textarea 类 =====
 
   // table 类 → textarea 类
-  if ((oldType === 'form_urlencoded' || oldType === 'form_data') && (newType === 'raw_json' || newType === 'raw_text')) {
+  if ((oldType === 'form_urlencoded' || oldType === 'form_data' || oldType === 'json_table') && (newType === 'raw_json' || newType === 'raw_text')) {
     const source = oldType === 'form_urlencoded' ? urlencodedParams.value : formDataParams.value
     const enabled = source.filter(f => f.enabled && f.key)
     if (enabled.length === 0) return
@@ -2032,9 +2036,9 @@ async function handleCopyAsCurl() {
   // 与 handleSend 保持一致：先同步非表格模式内容到权威数据源，避免漏 KV/JSON 文本态改动
   syncKvJsonToParams()
 
-  // 计算 body（form_data / form_urlencoded 需要序列化）
+  // 计算 body（form_data / json_table / form_urlencoded 需要序列化）
   let bodyStr = bodyContent.value
-  if (bodyType.value === 'form_data') {
+  if (bodyType.value === 'form_data' || bodyType.value === 'json_table') {
     bodyStr = JSON.stringify(formDataParams.value)
   } else if (bodyType.value === 'form_urlencoded') {
     const enabledFields = urlencodedParams.value.filter(f => f.enabled && f.key)
@@ -2071,9 +2075,24 @@ async function handleCopyAsCurl() {
 async function handleSend() {
   // 非表格模式时先同步内容到 source of truth（queryParams / requestHeaders）
   syncKvJsonToParams()
-  // form-data 序列化
-  if (bodyType.value === 'form_data') syncFormData()
+  // form-data / json_table 序列化
+  if (bodyType.value === 'form_data' || bodyType.value === 'json_table') syncFormData()
   if (bodyType.value === 'form_urlencoded') syncUrlencodedData()
+
+  // json_table 发送时序列化为 JSON 对象（storage 是 ParamItem[]，发送是 {"key":"value"}）
+  let sendBodyType = bodyType.value
+  let sendBody = bodyContent.value
+  if (bodyType.value === 'json_table') {
+    try {
+      const items: ParamItem[] = JSON.parse(bodyContent.value)
+      const obj: Record<string, unknown> = {}
+      items.filter(i => i.enabled).forEach(i => {
+        try { obj[i.key] = JSON.parse(i.value) } catch { obj[i.key] = i.value }
+      })
+      sendBody = JSON.stringify(obj)
+      sendBodyType = 'raw_json'
+    } catch {}
+  }
 
   const activeReq = requestStore.activeRequest
   if (!activeReq) return
@@ -2092,8 +2111,8 @@ async function handleSend() {
       url: effectiveUrl.value,   // 自动拼接环境 base_url，避免相对路径报错
       query_params: queryParams.value,
       headers: requestHeaders.value,
-      body_type: bodyType.value,
-      body: bodyContent.value,
+      body_type: sendBodyType,
+      body: sendBody,
       path_params: pathParamList,
       auth_type: authType.value,
       auth_config: buildAuthConfigStr(),
@@ -2115,8 +2134,8 @@ async function handleSend() {
         url: effectiveUrl.value,   // 历史快照存完整 URL，便于回填
         query_params: queryParams.value,
         headers: requestHeaders.value,
-        body_type: bodyType.value,
-        body: bodyContent.value,
+        body_type: sendBodyType,
+        body: sendBody,
         path_params: pathParamList,
       }),
       response_body: resp.body,
@@ -2237,7 +2256,8 @@ async function handleActivateTestCase(id: number) {
   // 1.0.4 fix：用例快照缺的「类型/描述」用接口参数同 key 补全（避免切用例即丢失）
   const activeReq = requestStore.activeRequest
   const metaParamSrc = activeReq ? metaFromRaw(activeReq.params) : new Map<string, ParamItem>()
-  const metaBodySrc = activeReq && (activeReq.body_type === 'form_data' || activeReq.body_type === 'form_urlencoded')
+  const metaHeaderSrc = activeReq ? metaFromRaw(activeReq.headers) : new Map<string, ParamItem>()
+  const metaBodySrc = activeReq && (activeReq.body_type === 'form_data' || activeReq.body_type === 'form_urlencoded' || activeReq.body_type === 'json_table')
     ? metaFromRaw(activeReq.body)
     : new Map<string, ParamItem>()
   // 1.0.4：切用例 → 响应视图切到该用例桶；History 按用例重载
@@ -2247,7 +2267,7 @@ async function handleActivateTestCase(id: number) {
   }
   if (tc.method) method.value = tc.method
 
-  if (tc.headers) { try { requestHeaders.value = JSON.parse(tc.headers) } catch {} }
+  if (tc.headers) { try { requestHeaders.value = mergeParamMeta(JSON.parse(tc.headers), metaHeaderSrc) } catch {} }
 
   if (tc.params) {
     try {
@@ -2277,7 +2297,7 @@ async function handleActivateTestCase(id: number) {
   if (tc.body_type) bodyType.value = tc.body_type
   if (tc.body !== null && tc.body !== undefined) bodyContent.value = tc.body
   
-  if (tc.body_type === 'form_data') {
+  if (tc.body_type === 'form_data' || tc.body_type === 'json_table') {
     try { formDataParams.value = mergeParamMeta(JSON.parse(tc.body || '[]'), metaBodySrc) } catch { formDataParams.value = [] }
   } else {
     formDataParams.value = []
@@ -2361,6 +2381,10 @@ function deactivateToRaw() {
 async function handleSaveToActive() {
   const activeId = testCaseStore.activeTestCaseId
   if (!activeId) return
+  // 同步表格态到 bodyContent，避免保存过期数据（form_data/json_table 漏调 sync 的 bug）
+  syncKvJsonToParams()
+  if (bodyType.value === 'form_data' || bodyType.value === 'json_table') syncFormData()
+  if (bodyType.value === 'form_urlencoded') syncUrlencodedData()
   await testCaseStore.updateTestCase(activeId, {
     method: method.value,
     url: resolvedUrl.value,
@@ -2375,6 +2399,10 @@ async function handleSaveToActive() {
 async function handleSaveAsNew() {
   const activeReq = requestStore.activeRequest
   if (!activeReq) return
+  // 同步表格态到 bodyContent，避免保存过期数据
+  syncKvJsonToParams()
+  if (bodyType.value === 'form_data' || bodyType.value === 'json_table') syncFormData()
+  if (bodyType.value === 'form_urlencoded') syncUrlencodedData()
   const tc = await testCaseStore.createTestCase({
     requestId: activeReq.id,
     collectionId: activeReq.collection_id,
@@ -2419,6 +2447,10 @@ async function handleRenameTestCase(id: number, name: string) {
 async function handleCreateTestCase(name: string) {
   const activeReq = requestStore.activeRequest
   if (!activeReq) return
+  // 同步表格态到 bodyContent，避免保存过期数据
+  syncKvJsonToParams()
+  if (bodyType.value === 'form_data' || bodyType.value === 'json_table') syncFormData()
+  if (bodyType.value === 'form_urlencoded') syncUrlencodedData()
   await testCaseStore.createTestCase({
     requestId: activeReq.id,
     collectionId: activeReq.collection_id,
@@ -2444,7 +2476,7 @@ function handleRefill(snapshot: string) {
     if (s.body_type) bodyType.value = s.body_type
     if ('body' in s) bodyContent.value = s.body ?? ''
     
-    if (s.body_type === 'form_data') {
+    if (s.body_type === 'form_data' || s.body_type === 'json_table') {
       try { formDataParams.value = JSON.parse(s.body || '[]') } catch { formDataParams.value = [] }
     } else {
       formDataParams.value = []
@@ -2468,7 +2500,7 @@ async function handleSaveRequest() {
   if (!req) return
   // 非表格模式时先同步到 source of truth
   syncKvJsonToParams()
-  if (bodyType.value === 'form_data') syncFormData()
+  if (bodyType.value === 'form_data' || bodyType.value === 'json_table') syncFormData()
   // form_urlencoded 存储用结构化 JSON（含类型/描述），发送时才编码 k=v
   const saveBody = bodyType.value === 'form_urlencoded' ? urlencodedStorageBody() : bodyContent.value
 
@@ -2546,7 +2578,7 @@ const showStressResult = ref(false)
 async function handleStartStress(config: StressConfig, testCaseId: number | null, openResultModal = true) {
   // 先同步 kv/json 模式内容到 source of truth
   syncKvJsonToParams()
-  if (bodyType.value === 'form_data') syncFormData()
+  if (bodyType.value === 'form_data' || bodyType.value === 'json_table') syncFormData()
   if (bodyType.value === 'form_urlencoded') syncUrlencodedData()
 
   // 压测 tab 内启动时不弹结果弹窗，直接在当前 tab 看实时进度
