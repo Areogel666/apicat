@@ -5,7 +5,7 @@
     一款基于 Tauri、Rust 和 Vue 3 构建的轻量、高性能 API 调试与测试工具。
   </p>
   <p>
-    <img src="https://img.shields.io/badge/version-1.0.5-orange" alt="version"/>
+    <img src="https://img.shields.io/badge/version-1.0.6-orange" alt="version"/>
     <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="platform"/>
     <img src="https://img.shields.io/badge/license-MIT-green" alt="license"/>
   </p>
@@ -50,6 +50,13 @@ ApiCat is a modern desktop application for API debugging and testing, powered by
 - **Dictionary Management Rework**: Two-tab management page; sidebar rows show dict code/name on two lines with item description on hover; binding dropdowns sorted by code with search.
 - **Collapsible Sidebar**: A consistent collapse button across all three sidebar tabs — collapse to full-width content, state persisted.
 - **Docs Markdown Preview**: In-app Markdown preview for doc files (scrolling fixed), plus a defensive placeholder for unsupported file types.
+- **Startup Update Check**: Silent check on launch with a prompt only when a new version is out (once per version); unreachable server never nags.
+- **First-Run Skill Guide**: On first launch, if an Agent is detected but no ApiCat skills are installed, a one-time multi-target install dialog appears (re-armed after app upgrades if still not installed).
+- **Self-Contained Skills on Linux AppImage**: AppImage installs copy skill files instead of symlinking into the ephemeral `/tmp/.mount_*` mount point; copied installs carry a version marker and auto-refresh when the app version changes.
+- **Sidebar Fold Handle**: When the sidebar is collapsed, a slim handle on the left edge hover-previews the panel (no persistence) and click fully expands it.
+- **JSON Tree Expand/Collapse All**: One-click expand/collapse all nodes on the response toolbar; deep nodes past the default depth are now clickable to toggle (previously required Ctrl+F).
+- **Large Response Safety**: Response bodies up to 1MB render inline; 1MB–32MB are written to file in full; only >32MB is truncated (with `is_truncated`).
+- **Window State Memory**: Window size and maximized state are restored on next launch.
 
 ### 🚀 Quick Start (For Users)
 
@@ -86,8 +93,8 @@ Build output: `src-tauri/target/release/bundle/msi/`
 
 ### 📋 Changelog
 
-- Latest stable: [docs/release/1.0.5.md](docs/release/1.0.5.md)
-- Previous: [docs/release/1.0.4.md](docs/release/1.0.4.md)
+- Latest stable: [docs/release/1.0.6.md](docs/release/1.0.6.md)
+- Previous: [docs/release/1.0.5.md](docs/release/1.0.5.md)
 - Beta history: [docs/release/1.0.0-beta.md](docs/release/1.0.0-beta.md)
 
 ### 📄 License
@@ -128,6 +135,13 @@ ApiCat 是一款基于 Tauri 2.0 + Rust + Vue 3 的轻量、高性能、无跨�
 - **字典管理改版**：管理页双 Tab；左侧栏两行化（code 主 / name 弱化）+ 字典项描述悬停；绑定下拉按 code 排序 + 可搜索。
 - **左侧栏折叠**：接口/字典/文档三栏统一折叠按钮，折叠后编辑区全宽，状态持久化。
 - **文档 Markdown 预览**：文档面板内直接预览 Markdown（含滚动修复）；非 md 类型给出防御占位。
+- **启动时检查更新**：启动时静默检查，有新版本才提示（同一版本只提示 1 次）；服务器不可达时不打扰。
+- **首启技能引导**：首次启动检测到「有 Agent 目录但完全没装过 ApiCat 技能」时弹窗多选安装；按 App 版本记「已提示」，升级后若仍未装会再提示。
+- **Linux AppImage 技能自包含**：AppImage 下技能改文件复制（不再软链到临时挂载点）；复制式安装的副本带版本标记，App 升级后启动自动刷新。
+- **左侧栏折叠把手**：折叠后内容区左缘留门把手式窄条——悬停预览（不持久化）、点击真正展开。
+- **JSON 树全展开/全收起**：响应工具栏一键切换；默认展开层级以下的节点现在可以直接点击展开/收起（此前需 Ctrl+F 才生效）。
+- **大响应安全兜底**：≤1MB 内联渲染、1MB–32MB 完整落文件、>32MB 才截断（置 `is_truncated`）。
+- **窗口状态记忆**：记住上次窗口尺寸与最大化状态。
 
 ### 🚀 快速使用
 
@@ -175,8 +189,8 @@ npm run tauri build
 
 ### 📋 更新记录
 
-- 最新稳定版说明： [docs/release/1.0.5.md](docs/release/1.0.5.md)
-- 上一版本说明： [docs/release/1.0.4.md](docs/release/1.0.4.md)
+- 最新稳定版说明： [docs/release/1.0.6.md](docs/release/1.0.6.md)
+- 上一版本说明： [docs/release/1.0.5.md](docs/release/1.0.5.md)
 - Beta 阶段历史记录： [docs/release/1.0.0-beta.md](docs/release/1.0.0-beta.md)
 
 ### 📄 开源协议
