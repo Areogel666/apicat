@@ -87,22 +87,31 @@ const canSubmit = computed(() => {
 })
 
 /**
- * 手填框自动规范化（Q7-C）：贴 `https://x.com/path` 也能对上 URL host。
- * 后端 create_cookie 也会 normalize，这里是即时反馈，避免用户看着「填了没生效」。
+ * 手填框即时规范化（Q7-C）：贴 `https://x.com/path` 也能对上 URL host。
+ *
+ * **算法唯一真源是 Rust 的 `cookies::normalize_domain`**，这里必须逐行对齐：
+ *   scheme → path/query/fragment → userinfo → port（IPv6 别按冒号切）
+ * 顺序敏感：先剥 userinfo 再切 path 的话，`?mail=x@y.com` 会被截成 `y.com`。
+ * 后端 create_cookie 会再规范化一次兜底，此处只为即时反馈。
  */
 function normalizeDomain() {
   let s = form.domain.trim()
   const scheme = s.indexOf('://')
   if (scheme >= 0) s = s.slice(scheme + 3)
-  const at = s.lastIndexOf('@')
-  if (at >= 0) s = s.slice(at + 1)
+  // 1. 先切 path / query / fragment
   for (const sep of ['/', '?', '#']) {
     const i = s.indexOf(sep)
-    if (i >= 0) s = s.slice(0, i)
+    if (i >= 0) { s = s.slice(0, i); break }
   }
-  if (!s.startsWith('[')) {
-    const colon = s.indexOf(':')
-    if (colon >= 0) s = s.slice(0, colon)
+  // 2. 再剥 userinfo
+  const at = s.lastIndexOf('@')
+  if (at >= 0) s = s.slice(at + 1)
+  // 3. 剥端口。IPv6 含多个冒号不能按第一个冒号切
+  if (s.startsWith('[')) {
+    const end = s.indexOf(']')
+    if (end >= 0) s = s.slice(0, end + 1)
+  } else if ((s.match(/:/g) ?? []).length === 1) {
+    s = s.slice(0, s.indexOf(':'))
   }
   form.domain = s.replace(/^\.+/, '').toLowerCase()
 }

@@ -21,29 +21,37 @@ use std::collections::HashSet;
 
 // ── 纯函数：domain / path / 过期 ─────────────────────────────
 
-/// 规范化 domain 输入：剥 scheme / userinfo / path / query / port / 开头的点，转小写。
+/// 规范化 domain 输入：剥 scheme / path / query / userinfo / port / 开头的点，转小写。
 ///
 /// 用户习惯填 `https://ias-app.cms.intl.miui.com/path`，而发送侧拿 URL host
 /// （`ias-app.cms.intl.miui.com`）做匹配——不规范化就永不命中（1.0.7 根因 #1）。
+///
+/// **顺序敏感**：必须先切 path/query/fragment 再剥 userinfo。
+/// 反过来的话 `https://a.com/v1?mail=x@y.com` 会被 query 里的 `@` 截成 `y.com`。
 pub fn normalize_domain(input: &str) -> String {
     let mut s = input.trim();
     if let Some(idx) = s.find("://") {
         s = &s[idx + 3..];
     }
-    if let Some(idx) = s.rfind('@') {
-        s = &s[idx + 1..];
-    }
+    // 1. 先切 path / query / fragment —— 此后 s 只剩 [userinfo@]host[:port]
     if let Some(idx) = s.find(|c| c == '/' || c == '?' || c == '#') {
         s = &s[..idx];
     }
-    // IPv6 字面量 `[::1]:8080` 只剥 `]` 之后的端口，其余按第一个冒号切
-    if let Some(rest) = s.strip_prefix('[') {
-        if let Some(end) = rest.find(']') {
-            // end 相对 rest（已吃掉前缀 `[`），故回切到 s 上要 +2 才含 `]`
-            s = &s[..end + 2];
+    // 2. 再剥 userinfo（URL 里它在 host 前，且不会含 `/`）
+    if let Some(idx) = s.rfind('@') {
+        s = &s[idx + 1..];
+    }
+    // 3. 剥端口。IPv6 字面量含多个冒号，不能按第一个冒号切。
+    //    reqwest 的 host_str() 对 IPv6 返回无括号的 `::1`，用户输入则常是 `[::1]:8080`。
+    if s.starts_with('[') {
+        if let Some(end) = s.find(']') {
+            s = &s[..=end]; // 保留 `[..]`
         }
-    } else if let Some(idx) = s.find(':') {
-        s = &s[..idx];
+    } else if s.matches(':').count() == 1 {
+        // 单冒号才是 host:port
+        if let Some(idx) = s.find(':') {
+            s = &s[..idx];
+        }
     }
     s.trim_start_matches('.').to_lowercase()
 }
@@ -430,8 +438,28 @@ mod tests {
         assert_eq!(normalize_domain(".intl.miui.com"), "intl.miui.com");
         assert_eq!(normalize_domain("EXAMPLE.COM:8080"), "example.com");
         assert_eq!(normalize_domain("http://user:pass@Host.Example.com/a"), "host.example.com");
-        assert_eq!(normalize_domain("[::1]:8080"), "[::1]");
         assert_eq!(normalize_domain("  example.com  "), "example.com");
+    }
+
+    // 顺序敏感：先切 path/query 再剥 userinfo，否则 query 里的 `@` 会截错域名
+    #[test]
+    fn normalize_at_sign_in_query_is_not_userinfo() {
+        assert_eq!(
+            normalize_domain("https://api.example.com/v1/user?mail=x@y.com"),
+            "api.example.com"
+        );
+        assert_eq!(
+            normalize_domain("https://api.example.com/v1@2"),
+            "api.example.com"
+        );
+    }
+
+    // reqwest host_str() 对 IPv6 返回无括号形式；用户输入常带括号+端口
+    #[test]
+    fn normalize_ipv6_keeps_the_address() {
+        assert_eq!(normalize_domain("[::1]:8080"), "[::1]");
+        assert_eq!(normalize_domain("::1"), "::1");
+        assert_eq!(normalize_domain("2001:db8::1"), "2001:db8::1");
     }
 
     #[test]

@@ -159,15 +159,21 @@ pub async fn send_request_impl(
     // 这里刻意不 emit 广播——send_request_impl 拿不到 AppHandle；
     // Bridge 的 send_request handler 在成功后统一 broadcast("cookies")，
     // 桌面端则由 response store 在响应含 Set-Cookie 时自行 reload。
+    //
+    // 回存失败**绝不能**让 `?` 把已经拿到的响应丢掉：本地 SQLite 抖动或并发
+    // upsert 撞 UNIQUE 都不该让用户看到「发送失败」且 history 不落库。
     if persist_set_cookies {
-        crate::cookies::persist_set_cookies(
+        if let Err(e) = crate::cookies::persist_set_cookies(
             pool,
             &resp.headers,
             &resolved_params.url,
             effective_project_id,
             env_id,
         )
-        .await?;
+        .await
+        {
+            eprintln!("[cookies] Set-Cookie 回存失败（不影响本次响应）: {e}");
+        }
     }
 
     // 2. 构造请求快照

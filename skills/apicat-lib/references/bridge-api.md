@@ -360,8 +360,8 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_cookies?scope_type=env&pro
 | `name` | 是 | |
 | `value` | 是 | |
 | `path` | 否 | 默认 `"/"` |
-| `expires_at` | 否 | 存库格式 UTC 时间串；null = 会话 cookie |
-| `http_only` | 否 | 布尔或整数 0/1 |
+| `expiresAt`（或 `expires_at`） | 否 | 存库格式 UTC 时间串（`YYYY-MM-DD HH:MM:SS`，UTC）；不传或传空串 = 会话 cookie |
+| `httpOnly`（或 `http_only`） | 否 | 布尔或整数 0/1 |
 | `secure` | 否 | 布尔或整数 0/1 |
 
 返回新建的 Cookie 行。
@@ -380,12 +380,17 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 | `id` | 是 | cookie 行 id |
 | `domain` | 否 | 同 create，自动规范化 |
 | `name` / `value` / `path` | 否 | |
-| `expires_at` | 否 | null = 会话 cookie |
-| `http_only` / `secure` | 否 | 布尔或整数 0/1 |
+| `expiresAt`（或 `expires_at`） | 否 | **三态**：不传 = 保留原值；传非空串 = 覆盖；**传空串 `""` = 清空过期时间（改回会话 cookie）** |
+| `httpOnly`（或 `http_only`）/ `secure` | 否 | 布尔或整数 0/1 |
 | `enabled` | 否 | 布尔或整数 0/1 |
 
 **⚠️ 不可改 `scope_type` / `project_id` / `env_id`**（改作用域请删了重建）。
-所有可改字段均为 COALESCE 语义：不传保留原值。返回更新后的 Cookie 行。
+除 `expiresAt` 为三态外，其余可改字段均为 COALESCE 语义：不传保留原值。
+返回更新后的 Cookie 行。
+
+> 为什么 `expiresAt` 用空串而不是 JSON `null` 表示清空：`serde_json::Value` 里
+> 「键缺失」与「值为 null」都取不到 `as_str()`，区分不了；`COALESCE` 也表达不了
+> 「显式置 NULL」。故约定空串为清空哨兵。
 ```bash
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"id": 7, "value": "new-token", "enabled": 1}' "$BASE/update_cookie"

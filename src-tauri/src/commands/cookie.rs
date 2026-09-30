@@ -34,12 +34,24 @@ pub async fn list_cookies_impl(
             .await?
         }
         "env" => {
-            sqlx::query_as::<_, Cookie>(&format!(
-                "SELECT {COOKIE_COLS} FROM cookies WHERE scope_type='env' AND env_id=? ORDER BY id DESC"
-            ))
-            .bind(env_id)
-            .fetch_all(pool)
-            .await?
+            // env_id 不传 = 取所有环境层 cookie（Cookie 管理的「环境」筛选需要）
+            match env_id {
+                Some(eid) => {
+                    sqlx::query_as::<_, Cookie>(&format!(
+                        "SELECT {COOKIE_COLS} FROM cookies WHERE scope_type='env' AND env_id=? ORDER BY id DESC"
+                    ))
+                    .bind(eid)
+                    .fetch_all(pool)
+                    .await?
+                }
+                None => {
+                    sqlx::query_as::<_, Cookie>(&format!(
+                        "SELECT {COOKIE_COLS} FROM cookies WHERE scope_type='env' ORDER BY id DESC"
+                    ))
+                    .fetch_all(pool)
+                    .await?
+                }
+            }
         }
         _ => {
             sqlx::query_as::<_, Cookie>(&format!(
@@ -124,6 +136,15 @@ pub async fn update_cookie(
 }
 
 /// 核心逻辑（供 Tauri command 与 HTTP bridge 共用）
+///
+/// `expires_at` 三态约定（与 bridge-api.md 一致）：
+///   - 不传        → 保留原值
+///   - 传非空串    → 覆盖
+///   - **传空串 `""`** → 置 NULL（改回会话 cookie）
+///
+/// 空串作清空哨兵而不是用 JSON `null`：Bridge 侧 `serde_json::Value` 里
+/// 「键缺失」与「值为 null」都取不到 `as_str()`，区分不了；COALESCE 也表达不了
+/// 「显式置 NULL」。故用 `CASE WHEN ? THEN ? ELSE expires_at END`。
 #[allow(clippy::too_many_arguments)]
 pub async fn update_cookie_impl(
     pool: &SqlitePool,
@@ -137,15 +158,16 @@ pub async fn update_cookie_impl(
     secure: Option<bool>,
     enabled: Option<i64>,
 ) -> Result<Cookie, crate::error::AppError> {
-    // expires_at 需要支持「显式置 NULL」（改成会话 cookie），故不用 COALESCE，
-    // 而是把「传了就覆盖、没传就保留」写在 SQL 里，NULL 语义交给调用方字符串。
+    let expires_provided = expires_at.is_some() as i64;
+    let expires_value: Option<&str> = expires_at.filter(|s| !s.is_empty());
+
     let row = sqlx::query_as::<_, Cookie>(&format!(
         "UPDATE cookies SET \
            domain=COALESCE(?, domain), \
            name=COALESCE(?, name), \
            value=COALESCE(?, value), \
            path=COALESCE(?, path), \
-           expires_at=COALESCE(?, expires_at), \
+           expires_at=CASE WHEN ? THEN ? ELSE expires_at END, \
            http_only=COALESCE(?, http_only), \
            secure=COALESCE(?, secure), \
            enabled=COALESCE(?, enabled) \
@@ -155,7 +177,8 @@ pub async fn update_cookie_impl(
     .bind(name)
     .bind(value)
     .bind(path)
-    .bind(expires_at)
+    .bind(expires_provided)
+    .bind(expires_value)
     .bind(http_only.map(|b| b as i64))
     .bind(secure.map(|b| b as i64))
     .bind(enabled)
@@ -232,7 +255,8 @@ pub async fn create_cookie_impl(
     .bind(&c.name)
     .bind(&c.value)
     .bind(&c.path)
-    .bind(&c.expires_at)
+    // 空串 = 未指定过期时间，落成 NULL（会话 cookie）
+    .bind(c.expires_at.as_deref().filter(|s| !s.is_empty()))
     .bind(c.http_only as i64)
     .bind(c.secure as i64)
     .fetch_one(pool)

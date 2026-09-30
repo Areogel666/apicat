@@ -3,6 +3,8 @@ import { ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { CaseType, RunCaseResult, TestCase, TestCaseHistory } from '../types'
 import { useCookieStore } from './cookie'
+import { useProjectStore } from './project'
+import { useEnvironmentStore } from './environment'
 
 /**
  * 按最近使用降序排列用例。
@@ -186,9 +188,13 @@ export const useTestCaseStore = defineStore('testCase', () => {
       testCaseId,
       envId: envId ?? null,
     })
-    // 1.0.7：用例执行会回存 Set-Cookie，桌面端同步 reload（写操作后 store 自行 reload）
-    // fire-and-forget，不阻断用例结果展示
-    useCookieStore().loadCookies().catch(() => {})
+    // 1.0.7：用例执行会回存 Set-Cookie，桌面端同步 reload（写操作后 store 自行 reload）。
+    // 必须带上项目/环境上下文——loadCookies() 空参会只拉 global 层，
+    // 把列表里项目/环境层 cookie 整个替换掉（评审发现）。
+    useCookieStore().loadCookies({
+      projectId: useProjectStore().currentProjectId,
+      envId: useEnvironmentStore().activeEnvId,
+    }).catch(() => {})
     // 同步本地镜像：用例的执行状态字段
     for (const list of Object.values(testCaseMap.value)) {
       const idx = list.findIndex(c => c.id === testCaseId)

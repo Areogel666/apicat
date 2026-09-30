@@ -727,11 +727,12 @@ const cookieStore = useCookieStore()
 const message = useMessage()
 const dialog = useDialog()
 
-// 1.0.7：Set-Cookie 自动回存开关（Q15-A，默认开；TopBar 设置菜单可切）
-const persistSetCookie = ref(true)
-onMounted(async () => {
-  persistSetCookie.value = (await readSetting<boolean>('persistSetCookie')) ?? true
-})
+// 1.0.7：Set-Cookie 自动回存开关（Q15-A，默认开；TopBar 设置菜单可切）。
+// **发送时才读**，不缓存到 mount——TopBar 改的是同一个 key，缓存会让关闭开关
+// 直到重启才生效（评审发现的真实缺陷）。
+async function shouldPersistSetCookie(): Promise<boolean> {
+  return (await readSetting<boolean>('persistSetCookie')) ?? true
+}
 
 /**
  * 取 cookie 存储里命中该 URL 的 cookie 串（`a=1; b=2`），供「复制为 cURL」导出（Q17-A）。
@@ -2151,8 +2152,8 @@ async function handleSend() {
     },
     envStore.activeEnvId,
     projectStore.currentProjectId,
-    // Q15-A：全局设置「自动保存 Set-Cookie」
-    persistSetCookie.value,
+    // Q15-A：全局设置「自动保存 Set-Cookie」（发送时读，保证开关即时生效）
+    await shouldPersistSetCookie(),
   )
 
   // 响应含 Set-Cookie 时，Rust 侧已回存 cookies 表——桌面端同步 reload，

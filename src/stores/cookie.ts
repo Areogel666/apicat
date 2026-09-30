@@ -31,9 +31,8 @@ export const useCookieStore = defineStore('cookie', () => {
           opts?.projectId
             ? invoke<CookieItem[]>('list_cookies', { scopeType: 'project', projectId: opts.projectId, envId: null })
             : Promise.resolve([]),
-          opts?.envId
-            ? invoke<CookieItem[]>('list_cookies', { scopeType: 'env', projectId: null, envId: opts.envId })
-            : Promise.resolve([]),
+          // env 层不传 envId = 取所有环境，供「环境」筛选下拉用
+          invoke<CookieItem[]>('list_cookies', { scopeType: 'env', projectId: null, envId: null }),
         ])
         cookies.value = [...g, ...p, ...e]
       } else {

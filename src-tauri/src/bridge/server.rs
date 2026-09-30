@@ -91,6 +91,33 @@ fn get_i64(body: &Value, camel: &str, snake: &str) -> Option<i64> {
     body[camel].as_i64().or(body[snake].as_i64())
 }
 
+/// 取布尔字段：camelCase 优先，回退 snake_case。同时接受布尔与整数 0/1
+/// （旧契约里 `enabled` 只认整数，传布尔会静默无效）。
+fn get_bool(body: &Value, camel: &str, snake: &str) -> Option<bool> {
+    let v = body.get(camel).or_else(|| body.get(snake))?;
+    v.as_bool().or_else(|| v.as_i64().map(|n| n != 0))
+}
+
+/// 字段是否在 body 里出现过（区分「没传」与「传了 null/空」）
+fn has_key(body: &Value, camel: &str, snake: &str) -> bool {
+    body.get(camel).is_some() || body.get(snake).is_some()
+}
+
+/// 取 query 参数：camelCase 优先，回退 snake_case（axum Query 的 JSON 两种都可能出现）
+fn q_str<'a>(q: &'a Value, camel: &str, snake: &str) -> Option<&'a str> {
+    q.get(camel).and_then(|v| v.as_str()).or_else(|| q.get(snake).and_then(|v| v.as_str()))
+}
+
+/// query 取整数，两种命名风格都认
+fn q_i64(q: &Value, camel: &str, snake: &str) -> Option<i64> {
+    q.get(camel)
+        .and_then(|v| v.as_str().and_then(|s| s.parse().ok()).or_else(|| v.as_i64()))
+        .or_else(|| {
+            q.get(snake)
+                .and_then(|v| v.as_str().and_then(|s| s.parse().ok()).or_else(|| v.as_i64()))
+        })
+}
+
 // ── Query 参数 ──────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -1142,9 +1169,9 @@ async fn delete_env_variable(State(s): State<BState>, Json(body): Json<Value>) -
 // ── Cookie ──────────────────────────────────────────────────
 
 async fn list_cookies(State(s): State<BState>, Query(q): Query<serde_json::Value>) -> axum::response::Response {
-    let scope = q.get("scope_type").and_then(|v| v.as_str()).unwrap_or("global");
-    let pid = q.get("project_id").and_then(|v| v.as_str()).and_then(|v| v.parse::<i64>().ok());
-    let eid = q.get("env_id").and_then(|v| v.as_str()).and_then(|v| v.parse::<i64>().ok());
+    let scope = q_str(&q, "scopeType", "scope_type").unwrap_or("global");
+    let pid = q_i64(&q, "projectId", "project_id");
+    let eid = q_i64(&q, "envId", "env_id");
     match crate::commands::cookie::list_cookies_impl(&s.pool, scope, pid, eid).await {
         Ok(rows) => ok(rows),
         Err(e) => server_err(e),
@@ -1156,16 +1183,16 @@ async fn create_cookie(State(s): State<BState>, Json(body): Json<Value>) -> axum
         scope_type: get_str(&body, "scopeType", "scope_type").unwrap_or("global").to_string(),
         project_id: get_i64(&body, "projectId", "project_id"),
         env_id: get_i64(&body, "envId", "env_id"),
-        domain: crate::cookies::normalize_domain(body["domain"].as_str().unwrap_or("")),
-        name: body["name"].as_str().unwrap_or("").to_string(),
-        value: body["value"].as_str().unwrap_or("").to_string(),
+        domain: crate::cookies::normalize_domain(get_str(&body, "domain", "domain").unwrap_or("")),
+        name: get_str(&body, "name", "name").unwrap_or("").to_string(),
+        value: get_str(&body, "value", "value").unwrap_or("").to_string(),
         path: {
-            let p = body["path"].as_str().unwrap_or("/");
+            let p = get_str(&body, "path", "path").unwrap_or("/");
             if p.is_empty() { "/".to_string() } else { p.to_string() }
         },
-        expires_at: body["expires_at"].as_str().map(|s| s.to_string()),
-        http_only: body["http_only"].as_i64().map(|v| v != 0).or(body["http_only"].as_bool()).unwrap_or(false),
-        secure: body["secure"].as_i64().map(|v| v != 0).or(body["secure"].as_bool()).unwrap_or(false),
+        expires_at: get_str(&body, "expiresAt", "expires_at").map(|s| s.to_string()),
+        http_only: get_bool(&body, "httpOnly", "http_only").unwrap_or(false),
+        secure: get_bool(&body, "secure", "secure").unwrap_or(false),
     };
     match crate::commands::cookie::create_cookie_impl(&s.pool, &upsert).await {
         Ok(row) => { broadcast(&s, "cookies"); ok(row) }
@@ -1174,22 +1201,26 @@ async fn create_cookie(State(s): State<BState>, Json(body): Json<Value>) -> axum
 }
 
 async fn update_cookie(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
-    let Some(id) = body["id"].as_i64() else { return err(StatusCode::BAD_REQUEST, "id required") };
-    let domain = body["domain"].as_str().map(crate::cookies::normalize_domain);
-    // enabled 兼容两种写法：整数 0/1（旧契约）与布尔（更自然）
-    let enabled = body["enabled"].as_i64().or(body["enabled"].as_bool().map(|b| b as i64));
-    let http_only = body["http_only"].as_i64().map(|v| v != 0).or(body["http_only"].as_bool());
-    let secure = body["secure"].as_i64().map(|v| v != 0).or(body["secure"].as_bool());
+    let Some(id) = get_i64(&body, "id", "id") else { return err(StatusCode::BAD_REQUEST, "id required") };
+    let domain = get_str(&body, "domain", "domain").map(crate::cookies::normalize_domain);
+    // expires_at 三态：不传=保留；传非空串=覆盖；传空串=置 NULL（会话 cookie）
+    let expires_at = if has_key(&body, "expiresAt", "expires_at") {
+        Some(get_str(&body, "expiresAt", "expires_at").unwrap_or(""))
+    } else {
+        None
+    };
+    let enabled = get_i64(&body, "enabled", "enabled")
+        .or_else(|| get_bool(&body, "enabled", "enabled").map(|b| b as i64));
     match crate::commands::cookie::update_cookie_impl(
         &s.pool,
         id,
         domain.as_deref(),
-        body["name"].as_str(),
-        body["value"].as_str(),
-        body["path"].as_str(),
-        body["expires_at"].as_str(),
-        http_only,
-        secure,
+        get_str(&body, "name", "name"),
+        get_str(&body, "value", "value"),
+        get_str(&body, "path", "path"),
+        expires_at,
+        get_bool(&body, "httpOnly", "http_only"),
+        get_bool(&body, "secure", "secure"),
         enabled,
     )
     .await
@@ -1210,11 +1241,11 @@ async fn delete_cookie(State(s): State<BState>, Json(body): Json<Value>) -> axum
 /// 取某 URL/host 命中的可用 cookie（子域/path/过期/优先级过滤后）。
 /// 与 Tauri command 同一份语义，走 `cookies::collect_cookies_for_url`（Q30-A 唯一真源）。
 async fn get_cookies_for_domain(State(s): State<BState>, Query(q): Query<serde_json::Value>) -> axum::response::Response {
-    let Some(domain) = q.get("domain").and_then(|v| v.as_str()) else {
+    let Some(domain) = q_str(&q, "domain", "domain") else {
         return err(StatusCode::BAD_REQUEST, "domain required");
     };
-    let pid = q.get("project_id").and_then(|v| v.as_str()).and_then(|v| v.parse::<i64>().ok());
-    let eid = q.get("env_id").and_then(|v| v.as_str()).and_then(|v| v.parse::<i64>().ok());
+    let pid = q_i64(&q, "projectId", "project_id");
+    let eid = q_i64(&q, "envId", "env_id");
     // 裸 host 补成 URL，好让统一入口解析出 host/path
     let url = if domain.contains("://") {
         domain.to_string()

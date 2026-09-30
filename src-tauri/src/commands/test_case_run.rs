@@ -179,15 +179,19 @@ pub async fn run_test_case_impl(
 
     let (status_code, elapsed_ms, response_body, error_message) = match send_result {
         Ok(resp) => {
-            // Set-Cookie 回存（Q5-B）：与调试 Send 同语义，登录类用例才有下次可用的 token
-            crate::cookies::persist_set_cookies(
+            // Set-Cookie 回存（Q5-B）：与调试 Send 同语义，登录类用例才有下次可用的 token。
+            // 回存失败不得中止用例执行——响应和断言结果比 cookie 落库重要。
+            if let Err(e) = crate::cookies::persist_set_cookies(
                 pool,
                 &resp.headers,
                 &send_params.url,
                 case_project_id,
                 effective_env_id,
             )
-            .await?;
+            .await
+            {
+                eprintln!("[cookies] Set-Cookie 回存失败（不影响本次用例执行）: {e}");
+            }
             (Some(resp.status_code), resp.elapsed_ms, resp.body, None)
         }
         Err(e) => (None, 0, String::new(), Some(e)),

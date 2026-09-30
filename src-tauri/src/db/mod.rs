@@ -225,13 +225,35 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Err
     // 否则同一项目下两个环境的同名 cookie 会互相顶掉。SQLite 无法 ALTER 约束，
     // 只能整表重建。顺带清掉历史遗留的孤儿行（scope='project' 且 project_id=NULL
     // —— 无项目时仍可保存项目级 cookie 产生的，之后哪儿都查不到）。
+    //
+    // 整段包在事务里：CREATE → INSERT SELECT → DROP → RENAME 任一步失败都回滚，
+    // 不会出现「老表已删、新表未就位」的中间态。另外单独处理「上次崩在 RENAME 前」
+    // —— 那时 cookies 已不存在而 cookies_new 还在，直接补 RENAME 而不是重建。
     let cookie_cols: Vec<String> =
         sqlx::query_scalar("SELECT name FROM pragma_table_info('cookies')")
             .fetch_all(pool)
             .await?;
-    if !cookie_cols.iter().any(|c| c == "env_id") {
-        // 上次中断遗留的半成品表先清掉，保证幂等
-        sqlx::query("DROP TABLE IF EXISTS cookies_new").execute(pool).await?;
+    let has_cookies_table = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='cookies'",
+    )
+    .fetch_one(pool)
+    .await?
+        > 0;
+    let has_cookies_new = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='cookies_new'",
+    )
+    .fetch_one(pool)
+    .await?
+        > 0;
+
+    if !has_cookies_table && has_cookies_new {
+        // 崩溃恢复：DROP cookies 之后、RENAME 之前断电/被杀
+        sqlx::query("ALTER TABLE cookies_new RENAME TO cookies")
+            .execute(pool)
+            .await?;
+    } else if has_cookies_table && !cookie_cols.iter().any(|c| c == "env_id") {
+        let mut tx = pool.begin().await?;
+        sqlx::query("DROP TABLE IF EXISTS cookies_new").execute(&mut *tx).await?;
         sqlx::query(
             "CREATE TABLE cookies_new (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -249,7 +271,7 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Err
                 UNIQUE(scope_type, project_id, env_id, domain, path, name)
             )",
         )
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
         sqlx::query(
             "INSERT INTO cookies_new
@@ -260,10 +282,13 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Err
              FROM cookies
              WHERE NOT (scope_type = 'project' AND project_id IS NULL)",
         )
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
-        sqlx::query("DROP TABLE cookies").execute(pool).await?;
-        sqlx::query("ALTER TABLE cookies_new RENAME TO cookies").execute(pool).await?;
+        sqlx::query("DROP TABLE cookies").execute(&mut *tx).await?;
+        sqlx::query("ALTER TABLE cookies_new RENAME TO cookies")
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
     }
 
     Ok(())

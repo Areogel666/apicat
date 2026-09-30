@@ -135,11 +135,12 @@ Cookie 走 Bridge 的 5 个端点，作用域三层：`scope_type = 'global' | '
 - `GET /get_cookies_for_domain?domain=<host或URL>&project_id=N&env_id=N` —— 取某 URL 实际命中的可用 cookie（已按子域/path/过期/优先级过滤）
 
 ### 建
-`POST /create_cookie`，字段：`scopeType`（或 `scope_type`）/`projectId`（或 `project_id`）/`envId`（或 `env_id`）/`domain`/`name`/`value`/`path`（默认 `"/"`）/`expires_at`/`http_only`/`secure`。
-`domain` 会自动规范化（填完整 URL 也行）；`http_only`/`secure` 接受布尔或整数 0/1。返回新建的 Cookie 行。
+`POST /create_cookie`，字段：`scopeType`（或 `scope_type`）/`projectId`（或 `project_id`）/`envId`（或 `env_id`）/`domain`/`name`/`value`/`path`（默认 `"/"`）/`expiresAt`（或 `expires_at`）/`httpOnly`（或 `http_only`）/`secure`。
+`domain` 会自动规范化（填完整 URL 也行）；`httpOnly`/`secure` 接受布尔或整数 0/1；`expiresAt` 不传或传空串 = 会话 cookie。返回新建的 Cookie 行。
 
 ### 改
-`POST /update_cookie`，必填 `id`。可改：`domain`/`name`/`value`/`path`/`expires_at`/`http_only`/`secure`/`enabled`，均为 COALESCE 语义（不传保留原值）。
+`POST /update_cookie`，必填 `id`。可改：`domain`/`name`/`value`/`path`/`expiresAt`/`httpOnly`/`secure`/`enabled`。
+除 `expiresAt` 外均为 COALESCE 语义（不传保留原值）；`expiresAt` 是**三态**——不传=保留、传非空串=覆盖、**传空串 `""` = 清空过期时间（改回会话 cookie）**。
 
 **⚠️ 不可改 `scope_type` / `project_id` / `env_id`** —— 改作用域要**删了重建**（`POST /delete_cookie` 再 `POST /create_cookie`）。
 

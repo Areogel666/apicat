@@ -100,10 +100,22 @@ const projectHint = computed(() =>
     : `未选中项目，仅能管理全局 Cookie`,
 )
 
-/** 筛选后的可见列表（store 已按 scope 拉取） */
+/**
+ * 筛选后的可见列表。
+ *
+ * 取数固定拉全量（global + 项目 + 全部环境），筛选纯在前端做——
+ * 两个状态源（取数用 activeEnvId、显示用 filterEnvId）曾各走各的，
+ * 选到非激活环境时列表恒为空（评审发现）。
+ */
 const visibleCookies = computed(() => {
-  if (scopeFilter.value !== 'env') return cookieStore.cookies
-  return cookieStore.cookies.filter(c => c.env_id === filterEnvId.value)
+  const list = cookieStore.cookies
+  if (scopeFilter.value === 'global') return list.filter(c => c.scope_type === 'global')
+  if (scopeFilter.value === 'project') return list.filter(c => c.scope_type === 'project')
+  if (scopeFilter.value === 'env') {
+    return list.filter(c => c.scope_type === 'env'
+      && (filterEnvId.value == null || c.env_id === filterEnvId.value))
+  }
+  return list
 })
 
 const expiredCount = computed(() => {
@@ -119,10 +131,11 @@ function nowStr() {
 }
 
 async function reload() {
+  // 固定拉全量，筛选交给 visibleCookies（见其注释）
   await cookieStore.loadCookies({
-    scope: scopeFilter.value === 'env' ? 'all' : scopeFilter.value,
+    scope: 'all',
     projectId: projectStore.currentProjectId,
-    envId: envStore.activeEnvId,
+    envId: null,
   })
 }
 
@@ -138,7 +151,9 @@ watch(() => props.show, async (v) => {
   await reload()
 })
 
-watch(scopeFilter, reload)
+// 切项目要重新取（项目层 cookie 换了一批）
+watch(() => projectStore.currentProjectId, reload)
+// 筛选是纯前端的，无需重取；但切环境时若正显示「环境」筛选，列表随 computed 自动变
 
 async function toggleCookie(id: number, enabled: boolean) {
   await cookieStore.updateCookie(id, { enabled: enabled ? 1 : 0 })
