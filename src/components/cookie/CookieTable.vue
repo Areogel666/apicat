@@ -73,22 +73,24 @@ function expiryTitle(c: CookieItem) {
 </script>
 
 <style scoped>
-.cookie-table { margin-bottom: 8px; }
+/* 全部走项目主题 token（见 CLAUDE.md「主题系统」），硬编码 px 不随风格档位变 */
+.cookie-table { margin-bottom: var(--spacing-sm); }
 .table-header {
   display: flex;
-  padding: 4px 8px;
-  font-size: 11px;
+  align-items: center;
+  min-height: var(--row-height);
+  padding: 0 var(--spacing-sm);
+  font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
   border-bottom: 1px solid var(--border-base);
 }
 .table-row {
   display: flex;
   align-items: center;
-  padding: 5px 8px;
-  font-size: 12px;
+  min-height: var(--row-height);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-base);
   border-bottom: 1px solid var(--border-base);
 }
 .table-row:hover { background: var(--bg-hover); }
@@ -97,9 +99,13 @@ function expiryTitle(c: CookieItem) {
 .table-row.expired .scope::after {
   content: '·过期';
   color: var(--color-error);
-  font-size: 10px;
+  font-size: var(--font-size-sm);
 }
-.cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 4px; }
-.scope { color: var(--text-tertiary); font-size: 11px; }
-.flag { color: var(--text-tertiary); font-size: 11px; }
+.cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: var(--spacing-xs);
+}
+.scope, .flag { color: var(--text-tertiary); font-size: var(--font-size-sm); }
 </style>

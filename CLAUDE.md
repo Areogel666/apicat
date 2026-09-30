@@ -72,7 +72,7 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 
 - `src/stores/theme.ts`:setup store。`customTokens` 增量覆盖 + `density`/`radiusScale`/`fontSize` → `resolvedTokens` computed → `applyTheme()` 写 `<html data-theme/data-density/data-font-size>` + inline style。
 - `src/styles/tokens.css`:风格变量 `--row-height`/`--input-height`/`--spacing-*`/`--font-size-*`/`--radius-*`,按 `[data-density]`/`[data-font-size]` 选择器作用到 html。
-- **组件样式必须用 CSS 变量而非硬编码 px**,否则不随主题风格档位变化。
+- **组件样式一律走项目主题 token，禁止硬编码 px / 色值**。间距用 `--spacing-xs|sm|md|lg`、字号用 `--font-size-sm|base|lg`、行高用 `--row-height`/`--input-height`、圆角用 `--radius-*`、颜色边框用 `--bg-*`/`--text-*`/`--border-*`/`--color-*`。这些变量随密度/字号档位变，写死 px 的后果是用户改了风格档位那一块不跟着变。**唯一例外**：列宽、`min-width`、控件宽度这类布局尺寸可以写 px——它们不是密度语义。自定义组件参照 `src/components/cookie/` 三个文件的写法。
 - **Gotcha**:Pinia setup store 顶层解构 computed 是一次性快照非响应式,需用 `computed(() => store.xxx)`。
 - 回退机制:打开主题工作室 `snapshotTheme()` 缓存 → 编辑实时改 DOM → 关闭弹窗 `applyCustomTheme()` 写盘;`revertTheme()` 恢复到打开前。**已去掉「应用主题」按钮**。
 - 取色器为 `n-color-picker`（支持 rgba/alpha）；它渲染 fragment，需 `.picker-wrap` 容器 + `:deep` 剥 trigger 样式控制尺寸。

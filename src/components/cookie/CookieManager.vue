@@ -161,12 +161,18 @@ async function runCleanup() {
 </script>
 
 <style scoped>
+/* 全部走项目主题 token（见 CLAUDE.md「主题系统」），硬编码 px 不随风格档位变 */
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
 }
-.hint { font-size: 11px; color: var(--text-tertiary); }
-.cleanup { display: flex; flex-direction: column; gap: 6px; min-width: 180px; }
+.hint { font-size: var(--font-size-sm); color: var(--text-tertiary); }
+.cleanup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  min-width: 180px;
+}
 </style>

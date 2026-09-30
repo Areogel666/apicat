@@ -165,6 +165,12 @@ async function handleAdd() {
 </script>
 
 <style scoped>
-.add-cookie-form { margin-top: 8px; }
-.form-row { display: flex; gap: 4px; align-items: center; margin-bottom: 4px; }
+/* 全部走项目主题 token（见 CLAUDE.md「主题系统」），硬编码 px 不随风格档位变 */
+.add-cookie-form { margin-top: var(--spacing-sm); }
+.form-row {
+  display: flex;
+  gap: var(--spacing-xs);
+  align-items: center;
+  margin-bottom: var(--spacing-xs);
+}
 </style>
