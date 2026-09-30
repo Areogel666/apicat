@@ -71,6 +71,34 @@
   <!-- AI 技能管理弹窗 -->
   <SkillManager v-model:show="showSkillManager" />
 
+  <!-- 开关设置弹窗：全局行为开关集中一处 -->
+  <n-modal
+    v-model:show="showToggleSettings"
+    preset="card"
+    title="开关设置"
+    style="width: 460px; max-width: 95vw"
+  >
+    <div class="toggle-list">
+      <div class="toggle-row">
+        <div class="toggle-row__text">
+          <div class="toggle-row__title">HTTP Bridge</div>
+          <div class="toggle-row__desc">让 AI 技能通过本地 HTTP 接口读写 ApiCat 的接口、用例和 Cookie。改完需重启应用生效。</div>
+        </div>
+        <n-switch v-model:value="bridgeEnabled" @update:value="persistBridgeEnabled" />
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-row__text">
+          <div class="toggle-row__title">自动保存 Set-Cookie</div>
+          <div class="toggle-row__desc">请求返回的 Cookie 自动存入 Cookie 管理，下次请求自动带上。</div>
+        </div>
+        <n-switch v-model:value="persistSetCookie" @update:value="persistSetCookieSetting" />
+      </div>
+    </div>
+    <template #footer>
+      <n-button @click="showToggleSettings = false">关闭</n-button>
+    </template>
+  </n-modal>
+
   <!-- 主题工作室弹窗 -->
   <ThemeStudioModal ref="themeStudioModalRef" />
 
@@ -175,7 +203,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
-import { NSelect, NButton, NDropdown, NModal, NInput, NCheckbox, NInputNumber, NAlert, NRadioGroup, NRadio, useDialog, useMessage } from 'naive-ui'
+import { NSelect, NButton, NDropdown, NModal, NInput, NCheckbox, NInputNumber, NAlert, NRadioGroup, NRadio, NSwitch, useDialog, useMessage } from 'naive-ui'
 import { check } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { invoke } from '@tauri-apps/api/core'
@@ -203,6 +231,18 @@ const showImportDialog = ref(false)
 const showExportDialog = ref(false)
 const showHeaderTemplateModal = ref(false)
 const showSkillManager = ref(false)
+const showToggleSettings = ref(false)
+
+// 开关设置：改动即时落盘。Set-Cookie 的生效点在发送时读设置，故即时；
+// HTTP Bridge 在启动时读，需重启。
+async function persistBridgeEnabled(v: boolean) {
+  await writeSetting('bridgeEnabled', v)
+  message.info(v ? 'Bridge 已开启（重启应用后生效）' : 'Bridge 已关闭（重启应用后生效）')
+}
+async function persistSetCookieSetting(v: boolean) {
+  await writeSetting('persistSetCookie', v)
+  message.info(v ? '响应回来的 Cookie 会自动存入 Cookie 管理' : '已关闭 Cookie 自动保存')
+}
 
 // 1.0.5：Bridge 开关（默认开；Rust 侧启动时读同一 key）
 const bridgeEnabled = ref(true)
@@ -251,8 +291,7 @@ const settingsMenuOptions = computed(() => [
   { label: '🎨 主题', key: 'theme', children: themeChildren.value },
   { label: '🎨 主题工作室…', key: 'themeStudio' },
   { type: 'divider', key: 'd3' },
-  { label: `${bridgeEnabled.value ? '🟢' : '⚪'} HTTP Bridge（${bridgeEnabled.value ? '开' : '关'}）`, key: 'bridgeToggle' },
-  { label: `${persistSetCookie.value ? '🟢' : '⚪'} 自动保存 Set-Cookie（${persistSetCookie.value ? '开' : '关'}）`, key: 'persistSetCookieToggle' },
+  { label: '🔧 开关设置...', key: 'toggleSettings' },
   { label: '🗑️ 清理历史记录...', key: 'cleanupHistory' },
   { label: '🔄 检查更新...', key: 'checkUpdate' },
 ])
@@ -271,24 +310,7 @@ async function handleSettingsMenu(key: string) {
   else if (key === 'themeStudio') themeStudioModalRef.value?.open()
   else if (key === 'checkUpdate') await checkForUpdate()
   else if (key === 'cleanupHistory') showCleanupHistoryModal.value = true
-  else if (key === 'bridgeToggle') {
-    bridgeEnabled.value = !bridgeEnabled.value
-    await writeSetting('bridgeEnabled', bridgeEnabled.value)
-    message.info(
-      bridgeEnabled.value
-        ? 'Bridge 已开启（重启应用后生效）'
-        : 'Bridge 已关闭（重启应用后生效）',
-    )
-  }
-  else if (key === 'persistSetCookieToggle') {
-    persistSetCookie.value = !persistSetCookie.value
-    await writeSetting('persistSetCookie', persistSetCookie.value)
-    message.info(
-      persistSetCookie.value
-        ? '响应回来的 Set-Cookie 会自动存入 Cookie 管理'
-        : '已关闭 Set-Cookie 自动保存',
-    )
-  }
+  else if (key === 'toggleSettings') showToggleSettings.value = true
   else if (key.startsWith('theme:')) {
     const mode = key.slice('theme:'.length) as ThemeMode
     await themeStore.setMode(mode)
@@ -594,5 +616,39 @@ async function handleEnvChange(val: number) {
   margin-left: var(--spacing-sm);
   padding-left: var(--spacing-sm);
   border-left: 1px solid var(--border-base);
+}
+
+/* 开关设置弹窗：两行「说明 + 开关」，走项目主题 token */
+.toggle-list {
+  display: flex;
+  flex-direction: column;
+}
+.toggle-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) 0;
+}
+.toggle-row + .toggle-row {
+  border-top: 1px solid var(--border-base);
+}
+.toggle-row__text {
+  flex: 1;
+  min-width: 0;
+}
+.toggle-row__title {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--spacing-xs);
+}
+.toggle-row__desc {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.toggle-row :deep(.n-switch) {
+  flex-shrink: 0;
+  margin-top: var(--spacing-xs);
 }
 </style>

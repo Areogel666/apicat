@@ -37,6 +37,8 @@
       <div class="form-row">
         <n-input v-model:value="form.value" size="small" placeholder="值" style="flex:2" />
         <n-input v-model:value="form.path" size="small" placeholder="路径 /" style="width:70px; flex-shrink:0" />
+        <n-checkbox v-model:checked="form.httpOnly" size="small">HttpOnly</n-checkbox>
+        <n-checkbox v-model:checked="form.secure" size="small">Secure</n-checkbox>
         <n-button size="small" type="primary" :disabled="!canSubmit" @click="handleAdd">确定</n-button>
         <n-button size="small" @click="adding = false">取消</n-button>
       </div>
@@ -46,7 +48,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
-import { NButton, NInput, NSelect } from 'naive-ui'
+import { NButton, NInput, NSelect, NCheckbox } from 'naive-ui'
 import { useCookieStore, type CookieScope } from '../../stores/cookie'
 import { useEnvironmentStore } from '../../stores/environment'
 
@@ -67,6 +69,8 @@ const form = reactive({
   name: '',
   value: '',
   path: '/',
+  httpOnly: false,
+  secure: false,
 })
 
 const scopeOptions = [
@@ -81,8 +85,10 @@ const envOptions = computed(() =>
 
 const canSubmit = computed(() => {
   if (!form.domain || !form.name) return false
+  // env 层必须同时有项目和环境：只验 envId 的话，「项目已切空 + 环境列表残留」
+  // 会写出 project_id=NULL 的行（评审发现的窄边界）
   if (form.scopeType === 'project' && !props.projectId) return false
-  if (form.scopeType === 'env' && !form.envId) return false
+  if (form.scopeType === 'env' && (!form.envId || !props.projectId)) return false
   return true
 })
 
@@ -146,14 +152,25 @@ async function handleAdd() {
     name: form.name,
     value: form.value,
     path: form.path || '/',
+    httpOnly: form.httpOnly,
+    secure: form.secure,
   })
-  Object.assign(form, { domain: '', name: '', value: '', path: '/', envId: null })
+  Object.assign(form, {
+    domain: '', name: '', value: '', path: '/', envId: null,
+    httpOnly: false, secure: false,
+  })
   adding.value = false
   emit('created')
 }
 </script>
 
 <style scoped>
-.add-cookie-form { margin-top: 8px; }
-.form-row { display: flex; gap: 4px; align-items: center; margin-bottom: 4px; }
+/* 全部走项目主题 token（见 CLAUDE.md「主题系统」），硬编码 px 不随风格档位变 */
+.add-cookie-form { margin-top: var(--spacing-sm); }
+.form-row {
+  display: flex;
+  gap: var(--spacing-xs);
+  align-items: center;
+  margin-bottom: var(--spacing-xs);
+}
 </style>
