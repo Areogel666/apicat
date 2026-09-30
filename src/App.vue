@@ -22,6 +22,8 @@ import { useCollectionStore } from './stores/collection'
 import { useRequestStore } from './stores/request'
 import { useDictionaryStore } from './stores/dictionary'
 import { useTestCaseStore } from './stores/testCase'
+import { useCookieStore } from './stores/cookie'
+import { useEnvironmentStore } from './stores/environment'
 
 const projectStore = useProjectStore()
 const themeStore = useThemeStore()
@@ -29,6 +31,8 @@ const collectionStore = useCollectionStore()
 const requestStore = useRequestStore()
 const dictionaryStore = useDictionaryStore()
 const testCaseStore = useTestCaseStore()
+const cookieStore = useCookieStore()
+const envStore = useEnvironmentStore()
 
 let bridgeUnlisten: UnlistenFn | null = null
 
@@ -44,9 +48,17 @@ onMounted(async () => {
 
   // 1.0.5：监听 HTTP Bridge 写操作广播，按需 reload 对应 store
   bridgeUnlisten = await listen<{ kind: string }>('bridge-data-changed', async (event) => {
+    const kind = event.payload?.kind
+    // Cookie 不依赖项目上下文（global 层在无项目时也可读），先于 pid 判空处理
+    if (kind === 'cookies') {
+      await cookieStore.loadCookies({
+        projectId: projectStore.currentProjectId,
+        envId: envStore.activeEnvId,
+      }).catch(() => { /* reload 失败不影响主流程 */ })
+      return
+    }
     const pid = projectStore.currentProjectId
     if (pid == null) return
-    const kind = event.payload?.kind
     // 粗粒度：projects/collections/requests 任一变更都刷侧边栏树
     if (kind === 'projects') {
       await projectStore.loadProjects()

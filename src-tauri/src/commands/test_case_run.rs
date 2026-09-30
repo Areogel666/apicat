@@ -100,27 +100,27 @@ pub async fn run_test_case_impl(
     };
 
     // 3. 环境变量替换（env_id=None 时回落到该项目 is_active=1 的环境）
+    // 项目归属同时供 cookie 注入用（Q18-A：project_id 是用例的固有属性）
+    let case_project_id: Option<i64> = sqlx::query_scalar(
+        "SELECT c.project_id FROM test_cases tc \
+         JOIN collections c ON tc.collection_id = c.id WHERE tc.id = ?",
+    )
+    .bind(test_case_id)
+    .fetch_optional(pool)
+    .await?
+    .flatten();
+
     let effective_env_id = match env_id {
         Some(eid) => Some(eid),
-        None => {
-            let pid: Option<i64> = sqlx::query_scalar(
-                "SELECT c.project_id FROM test_cases tc \
-                 JOIN collections c ON tc.collection_id = c.id WHERE tc.id = ?",
+        None => match case_project_id {
+            Some(pid) => sqlx::query_scalar(
+                "SELECT id FROM environments WHERE project_id = ? AND is_active = 1 LIMIT 1",
             )
-            .bind(test_case_id)
+            .bind(pid)
             .fetch_optional(pool)
-            .await?
-            .flatten();
-            match pid {
-                Some(pid) => sqlx::query_scalar(
-                    "SELECT id FROM environments WHERE project_id = ? AND is_active = 1 LIMIT 1",
-                )
-                .bind(pid)
-                .fetch_optional(pool)
-                .await?,
-                None => None,
-            }
-        }
+            .await?,
+            None => None,
+        },
     };
     if let Some(eid) = effective_env_id {
         let env = sqlx::query_as::<_, Environment>(&format!(
@@ -164,11 +164,36 @@ pub async fn run_test_case_impl(
         }
     }
 
+    // 3.5 注入 Cookie（1.0.7：用例执行此前绕过注入，根因 #3）
+    let jar = crate::cookies::collect_cookies_for_url(
+        pool,
+        &send_params.url,
+        case_project_id,
+        effective_env_id,
+    )
+    .await?;
+    crate::cookies::inject_cookies(&mut send_params, &jar);
+
     // 4. 发请求
     let send_result = send(http, &send_params).await;
 
     let (status_code, elapsed_ms, response_body, error_message) = match send_result {
-        Ok(resp) => (Some(resp.status_code), resp.elapsed_ms, resp.body, None),
+        Ok(resp) => {
+            // Set-Cookie 回存（Q5-B）：与调试 Send 同语义，登录类用例才有下次可用的 token。
+            // 回存失败不得中止用例执行——响应和断言结果比 cookie 落库重要。
+            if let Err(e) = crate::cookies::persist_set_cookies(
+                pool,
+                &resp.headers,
+                &send_params.url,
+                case_project_id,
+                effective_env_id,
+            )
+            .await
+            {
+                eprintln!("[cookies] Set-Cookie 回存失败（不影响本次用例执行）: {e}");
+            }
+            (Some(resp.status_code), resp.elapsed_ms, resp.body, None)
+        }
         Err(e) => (None, 0, String::new(), Some(e)),
     };
 

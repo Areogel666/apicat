@@ -81,10 +81,13 @@ CREATE TABLE IF NOT EXISTS request_history (
 );
 
 -- 7. cookies
+-- 1.0.7：加 env_id（环境级作用域），UNIQUE 随之扩列。
+-- 老库由 db/mod.rs 的守卫式重建迁移升级；此处直接给新库最终形态。
 CREATE TABLE IF NOT EXISTS cookies (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   scope_type TEXT    NOT NULL DEFAULT 'global',
   project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+  env_id     INTEGER REFERENCES environments(id) ON DELETE CASCADE,
   domain     TEXT    NOT NULL,
   name       TEXT    NOT NULL,
   value      TEXT    NOT NULL DEFAULT '',
@@ -93,7 +96,7 @@ CREATE TABLE IF NOT EXISTS cookies (
   http_only  INTEGER DEFAULT 0,
   secure     INTEGER DEFAULT 0,
   enabled    INTEGER DEFAULT 1,
-  UNIQUE(scope_type, project_id, domain, path, name)
+  UNIQUE(scope_type, project_id, env_id, domain, path, name)
 );
 
 -- 8. test_cases

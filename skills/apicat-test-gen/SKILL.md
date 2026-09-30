@@ -37,7 +37,7 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_requests?collection_id=$CI
 |-----------|------|---------|------|
 | `happy_path` | 正常 | GET 填全量 params；POST 填全量 body | status 200 + 业务码（能推断才写） |
 | `missing_required` | 缺必填 | 移除必填项，其余保留 | status 400 |
-| `unauthorized` | 未授权 | 全量参数，headers 去 Authorization | status 401 |
+| `unauthorized` | 未授权 | 全量参数，headers 去 Authorization **与 Cookie** | status 401 |
 | `boundary` | 边界值 | 全量保留，改被测参数值 | 200 或 400 视边界方向 |
 | `empty_list` | 空列表 | 关键查询参数改为不存在的值 | 200 + `$.data` not_null |
 | `type_error` | 类型错误 | string 传 int 等 | 400 |
@@ -45,13 +45,20 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_requests?collection_id=$CI
 
 `auth_type='none'` 的接口自动跳过 `unauthorized`。
 
+**⚠️ 用例执行会注入 cookie**（按 URL host 从 cookie 存储取）：`unauthorized` 类型要**显式去掉 `Cookie` header** 才能测出「未登录」，否则存储里的登录态会被自动补上，401 断言必挂。
+
 **依赖链用例不支持**（用例间无编排概念），不要生成。
 
 ## Step 4：读接口已有参数
 
 用例参数以接口定义为基础。读接口详情：`GET /get_request?id=$RID`。
 
-参数形状沿用接口的 `params` JSON 字符串，例如 `[{"key": "userId", "value": "test-user-001", "enabled": true}]`；POST 则 `body_type="raw_json"` + body 为 JSON 字符串。
+**参数形状**：params/headers/body 的元素必须含 `type`/`description` 元数据：
+```json
+[{"key": "userId", "value": "test-user-001", "enabled": true, "type": "string", "description": "用户 ID"}]
+```
+
+POST 则 `bodyType="json_table"` + body 为 `ParamItem[]` JSON 字符串（与接口定义一致）。
 
 **核心原则「参数要全」**：Happy Path 须含全部 optional 业务参数（用户与设备标识等），不只 required。
 
@@ -61,15 +68,19 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_requests?collection_id=$CI
 
 每接口 × 每类型一条。组装 `create_test_case` 请求体：
 
+**⚠️ URL 不加 `{{base_url}}`**——用纯路径（与接口定义一致），环境切换由 ApiCat 环境配置处理。
+
+**⚠️ params/headers/body 元素必须含 `type`/`description`**——从接口定义的同名字段继承。
+
 ```jsonc
 {
   "requestId": 5,
   "collectionId": 2,
   "name": "[缺必填] 缺少 userId",
   "method": "GET",
-  "url": "{{base_url}}/api/user/info",
-  "headers": "[{\"key\":\"Authorization\",\"value\":\"Bearer x\",\"enabled\":true}]",
-  "params": "[{\"key\":\"page\",\"value\":\"1\",\"enabled\":true}]",
+  "url": "/api/user/info",
+  "headers": "[{\"key\":\"Authorization\",\"value\":\"Bearer x\",\"enabled\":true,\"type\":\"string\",\"description\":\"鉴权 token\"}]",
+  "params": "[{\"key\":\"page\",\"value\":\"1\",\"enabled\":true,\"type\":\"number\",\"description\":\"页码\"}]",
   "bodyType": null,
   "body": null,
   "caseType": "missing_required",
@@ -124,9 +135,10 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
   "$BASE/start_stress"
 ```
 
-**⚠️ 压测的两个特殊点**（与普通写接口不同，容易踩）：
+**⚠️ 压测的三个特殊点**（与普通写接口不同，容易踩）：
 - `params` 内部字段必须 **snake_case**（`query_params`/`body_type`/`path_params`/`auth_type`/`auth_config`），camelCase 会 400
 - **压测引擎不做 `{{base_url}}` 替换**：用例 URL 是 `{{base_url}}/api/x` 时必须先查环境拿 base_url 拼成完整地址再传
+- **压测不逐请求注入 cookie**：启动时一次性把命中 cookie 拼进请求并快照进 `config_json.cookie_snapshot`。目标接口需要登录态时，**先确保 cookie 存储里有对应条目**（`GET /get_cookies_for_domain` 确认），否则压测全程带不上登录态
 
 参数：`concurrent 1~500`、`mode: count|duration`、`value`（count=总请求数≤10000，duration=秒数）。
 压测阻塞到结束，返回 `StressStats`（total/success/failed/success_rate/biz_success_rate/avg_ms/p50/p90/p95/p99/max_ms/tps/...）。

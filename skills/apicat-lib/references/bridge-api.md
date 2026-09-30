@@ -93,9 +93,14 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 ```
 
 ### POST /update_request
+`bodyType` 取值：`none` | `raw_json` | `json_table` | `raw_text` | `form_urlencoded` | `form_data`
+- **`json_table`**：POST JSON 首选——body 存 `ParamItem[]` JSON 字符串（含 type/description），UI 显示字段表格，发送时序列化为 JSON 对象
+- **`raw_json`**：纯 JSON 文本（无字段级元数据）
+- **`params`** 是 URL query 参数（任何 method 都有）；POST 业务参数写 `body` 不写 `params`
+
 ```bash
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"id": 5, "name": "新名字", "method": "POST", "url": "/api/x", "params": "[]", "headers": "[]", "bodyType": "raw_json", "body": "{}", "authType": "none", "authConfig": "{}", "description": ""}' \
+  -d '{"id": 5, "name": "新名字", "method": "POST", "url": "/api/x", "params": "[]", "headers": "[]", "bodyType": "json_table", "body": "[{\"key\":\"userId\",\"value\":\"test\",\"enabled\":true,\"type\":\"string\",\"description\":\"用户 ID\"}]", "authType": "none", "authConfig": "{}", "description": ""}' \
   "$BASE/update_request"
 ```
 
@@ -122,9 +127,11 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_test_cases?request_id=5&la
 
 ### POST /create_test_case
 可选 `description`（缺省落 NULL）与 `source`（缺省 `'manual'`；AI 脚本传 `'ai_generated'`）。
+
+**⚠️ URL 用纯路径**（不加 `{{base_url}}`）；**params/headers/body 元素含 `type`/`description`**。
 ```bash
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"requestId": 5, "collectionId": 2, "name": "Happy Path", "description": "备注", "source": "ai_generated", "method": "GET", "url": "{{base_url}}/api/x", "headers": "[]", "params": "[{\"key\":\"userId\",\"value\":\"test\",\"enabled\":true}]", "bodyType": null, "body": null, "caseType": "happy_path", "assertions": "[{\"type\":\"status_code\",\"operator\":\"eq\",\"expected\":\"200\"}]"}' \
+  -d '{"requestId": 5, "collectionId": 2, "name": "Happy Path", "description": "备注", "source": "ai_generated", "method": "GET", "url": "/api/x", "headers": "[]", "params": "[{\"key\":\"userId\",\"value\":\"test\",\"enabled\":true,\"type\":\"string\",\"description\":\"用户 ID\"}]", "bodyType": null, "body": null, "caseType": "happy_path", "assertions": "[{\"type\":\"status_code\",\"operator\":\"eq\",\"expected\":\"200\"}]"}' \
   "$BASE/create_test_case"
 ```
 
@@ -314,8 +321,50 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 
 ## Cookie
 
-### GET /list_cookies?scope_type=global|project&project_id=N
+`cookies` 表带 `env_id` 列，作用域三层（`scope_type`）：
+
+| scope_type | project_id | env_id | 含义 |
+|---|---|---|---|
+| `global` | null | null | 全局 |
+| `project` | 非空 | null | 项目级 |
+| `env` | 非空 | 非空 | 环境级 |
+
+- 覆盖优先级：**env > project > global**（同 `name`+`path` 取最高层）
+- domain 支持**子域匹配**：`host == domain || host.endsWith("." + domain)`
+- path 为**简单前缀匹配**
+- `expires_at` 为 null 表示会话 cookie（永不过期）；非空则参与过期过滤
+- `secure` / `http_only` 只存储展示，**不参与匹配**
+
+### GET /list_cookies?scope_type=global|project|env&project_id=N&env_id=N
+
+| 参数 | 必填 | 说明 |
+|---|---|---|
+| `scope_type` | 是 | `global` / `project` / `env` |
+| `project_id` | scope_type=project 时 | 项目 id |
+| `env_id` | scope_type=env 时 | 环境 id |
+
+global 不需要 project_id/env_id；project 需要 project_id；env 需要 env_id。返回 `Cookie[]`。
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_cookies?scope_type=project&project_id=1"
+curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_cookies?scope_type=env&project_id=1&env_id=3"
+```
+
 ### POST /create_cookie
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `scopeType`（或 `scope_type`） | 是 | `global` / `project` / `env` |
+| `projectId`（或 `project_id`） | 作用域为 project/env 时 | 项目 id |
+| `envId`（或 `env_id`） | 作用域为 env 时 | 环境 id |
+| `domain` | 是 | 自动规范化（填完整 URL 也行，会剥掉 scheme/path/port/开头的点） |
+| `name` | 是 | |
+| `value` | 是 | |
+| `path` | 否 | 默认 `"/"` |
+| `expiresAt`（或 `expires_at`） | 否 | 存库格式 UTC 时间串（`YYYY-MM-DD HH:MM:SS`，UTC）；不传或传空串 = 会话 cookie |
+| `httpOnly`（或 `http_only`） | 否 | 布尔或整数 0/1 |
+| `secure` | 否 | 布尔或整数 0/1 |
+
+返回新建的 Cookie 行。
 ```bash
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"scopeType": "project", "projectId": 1, "domain": "example.com", "name": "session", "value": "abc", "path": "/"}' \
@@ -323,4 +372,58 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 ```
 
 ### POST /update_cookie
+
+必填 `id`。可改字段：`domain`、`name`、`value`、`path`、`expires_at`、`http_only`、`secure`、`enabled`。
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `id` | 是 | cookie 行 id |
+| `domain` | 否 | 同 create，自动规范化 |
+| `name` / `value` / `path` | 否 | |
+| `expiresAt`（或 `expires_at`） | 否 | **三态**：不传 = 保留原值；传非空串 = 覆盖；**传空串 `""` = 清空过期时间（改回会话 cookie）** |
+| `httpOnly`（或 `http_only`）/ `secure` | 否 | 布尔或整数 0/1 |
+| `enabled` | 否 | 布尔或整数 0/1 |
+
+**⚠️ 不可改 `scope_type` / `project_id` / `env_id`**（改作用域请删了重建）。
+除 `expiresAt` 为三态外，其余可改字段均为 COALESCE 语义：不传保留原值。
+返回更新后的 Cookie 行。
+
+> 为什么 `expiresAt` 用空串而不是 JSON `null` 表示清空：`serde_json::Value` 里
+> 「键缺失」与「值为 null」都取不到 `as_str()`，区分不了；`COALESCE` 也表达不了
+> 「显式置 NULL」。故约定空串为清空哨兵。
+```bash
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"id": 7, "value": "new-token", "enabled": 1}' "$BASE/update_cookie"
+```
+
 ### POST /delete_cookie
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `id` | 是 | cookie 行 id |
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"id": 7}' "$BASE/delete_cookie"
+```
+
+### GET /get_cookies_for_domain?domain=<host或URL>&project_id=N&env_id=N
+
+| 参数 | 必填 | 说明 |
+|---|---|---|
+| `domain` | 是 | host 或完整 URL |
+| `project_id` | 否 | 参与 project 层匹配 |
+| `env_id` | 否 | 参与 env 层匹配 |
+
+返回按子域/path/过期/优先级过滤后的可用 cookie 列表（即实际会注入的那批）。
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" "$BASE/get_cookies_for_domain?domain=https://api.example.com/v1&project_id=1&env_id=3"
+```
+
+## 发送与 Cookie
+
+- **`POST /send_request` 会注入 cookie**：按 URL host 从 cookie 存储取（子域/path/过期/优先级过滤后）注入 `Cookie` 头；手动 `Cookie` 行在前、存储在后，合并成一条头，不产生第二个 `Cookie` 头。
+- **`projectId` 参数已保留但被忽略**：项目归属一律按 `requestId` 反查 `api_requests → collections → projects` 自推；不传 `requestId` 时才退化为不注入项目级 cookie。
+- `persistSetCookies`（或 `persist_set_cookies`，布尔，默认 `true`）：是否把响应的 `Set-Cookie` 回存进 cookie 存储。回存层级 = 有项目+环境则存 `env` 层，只有项目存 `project` 层，都没有存 `global` 层。
+- **`POST /run_test_case` 也会注入 cookie 并回存 `Set-Cookie`**。
+- **压测（`POST /start_stress`）不逐请求注入**：启动时一次性把命中 cookie 拼进请求并快照进 `stress_runs.config_json` 的 `cookie_snapshot` 字段。

@@ -1,12 +1,13 @@
 {
   "name": "apicat",
   "private": true,
-  "version": "1.0.6",
+  "version": "1.0.7",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
+    "check:curl": "node --experimental-strip-types src/utils/curlParser.check.ts",
     "tauri": "tauri"
   },
   "dependencies": {

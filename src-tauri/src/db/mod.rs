@@ -220,5 +220,76 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Err
             .await?;
     }
 
+    // 1.0.7：cookies.env_id（环境级作用域）。
+    // UNIQUE(scope_type, project_id, domain, path, name) 必须扩成含 env_id，
+    // 否则同一项目下两个环境的同名 cookie 会互相顶掉。SQLite 无法 ALTER 约束，
+    // 只能整表重建。顺带清掉历史遗留的孤儿行（scope='project' 且 project_id=NULL
+    // —— 无项目时仍可保存项目级 cookie 产生的，之后哪儿都查不到）。
+    //
+    // 整段包在事务里：CREATE → INSERT SELECT → DROP → RENAME 任一步失败都回滚，
+    // 不会出现「老表已删、新表未就位」的中间态。另外单独处理「上次崩在 RENAME 前」
+    // —— 那时 cookies 已不存在而 cookies_new 还在，直接补 RENAME 而不是重建。
+    let cookie_cols: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM pragma_table_info('cookies')")
+            .fetch_all(pool)
+            .await?;
+    let has_cookies_table = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='cookies'",
+    )
+    .fetch_one(pool)
+    .await?
+        > 0;
+    let has_cookies_new = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='cookies_new'",
+    )
+    .fetch_one(pool)
+    .await?
+        > 0;
+
+    if !has_cookies_table && has_cookies_new {
+        // 崩溃恢复：DROP cookies 之后、RENAME 之前断电/被杀
+        sqlx::query("ALTER TABLE cookies_new RENAME TO cookies")
+            .execute(pool)
+            .await?;
+    } else if has_cookies_table && !cookie_cols.iter().any(|c| c == "env_id") {
+        let mut tx = pool.begin().await?;
+        sqlx::query("DROP TABLE IF EXISTS cookies_new").execute(&mut *tx).await?;
+        sqlx::query(
+            "CREATE TABLE cookies_new (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                scope_type TEXT    NOT NULL DEFAULT 'global',
+                project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+                env_id     INTEGER REFERENCES environments(id) ON DELETE CASCADE,
+                domain     TEXT    NOT NULL,
+                name       TEXT    NOT NULL,
+                value      TEXT    NOT NULL DEFAULT '',
+                path       TEXT    DEFAULT '/',
+                expires_at DATETIME,
+                http_only  INTEGER DEFAULT 0,
+                secure     INTEGER DEFAULT 0,
+                enabled    INTEGER DEFAULT 1,
+                UNIQUE(scope_type, project_id, env_id, domain, path, name)
+            )",
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO cookies_new
+                (id, scope_type, project_id, env_id, domain, name, value, path,
+                 expires_at, http_only, secure, enabled)
+             SELECT id, scope_type, project_id, NULL, domain, name, value, path,
+                    expires_at, http_only, secure, enabled
+             FROM cookies
+             WHERE NOT (scope_type = 'project' AND project_id IS NULL)",
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("DROP TABLE cookies").execute(&mut *tx).await?;
+        sqlx::query("ALTER TABLE cookies_new RENAME TO cookies")
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+    }
+
     Ok(())
 }

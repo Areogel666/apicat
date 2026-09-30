@@ -106,11 +106,15 @@ pub struct EnvVariable {
 }
 
 // ── Cookie ─────────────────────────────────────────────────
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+// 字段顺序必须与 sql_cols::COOKIE_COLS 一致
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow, Clone)]
 pub struct Cookie {
     pub id: i64,
+    /// global | project | env（1.0.7 新增 env 层，覆盖优先级 env > project > global）
     pub scope_type: String,
     pub project_id: Option<i64>,
+    /// 1.0.7：环境级作用域。scope_type='env' 时非空
+    pub env_id: Option<i64>,
     pub domain: String,
     pub name: String,
     pub value: String,

@@ -21,7 +21,7 @@ pub struct SendRequestParams {
     pub query_params: Vec<ParamItem>,
     /// headers: [(key, value, enabled)]
     pub headers: Vec<ParamItem>,
-    pub body_type: String,  // none | raw_json | raw_text | form_urlencoded | form_data
+    pub body_type: String,  // none | raw_json | json_table | raw_text | form_urlencoded | form_data
     pub body: String,
     /// path params 已在前端替换进 url，这里仅作记录快照用
     pub path_params: Vec<ParamItem>,
@@ -144,6 +144,22 @@ pub async fn send(client: &reqwest::Client, params: &SendRequestParams) -> Resul
                 form = form.text(f.key.clone(), f.value.clone());
             }
             builder = builder.multipart(form);
+        }
+        "json_table" => {
+            // body 为 JSON 数组 [{key, value, enabled, type, description}]，序列化为 JSON 对象
+            let fields: Vec<ParamItem> =
+                serde_json::from_str(&params.body).unwrap_or_default();
+            let mut map = serde_json::Map::new();
+            for f in fields.iter().filter(|f| f.enabled && !f.key.is_empty()) {
+                // 尝试解析 value 为 JSON（数字/布尔/对象），否则当字符串
+                let val = serde_json::from_str::<serde_json::Value>(&f.value)
+                    .unwrap_or_else(|_| serde_json::Value::String(f.value.clone()));
+                map.insert(f.key.clone(), val);
+            }
+            let json_body = serde_json::Value::Object(map).to_string();
+            builder = builder
+                .header("Content-Type", "application/json")
+                .body(json_body);
         }
         _ => {} // none: 不设置 body
     }

@@ -129,9 +129,10 @@ b.post("/create_test_case", {...})      # 失败直接抛 RuntimeError
 | 读用例执行历史 | `GET /list_test_case_history?id=N`（注意：参数是 `id`） |
 | 读环境 | `GET /list_environments?project_id=N`、`GET /list_env_variables?id=N`（注意：参数是 `id` = env_id） |
 | 激活环境 | `POST /activate_environment` |
-| 读 Cookie | `GET /list_cookies?scope_type=global&project_id=N` |
+| 读 Cookie | `GET /list_cookies?scope_type=global\|project\|env&project_id=N&env_id=N`、`GET /get_cookies_for_domain?domain=<host或URL>&project_id=N&env_id=N` |
+| 写 Cookie | `POST /create_cookie`、`POST /update_cookie`、`POST /delete_cookie` |
 
-**表格只列常用端点。** 写操作（create/update/delete）、环境与 Cookie 的其余端点共约 30 个不在表内 —— 调用前必须读 `references/bridge-api.md` 确认，**不要因为表里没有就断定 Bridge 不支持**。
+**表格只列常用端点。** 写操作（create/update/delete）与环境的其余端点共约 30 个不在表内 —— 调用前必须读 `references/bridge-api.md` 确认，**不要因为表里没有就断定 Bridge 不支持**。
 
 ## 共享约束
 
@@ -142,5 +143,5 @@ b.post("/create_test_case", {...})      # 失败直接抛 RuntimeError
 - 接口的 `params`/`headers`、用例的 `headers`/`params`/`assertions` 都是 **JSON 字符串**（不是数组对象）
 - **选项目统一用 `AskUserQuestion` 选项卡**，禁止打印列表让用户回复数字
 - 接口名在 collection 内唯一（`UNIQUE(collection_id, name)`）；字典 `code` 全局唯一
-- 写操作后 App 内 UI 自动刷新（bridge 广播 `bridge-data-changed` 事件）
+- 写操作后 App 内 UI 自动刷新（bridge 广播 `bridge-data-changed` 事件；含 Cookie 端点与回存了 `Set-Cookie` 的发送）
 - 断言 JSON 格式见 `references/apicat_schema.md`

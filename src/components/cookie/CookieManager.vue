@@ -1,30 +1,51 @@
 <template>
-  <n-modal v-model:show="show" preset="card" title="Cookie 管理" style="width: 700px; max-width: 95vw">
-    <n-tabs type="line" size="small">
-      <!-- 全局 Cookie -->
-      <n-tab-pane name="global" tab="全局 Cookie">
-        <CookieTable
-          :cookies="cookieStore.globalCookies"
-          @delete="cookieStore.deleteCookie"
-          @toggle="(id, enabled) => toggleCookie(id, enabled, 'global')"
-        />
-        <AddCookieForm scope-type="global" :project-id="null" @created="cookieStore.loadGlobalCookies" />
-      </n-tab-pane>
+  <n-modal v-model:show="show" preset="card" title="Cookie 管理" style="width: 860px; max-width: 95vw">
+    <!-- 工具条：作用域筛选 + 清理（Q14-B：一张表 + 筛选列，不再分 tab） -->
+    <div class="toolbar">
+      <n-select
+        v-model:value="scopeFilter"
+        size="small"
+        :options="scopeFilterOptions"
+        style="width:110px"
+      />
+      <n-select
+        v-if="scopeFilter === 'env'"
+        v-model:value="filterEnvId"
+        size="small"
+        :options="envOptions"
+        placeholder="选环境"
+        style="width:150px"
+      />
+      <span class="hint">{{ projectHint }}</span>
+      <span style="flex:1" />
+      <n-popover trigger="click" placement="bottom-end">
+        <template #trigger>
+          <n-button size="small" quaternary>清理…</n-button>
+        </template>
+        <div class="cleanup">
+          <n-checkbox v-model:checked="cleanupOpts.expired">已过期（{{ expiredCount }}）</n-checkbox>
+          <n-checkbox v-model:checked="cleanupOpts.session">无过期时间（{{ sessionCount }}）</n-checkbox>
+          <n-button
+            size="small"
+            type="error"
+            :disabled="!cleanupOpts.expired && !cleanupOpts.session"
+            style="width:100%; margin-top:8px"
+            @click="runCleanup"
+          >删除所选</n-button>
+        </div>
+      </n-popover>
+    </div>
 
-      <!-- 项目 Cookie -->
-      <n-tab-pane name="project" tab="项目 Cookie" @click="loadProjectIfNeeded">
-        <CookieTable
-          :cookies="cookieStore.projectCookies"
-          @delete="cookieStore.deleteCookie"
-          @toggle="(id, enabled) => toggleCookie(id, enabled, 'project')"
-        />
-        <AddCookieForm
-          scope-type="project"
-          :project-id="projectStore.currentProjectId"
-          @created="() => projectStore.currentProjectId && cookieStore.loadProjectCookies(projectStore.currentProjectId)"
-        />
-      </n-tab-pane>
-    </n-tabs>
+    <CookieTable
+      :cookies="visibleCookies"
+      @delete="cookieStore.deleteCookie"
+      @toggle="toggleCookie"
+    />
+    <AddCookieForm
+      :default-scope="defaultScope"
+      :project-id="projectStore.currentProjectId"
+      @created="reload"
+    />
 
     <template #footer>
       <n-button @click="show = false">关闭</n-button>
@@ -33,10 +54,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch } from 'vue'
-import { NModal, NButton, NTabs, NTabPane } from 'naive-ui'
-import { useCookieStore } from '../../stores/cookie'
+import { computed, reactive, ref, watch } from 'vue'
+import { NModal, NButton, NSelect, NPopover, NCheckbox, useMessage } from 'naive-ui'
+import { useCookieStore, type CookieScopeFilter } from '../../stores/cookie'
 import { useProjectStore } from '../../stores/project'
+import { useEnvironmentStore } from '../../stores/environment'
 import CookieTable from './CookieTable.vue'
 import AddCookieForm from './AddCookieForm.vue'
 
@@ -50,23 +72,106 @@ const show = computed({
 
 const cookieStore = useCookieStore()
 const projectStore = useProjectStore()
+const envStore = useEnvironmentStore()
+const message = useMessage()
 
-// 打开弹窗时加载全局 Cookie
-watch(() => props.show, async (v) => {
-  if (v) {
-    await cookieStore.loadGlobalCookies()
+const scopeFilter = ref<CookieScopeFilter>('all')
+const filterEnvId = ref<number | null>(null)
+const cleanupOpts = reactive({ expired: true, session: false })
+
+const scopeFilterOptions = [
+  { label: '全部', value: 'all' },
+  { label: '全局', value: 'global' },
+  { label: '项目', value: 'project' },
+  { label: '环境', value: 'env' },
+]
+
+const envOptions = computed(() =>
+  envStore.environments.map(e => ({ label: e.name, value: e.id })),
+)
+
+const defaultScope = computed(() =>
+  scopeFilter.value === 'all' ? 'global' : scopeFilter.value,
+)
+
+const projectHint = computed(() =>
+  projectStore.currentProjectId
+    ? `项目级 / 环境级 cookie 归属当前项目`
+    : `未选中项目，仅能管理全局 Cookie`,
+)
+
+/**
+ * 筛选后的可见列表。
+ *
+ * 取数固定拉全量（global + 项目 + 全部环境），筛选纯在前端做——
+ * 两个状态源（取数用 activeEnvId、显示用 filterEnvId）曾各走各的，
+ * 选到非激活环境时列表恒为空（评审发现）。
+ */
+const visibleCookies = computed(() => {
+  const list = cookieStore.cookies
+  if (scopeFilter.value === 'global') return list.filter(c => c.scope_type === 'global')
+  if (scopeFilter.value === 'project') return list.filter(c => c.scope_type === 'project')
+  if (scopeFilter.value === 'env') {
+    return list.filter(c => c.scope_type === 'env'
+      && (filterEnvId.value == null || c.env_id === filterEnvId.value))
   }
+  return list
 })
 
-function loadProjectIfNeeded() {
-  if (projectStore.currentProjectId) {
-    cookieStore.loadProjectCookies(projectStore.currentProjectId)
-  }
+const expiredCount = computed(() => {
+  const now = nowStr()
+  return cookieStore.cookies.filter(c => c.expires_at && c.expires_at <= now).length
+})
+const sessionCount = computed(() => cookieStore.cookies.filter(c => !c.expires_at).length)
+
+function nowStr() {
+  const n = new Date()
+  const p = (x: number) => String(x).padStart(2, '0')
+  return `${n.getUTCFullYear()}-${p(n.getUTCMonth() + 1)}-${p(n.getUTCDate())} ${p(n.getUTCHours())}:${p(n.getUTCMinutes())}:${p(n.getUTCSeconds())}`
 }
 
-async function toggleCookie(id: number, enabled: boolean, _scope: string) {
-  const list = [...cookieStore.globalCookies, ...cookieStore.projectCookies]
-  const c = list.find(x => x.id === id)
-  if (c) await cookieStore.updateCookie(id, c.value, c.path, enabled ? 1 : 0)
+async function reload() {
+  // 固定拉全量，筛选交给 visibleCookies（见其注释）
+  await cookieStore.loadCookies({
+    scope: 'all',
+    projectId: projectStore.currentProjectId,
+    envId: null,
+  })
+}
+
+// 打开弹窗时加载（Q14-B 修：旧版把项目加载挂在 n-tab-pane 的 @click 上，点 tab 标题不冒泡 → 永不触发）
+watch(() => props.show, async (v) => {
+  if (!v) return
+  if (projectStore.currentProjectId && envStore.environments.length === 0) {
+    try {
+      await envStore.loadEnvironments(projectStore.currentProjectId)
+    } catch { /* 环境列表拿不到不影响 cookie 管理 */ }
+  }
+  if (!filterEnvId.value && envStore.activeEnvId) filterEnvId.value = envStore.activeEnvId
+  await reload()
+})
+
+// 切项目要重新取（项目层 cookie 换了一批）
+watch(() => projectStore.currentProjectId, reload)
+// 筛选是纯前端的，无需重取；但切环境时若正显示「环境」筛选，列表随 computed 自动变
+
+async function toggleCookie(id: number, enabled: boolean) {
+  await cookieStore.updateCookie(id, { enabled: enabled ? 1 : 0 })
+}
+
+async function runCleanup() {
+  const n = await cookieStore.cleanupCookies(cleanupOpts)
+  message.success(`已删除 ${n} 条 Cookie`)
 }
 </script>
+
+<style scoped>
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.hint { font-size: 11px; color: var(--text-tertiary); }
+.cleanup { display: flex; flex-direction: column; gap: 6px; min-width: 180px; }
+</style>
