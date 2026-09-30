@@ -621,6 +621,10 @@ import { useHeaderTemplateStore } from '../../stores/headerTemplate'
 import { useDictionaryStore } from '../../stores/dictionary'
 import { useTabStore } from '../../stores/tab'
 import { useThemeStore } from '../../stores/theme'
+import { useCookieStore } from '../../stores/cookie'
+import { readSetting } from '../../stores/_persistedSettings'
+import { invoke } from '@tauri-apps/api/core'
+import type { CookieItem } from '../../types'
 import TabBar from './TabBar.vue'
 import ResponsePanel from '../response/ResponsePanel.vue'
 import TestCaseBar from '../testcase/TestCaseBar.vue'
@@ -719,8 +723,34 @@ const testCaseStore = useTestCaseStore()
 const headerTemplateStore = useHeaderTemplateStore()
 const tabStore = useTabStore()
 const themeStore = useThemeStore()
+const cookieStore = useCookieStore()
 const message = useMessage()
 const dialog = useDialog()
+
+// 1.0.7：Set-Cookie 自动回存开关（Q15-A，默认开；TopBar 设置菜单可切）
+const persistSetCookie = ref(true)
+onMounted(async () => {
+  persistSetCookie.value = (await readSetting<boolean>('persistSetCookie')) ?? true
+})
+
+/**
+ * 取 cookie 存储里命中该 URL 的 cookie 串（`a=1; b=2`），供「复制为 cURL」导出（Q17-A）。
+ * 走 `get_cookies_for_domain` 而不是前端过滤——子域/path/过期/优先级规则只在
+ * `cookies::collect_cookies_for_url` 一份（Q30-A），前端再写一遍必然跑偏。
+ */
+async function fetchJarCookie(url: string): Promise<string> {
+  try {
+    const host = new URL(url).host
+    const rows = await invoke<CookieItem[]>('get_cookies_for_domain', {
+      domain: host,
+      projectId: projectStore.currentProjectId,
+      envId: envStore.activeEnvId,
+    })
+    return rows.map(c => `${c.name}=${c.value}`).join('; ')
+  } catch {
+    return ''
+  }
+}
 
 // tabStore.activeRequestId 是 Tab 的唯一激活来源
 // request/response store 的 activeRequestId 都跟随它，确保响应面板按接口分桶展示
@@ -2059,6 +2089,8 @@ async function handleCopyAsCurl() {
     body: bodyStr,
     authType: authType.value,
     authConfig: authConfigStr,
+    // Q17-A：把 cookie 存储里命中该 host 的 cookie 一并导出，否则复制到终端复现不了
+    jarCookie: await fetchJarCookie(effectiveUrl.value),
   })
 
   await copyText(curl)
@@ -2119,7 +2151,18 @@ async function handleSend() {
     },
     envStore.activeEnvId,
     projectStore.currentProjectId,
+    // Q15-A：全局设置「自动保存 Set-Cookie」
+    persistSetCookie.value,
   )
+
+  // 响应含 Set-Cookie 时，Rust 侧已回存 cookies 表——桌面端同步 reload，
+  // 否则要重开 Cookie 管理才看得见（CLAUDE.md：写操作后 store 自行 reload）
+  if (resp?.headers?.some(([k]) => k.toLowerCase() === 'set-cookie')) {
+    cookieStore.loadCookies({
+      projectId: projectStore.currentProjectId,
+      envId: envStore.activeEnvId,
+    }).catch(() => { /* reload 失败不影响本次响应展示 */ })
+  }
 
   // 发送成功后，把新 history 记录插入本地缓存（避免重新拉取）
   if (resp && resp.history_id) {

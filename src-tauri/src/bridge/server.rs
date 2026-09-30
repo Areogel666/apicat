@@ -14,7 +14,7 @@ use std::sync::Arc;
 use tauri::Emitter;
 
 use crate::sql_cols::{
-    COOKIE_COLS, DICT_COLS, ENV_COLS, ENV_VAR_COLS, PROJECT_COLS, REQUEST_COLS, TEST_CASE_COLS,
+    DICT_COLS, ENV_COLS, ENV_VAR_COLS, PROJECT_COLS, REQUEST_COLS, TEST_CASE_COLS,
 };
 use crate::types::*;
 
@@ -191,6 +191,7 @@ pub fn build_router(state: BState) -> Router {
         .route("/delete_env_variable", post(delete_env_variable))
         // Cookie
         .route("/list_cookies", get(list_cookies))
+        .route("/get_cookies_for_domain", get(get_cookies_for_domain))
         .route("/create_cookie", post(create_cookie))
         .route("/update_cookie", post(update_cookie))
         .route("/delete_cookie", post(delete_cookie))
@@ -545,7 +546,12 @@ async fn run_test_case(State(s): State<BState>, Json(body): Json<Value>) -> axum
     // 复用 Tauri command 的逻辑：直接调用 crate::commands::test_case_run
     // 但它是 #[tauri::command]，参数是 State —— 这里内联同样逻辑
     match crate::commands::test_case_run::run_test_case_impl(&s.pool, &s.http, tc_id, env_id).await {
-        Ok(result) => { broadcast(&s, "test_cases"); ok(result) }
+        Ok(result) => {
+            broadcast(&s, "test_cases");
+            // 用例执行会回存 Set-Cookie（1.0.7），桌面端需要 reload cookies
+            broadcast(&s, "cookies");
+            ok(result)
+        }
         Err(e) => server_err(e),
     }
 }
@@ -862,12 +868,26 @@ async fn send_request(State(s): State<BState>, Json(body): Json<Value>) -> axum:
     let request_id = get_i64(&body, "requestId", "request_id");
     let test_case_id = get_i64(&body, "testCaseId", "test_case_id");
     let env_id = get_i64(&body, "envId", "env_id");
-    let project_id = get_i64(&body, "projectId", "project_id");
+    // projectId 保留兼容但已被忽略（Q24-A）：项目归属一律由 request_id 自推，
+    // 传错不再采信，避免「当前激活项目 vs 接口所属项目」错位。
+    let _project_id = get_i64(&body, "projectId", "project_id");
+    // Set-Cookie 回存开关（Q15-A 默认开）；不传 = true
+    let persist_set_cookies = body
+        .get("persistSetCookies")
+        .or_else(|| body.get("persist_set_cookies"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
 
     match crate::commands::send_request::send_request_impl(
-        &s.pool, &s.http, request_id, test_case_id, params, env_id, project_id,
+        &s.pool, &s.http, request_id, test_case_id, params, env_id, None, persist_set_cookies,
     ).await {
-        Ok(resp) => ok(resp),
+        Ok(resp) => {
+            if persist_set_cookies {
+                // 回存可能改了 cookies 表，桌面端需要 reload（CLAUDE.md 约定）
+                broadcast(&s, "cookies");
+            }
+            ok(resp)
+        }
         Err(e) => server_err(e),
     }
 }
@@ -1124,36 +1144,30 @@ async fn delete_env_variable(State(s): State<BState>, Json(body): Json<Value>) -
 async fn list_cookies(State(s): State<BState>, Query(q): Query<serde_json::Value>) -> axum::response::Response {
     let scope = q.get("scope_type").and_then(|v| v.as_str()).unwrap_or("global");
     let pid = q.get("project_id").and_then(|v| v.as_str()).and_then(|v| v.parse::<i64>().ok());
-    let sql = if scope == "global" {
-        format!("SELECT {COOKIE_COLS} FROM cookies WHERE scope_type='global' ORDER BY id DESC")
-    } else {
-        format!("SELECT {COOKIE_COLS} FROM cookies WHERE scope_type='project' AND project_id=? ORDER BY id DESC")
-    };
-    let mut query = sqlx::query_as::<_, Cookie>(&sql);
-    if scope != "global" {
-        query = query.bind(pid.unwrap_or(0));
-    }
-    match query.fetch_all(&s.pool).await {
+    let eid = q.get("env_id").and_then(|v| v.as_str()).and_then(|v| v.parse::<i64>().ok());
+    match crate::commands::cookie::list_cookies_impl(&s.pool, scope, pid, eid).await {
         Ok(rows) => ok(rows),
         Err(e) => server_err(e),
     }
 }
 
 async fn create_cookie(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
-    let sql = format!(
-        "INSERT INTO cookies (scope_type, project_id, domain, name, value, path) \
-         VALUES (?, ?, ?, ?, ?, ?) RETURNING {COOKIE_COLS}"
-    );
-    match sqlx::query_as::<_, Cookie>(&sql)
-        .bind(get_str(&body, "scopeType", "scope_type").unwrap_or("global"))
-        .bind(get_i64(&body, "projectId", "project_id"))
-        .bind(body["domain"].as_str().unwrap_or(""))
-        .bind(body["name"].as_str().unwrap_or(""))
-        .bind(body["value"].as_str().unwrap_or(""))
-        .bind(body["path"].as_str().unwrap_or("/"))
-        .fetch_one(&s.pool)
-        .await
-    {
+    let upsert = crate::commands::cookie::CookieUpsert {
+        scope_type: get_str(&body, "scopeType", "scope_type").unwrap_or("global").to_string(),
+        project_id: get_i64(&body, "projectId", "project_id"),
+        env_id: get_i64(&body, "envId", "env_id"),
+        domain: crate::cookies::normalize_domain(body["domain"].as_str().unwrap_or("")),
+        name: body["name"].as_str().unwrap_or("").to_string(),
+        value: body["value"].as_str().unwrap_or("").to_string(),
+        path: {
+            let p = body["path"].as_str().unwrap_or("/");
+            if p.is_empty() { "/".to_string() } else { p.to_string() }
+        },
+        expires_at: body["expires_at"].as_str().map(|s| s.to_string()),
+        http_only: body["http_only"].as_i64().map(|v| v != 0).or(body["http_only"].as_bool()).unwrap_or(false),
+        secure: body["secure"].as_i64().map(|v| v != 0).or(body["secure"].as_bool()).unwrap_or(false),
+    };
+    match crate::commands::cookie::create_cookie_impl(&s.pool, &upsert).await {
         Ok(row) => { broadcast(&s, "cookies"); ok(row) }
         Err(e) => server_err(e),
     }
@@ -1161,17 +1175,24 @@ async fn create_cookie(State(s): State<BState>, Json(body): Json<Value>) -> axum
 
 async fn update_cookie(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
     let Some(id) = body["id"].as_i64() else { return err(StatusCode::BAD_REQUEST, "id required") };
-    let sql = format!(
-        "UPDATE cookies SET value=COALESCE(?, value), path=COALESCE(?, path), \
-         enabled=COALESCE(?, enabled) WHERE id=? RETURNING {COOKIE_COLS}"
-    );
-    match sqlx::query_as::<_, Cookie>(&sql)
-        .bind(body["value"].as_str())
-        .bind(body["path"].as_str())
-        .bind(body["enabled"].as_i64())
-        .bind(id)
-        .fetch_one(&s.pool)
-        .await
+    let domain = body["domain"].as_str().map(crate::cookies::normalize_domain);
+    // enabled 兼容两种写法：整数 0/1（旧契约）与布尔（更自然）
+    let enabled = body["enabled"].as_i64().or(body["enabled"].as_bool().map(|b| b as i64));
+    let http_only = body["http_only"].as_i64().map(|v| v != 0).or(body["http_only"].as_bool());
+    let secure = body["secure"].as_i64().map(|v| v != 0).or(body["secure"].as_bool());
+    match crate::commands::cookie::update_cookie_impl(
+        &s.pool,
+        id,
+        domain.as_deref(),
+        body["name"].as_str(),
+        body["value"].as_str(),
+        body["path"].as_str(),
+        body["expires_at"].as_str(),
+        http_only,
+        secure,
+        enabled,
+    )
+    .await
     {
         Ok(row) => { broadcast(&s, "cookies"); ok(row) }
         Err(e) => server_err(e),
@@ -1182,6 +1203,26 @@ async fn delete_cookie(State(s): State<BState>, Json(body): Json<Value>) -> axum
     let Some(id) = body["id"].as_i64() else { return err(StatusCode::BAD_REQUEST, "id required") };
     match sqlx::query("DELETE FROM cookies WHERE id=?").bind(id).execute(&s.pool).await {
         Ok(_) => { broadcast(&s, "cookies"); ok(json!({"deleted": id})) }
+        Err(e) => server_err(e),
+    }
+}
+
+/// 取某 URL/host 命中的可用 cookie（子域/path/过期/优先级过滤后）。
+/// 与 Tauri command 同一份语义，走 `cookies::collect_cookies_for_url`（Q30-A 唯一真源）。
+async fn get_cookies_for_domain(State(s): State<BState>, Query(q): Query<serde_json::Value>) -> axum::response::Response {
+    let Some(domain) = q.get("domain").and_then(|v| v.as_str()) else {
+        return err(StatusCode::BAD_REQUEST, "domain required");
+    };
+    let pid = q.get("project_id").and_then(|v| v.as_str()).and_then(|v| v.parse::<i64>().ok());
+    let eid = q.get("env_id").and_then(|v| v.as_str()).and_then(|v| v.parse::<i64>().ok());
+    // 裸 host 补成 URL，好让统一入口解析出 host/path
+    let url = if domain.contains("://") {
+        domain.to_string()
+    } else {
+        format!("https://{domain}/")
+    };
+    match crate::cookies::collect_cookies_for_url(&s.pool, &url, pid, eid).await {
+        Ok(rows) => ok(rows),
         Err(e) => server_err(e),
     }
 }

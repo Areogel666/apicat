@@ -135,6 +135,27 @@ items  = b.get("/list_dictionary_items", {"dictionary_id": did}) # 字典项
 
 整项目模式下，公共字段字典写到 `common/` 子目录，接口文档用相对链接引用。
 
+### Cookie 说明
+
+接口文档必须记录该接口会带上的 cookie，**两类都要记**并标注来源：
+
+1. 接口 header 里的 `Cookie` 行 → 来源标 `接口 header`
+2. cookie 存储里按该接口 URL host 命中的 cookie（global/project/env 三层）→ 用 `GET /get_cookies_for_domain?domain=<接口 URL host>&project_id=N&env_id=N` 取，来源按命中层分别标 `Cookie 存储-环境` / `Cookie 存储-项目` / `Cookie 存储-全局`
+
+**形态：两处都要写。**
+
+① 独立「Cookie」小节，表格列 = 名称 / 来源 / 域 / 路径 / 过期时间 / 取值（已脱敏）：
+
+| 名称 | 来源 | 域 | 路径 | 过期时间 | 取值 |
+|---|---|---|---|---|---|
+| session | 接口 header | — | — | 会话 | `abc***yz` |
+| token | Cookie 存储-环境 | example.com | / | 2099-12-31 00:00:00 | `********` |
+
+② 请求示例里的 `Cookie: a=***; b=***` 一行。
+
+**脱敏规则**：取值长度 **≤ 8 位** → 整体打码为 `********`；**> 8 位** → 保留前 3 后 2、中间用 `***` 连接（如 `abc***yz`）。**名称 / 来源 / 域 / 路径 / 过期时间不脱敏**。
+会话 cookie（`expires_at` 为空）在过期列写「会话」。
+
 ## Step 6：写文件
 
 用 Write 工具写入目标路径。整项目模式下逐接口生成 + 一份公共字典文件。

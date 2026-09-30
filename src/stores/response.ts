@@ -100,6 +100,8 @@ export const useResponseStore = defineStore('response', () => {
     params: SendRequestParams,
     envId: number | null,
     projectId: number | null,
+    // 1.0.7：Set-Cookie 回存开关（Q15-A）。不传 = true，保持旧行为
+    persistSetCookies?: boolean,
   ): Promise<HttpResponse | null> {
     const b = getBucket(requestId, testCaseId)
     b.loading = true
@@ -113,6 +115,7 @@ export const useResponseStore = defineStore('response', () => {
         params,
         envId,
         projectId,
+        persistSetCookies,
       })
     } catch (e) {
       b.error = String(e)

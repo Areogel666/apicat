@@ -1,12 +1,12 @@
 ---
 name: apicat-edit
-description: 增删改 ApiCat 本地库的数据字典、接口、字段绑定，以及从 Markdown 接口文档批量导入接口。触发词：加接口、新建接口、改接口、删接口、加字典、新建字典、字段绑定、关联字典、导入接口、从文档导入接口、把文档导进 apicat、apicat edit
+description: 增删改 ApiCat 本地库的数据字典、接口、字段绑定、Cookie，以及从 Markdown 接口文档批量导入接口。触发词：加接口、新建接口、改接口、删接口、加字典、新建字典、字段绑定、关联字典、加 cookie、改 cookie、删 cookie、导入接口、从文档导入接口、把文档导进 apicat、apicat edit
 allowed-tools: Bash, Read, Glob, AskUserQuestion
 ---
 
 # ApiCat 数据编辑
 
-增删改 ApiCat 本地库的接口、数据字典、字段绑定，支持从接口文档批量导入。
+增删改 ApiCat 本地库的接口、数据字典、字段绑定、Cookie，支持从接口文档批量导入。
 先按 `apicat-lib` 的 Step 1 定位 Bridge。**参数格式、选项目方式等公共约定见 `apicat-lib` 的「共享约束」，本文不重复。**
 各端点的完整 curl 见 `apicat-lib/references/bridge-api.md`；下文只给关键参数签名。
 
@@ -25,6 +25,7 @@ allowed-tools: Bash, Read, Glob, AskUserQuestion
 | `url` | 标题或域名行里的路径 | 以 `/` 开头 |
 | `params` | 参数表 | 每行 → `{key, value:"", enabled:true, type, description}`，`type`/`description` 取表格对应列；**表格没有的列要从上下文推断补充** |
 | 枚举候选 | 描述列 | 形如 `` `0`=待支付 `` 的成对写法 → 可建字典 |
+| Cookie | 参数表或请求示例里的 `Cookie` 行 | **一律落成接口 header 的一条 `Cookie` 行**（不进 cookie 存储）；导入报告里注明「已写入接口 header」。文档没写 cookie 则不做任何处理 |
 
 **⚠️ 元数据补充规则**：
 - 文档参数表有「类型」「说明」列 → 直接取用
@@ -41,7 +42,7 @@ allowed-tools: Bash, Read, Glob, AskUserQuestion
 3. 逐条 `POST /create_request`（只传 `collectionId`/`name`/`method`/`url`）
 4. 紧接 `POST /update_request` 补 `params`
 5. 抽到枚举 → 问用户是否建字典并绑定（见第三章）
-6. 汇报：新建/复用目录、导入接口数、跳过项
+6. 汇报：新建/复用目录、导入接口数、跳过项；写入了 Cookie header 的接口注明「已写入接口 header」
 
 接口多（>10 条）时，用 `<skills>/apicat-lib/scripts/bridge_client.py` 循环写入更稳（可选，需 Python）；少量直接 curl。
 
@@ -119,6 +120,31 @@ allowed-tools: Bash, Read, Glob, AskUserQuestion
 curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_field_rules?project_id=$PID"
 curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_field_overrides?project_id=$PID&request_id=$RID"
 ```
+
+## 五、Cookie CRUD
+
+Cookie 走 Bridge 的 5 个端点，作用域三层：`scope_type = 'global' | 'project' | 'env'`。
+- `global`：project_id/env_id 均为 null
+- `project`：project_id 非空，env_id 为 null
+- `env`：project_id 与 env_id 均非空
+
+覆盖优先级 **env > project > global**（同 `name`+`path` 取最高层）；domain 支持子域匹配，path 为简单前缀匹配；`expires_at` 为 null 表示会话 cookie（永不过期）。
+
+### 查
+- `GET /list_cookies?scope_type=global|project|env&project_id=N&env_id=N` —— 按作用域列（global 不需要 project_id/env_id；project 需要 project_id；env 需要 env_id）
+- `GET /get_cookies_for_domain?domain=<host或URL>&project_id=N&env_id=N` —— 取某 URL 实际命中的可用 cookie（已按子域/path/过期/优先级过滤）
+
+### 建
+`POST /create_cookie`，字段：`scopeType`（或 `scope_type`）/`projectId`（或 `project_id`）/`envId`（或 `env_id`）/`domain`/`name`/`value`/`path`（默认 `"/"`）/`expires_at`/`http_only`/`secure`。
+`domain` 会自动规范化（填完整 URL 也行）；`http_only`/`secure` 接受布尔或整数 0/1。返回新建的 Cookie 行。
+
+### 改
+`POST /update_cookie`，必填 `id`。可改：`domain`/`name`/`value`/`path`/`expires_at`/`http_only`/`secure`/`enabled`，均为 COALESCE 语义（不传保留原值）。
+
+**⚠️ 不可改 `scope_type` / `project_id` / `env_id`** —— 改作用域要**删了重建**（`POST /delete_cookie` 再 `POST /create_cookie`）。
+
+### 删
+`POST /delete_cookie`，必填 `id`。
 
 ## 完成后
 

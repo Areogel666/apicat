@@ -2,15 +2,14 @@ use crate::{
     db::AppDb,
     error::CmdResult,
     http::{
-        client::{send, ParamItem, SendRequestParams},
+        client::{send, SendRequestParams},
         variable::replace_variables,
         HttpClient,
     },
-    sql_cols::{COOKIE_COLS, ENV_COLS},
-    types::{Cookie, EnvVariable, Environment, HistoryRecord, HttpResponse},
+    sql_cols::ENV_COLS,
+    types::{EnvVariable, Environment, HistoryRecord, HttpResponse},
 };
 use sqlx::SqlitePool;
-use std::collections::HashSet;
 use std::path::PathBuf;
 use tauri::State;
 
@@ -63,7 +62,37 @@ pub fn save_response_body_if_large(
     }
 }
 
+/// 解析接口所属项目：优先按 `request_id` 反查，查不到再退回调用方入参。
+///
+/// Q18-A：project_id 是接口的固有属性，不该由调用方告诉服务端。
+/// Bridge 调用不传 `projectId` 时，旧实现直接绑 NULL → 项目 cookie 永不注入。
+pub async fn resolve_project_id(
+    pool: &SqlitePool,
+    request_id: Option<i64>,
+    fallback: Option<i64>,
+) -> Option<i64> {
+    if let Some(rid) = request_id {
+        let derived: Option<i64> = sqlx::query_scalar(
+            "SELECT c.project_id FROM api_requests r \
+             JOIN collections c ON r.collection_id = c.id WHERE r.id = ?",
+        )
+        .bind(rid)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+        if derived.is_some() {
+            return derived;
+        }
+    }
+    fallback
+}
+
 /// 核心逻辑（供 Tauri command 和 HTTP bridge 共用）
+///
+/// `project_id` 入参保留兼容，但**一律以后端自推为准**（Q18-A / Q24-A）：
+/// project_id 是接口的固有属性，调用方无权指定；Bridge 不传导致项目 cookie
+/// 永不注入的旧问题因此一并修复。
 pub async fn send_request_impl(
     pool: &SqlitePool,
     http: &reqwest::Client,
@@ -72,9 +101,13 @@ pub async fn send_request_impl(
     params: SendRequestParams,
     env_id: Option<i64>,
     project_id: Option<i64>,
+    persist_set_cookies: bool,
 ) -> Result<HttpResponse, crate::error::AppError> {
     // 0. 复制参数并按需做变量替换
     let mut resolved_params = params.clone();
+
+    // 0.0 项目归属：后端自推（request_id → api_requests → collections → projects）
+    let effective_project_id = resolve_project_id(pool, request_id, project_id).await;
 
     if let Some(env_id) = env_id {
         let env = sqlx::query_as::<_, Environment>(&format!(
@@ -107,53 +140,35 @@ pub async fn send_request_impl(
         }
     }
 
-    // 0.1 注入域名 Cookie
-    if let Ok(parsed_url) = reqwest::Url::parse(&resolved_params.url) {
-        if let Some(domain) = parsed_url.host_str() {
-            let cookie_rows = sqlx::query_as::<_, Cookie>(&format!(
-                "SELECT {COOKIE_COLS} FROM cookies WHERE domain=? AND enabled=1 AND (scope_type='global' OR (scope_type='project' AND project_id=?)) ORDER BY scope_type DESC, id DESC"
-            ))
-            .bind(domain)
-            .bind(project_id)
-            .fetch_all(pool)
-            .await?;
-
-            let mut seen = HashSet::new();
-            let mut cookie_pairs = Vec::new();
-            for item in cookie_rows {
-                let dedup_key = format!("{}\u{0000}{}", item.name, item.path);
-                if seen.insert(dedup_key) {
-                    cookie_pairs.push(format!("{}={}", item.name, item.value));
-                }
-            }
-
-            if !cookie_pairs.is_empty() {
-                let cookie_value = cookie_pairs.join("; ");
-                if let Some(existing) = resolved_params
-                    .headers
-                    .iter_mut()
-                    .find(|h| h.enabled && h.key.eq_ignore_ascii_case("cookie"))
-                {
-                    if existing.value.is_empty() {
-                        existing.value = cookie_value;
-                    } else {
-                        existing.value = format!("{}; {}", existing.value, cookie_value);
-                    }
-                } else {
-                    resolved_params.headers.push(ParamItem {
-                        key: "Cookie".to_string(),
-                        value: cookie_value,
-                        enabled: true,
-                    });
-                }
-            }
-        }
-    }
+    // 0.1 注入域名 Cookie（唯一真源在 cookies 模块，Q30-A）
+    let jar = crate::cookies::collect_cookies_for_url(
+        pool,
+        &resolved_params.url,
+        effective_project_id,
+        env_id,
+    )
+    .await?;
+    crate::cookies::inject_cookies(&mut resolved_params, &jar);
 
     // 1. 发送请求
     let mut resp = send(http, &resolved_params)
         .await
         .map_err(crate::error::AppError::Custom)?;
+
+    // 1.5 Set-Cookie 自动回存（Q5-B，默认开；UI 全局设置可关）。
+    // 这里刻意不 emit 广播——send_request_impl 拿不到 AppHandle；
+    // Bridge 的 send_request handler 在成功后统一 broadcast("cookies")，
+    // 桌面端则由 response store 在响应含 Set-Cookie 时自行 reload。
+    if persist_set_cookies {
+        crate::cookies::persist_set_cookies(
+            pool,
+            &resp.headers,
+            &resolved_params.url,
+            effective_project_id,
+            env_id,
+        )
+        .await?;
+    }
 
     // 2. 构造请求快照
     let snapshot = serde_json::to_string(&resolved_params)
@@ -220,6 +235,9 @@ pub async fn send_request_impl(
 }
 
 /// 发送 HTTP 请求，写入 request_history，返回响应结果
+///
+/// `persist_set_cookies`：是否回存 Set-Cookie（Q15-A 全局设置，默认开）。
+/// 不传 = true，老前端 / Bridge 调用零改动。
 #[tauri::command]
 pub async fn send_request(
     db: State<'_, AppDb>,
@@ -229,9 +247,11 @@ pub async fn send_request(
     params: SendRequestParams,
     env_id: Option<i64>,
     project_id: Option<i64>,
+    persist_set_cookies: Option<bool>,
 ) -> CmdResult<HttpResponse> {
     Ok(send_request_impl(
         &db.0, &http.0, Some(request_id), test_case_id, params, env_id, project_id,
+        persist_set_cookies.unwrap_or(true),
     ).await?)
 }
 

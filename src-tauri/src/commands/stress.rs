@@ -517,6 +517,32 @@ pub async fn start_stress_impl(
         ));
     }
 
+    // ── Cookie 快照（Q16-A）────────────────────────────────
+    // 压测引擎不做变量替换，同理不做逐请求 cookie 注入；在启动时一次性注入
+    // 并快照进 config_json，与 P95/P99 阈值快照同一套「报告可复现」模式。
+    // 项目归属按 request_id 自推（Q18-A）；环境取该项目当前激活环境。
+    let mut params = params;
+    let stress_project_id = crate::commands::send_request::resolve_project_id(pool, Some(request_id), None).await;
+    let stress_env_id: Option<i64> = match stress_project_id {
+        Some(pid) => sqlx::query_scalar(
+            "SELECT id FROM environments WHERE project_id = ? AND is_active = 1 LIMIT 1",
+        )
+        .bind(pid)
+        .fetch_optional(pool)
+        .await?,
+        None => None,
+    };
+    let jar = crate::cookies::collect_cookies_for_url(
+        pool, &params.url, stress_project_id, stress_env_id,
+    )
+    .await?;
+    crate::cookies::inject_cookies(&mut params, &jar);
+    let cookie_snapshot = params
+        .headers
+        .iter()
+        .find(|h| h.enabled && h.key.eq_ignore_ascii_case("cookie"))
+        .map(|h| h.value.clone());
+
     // ── fd 上限检测（§10.2）──────────────────────────────
     check_fd_limit(concurrent).map_err(crate::error::AppError::Custom)?;
 
@@ -691,6 +717,9 @@ pub async fn start_stress_impl(
         "expect_status": expect_status,
         "p95_threshold_ms": p95_threshold_ms,
         "p99_threshold_ms": p99_threshold_ms,
+        // Q16-A：本次压测实际发出的 Cookie 头快照，保证报告可复现。
+        // 明文落本地 sqlite（1.0.7 决策已确认接受），故报告不展示此字段。
+        "cookie_snapshot": cookie_snapshot,
     }).to_string();
     let _ = sqlx::query(
         "INSERT INTO stress_runs (request_id, config_json, stats_json) VALUES (?1, ?2, ?3)",

@@ -220,5 +220,51 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Err
             .await?;
     }
 
+    // 1.0.7：cookies.env_id（环境级作用域）。
+    // UNIQUE(scope_type, project_id, domain, path, name) 必须扩成含 env_id，
+    // 否则同一项目下两个环境的同名 cookie 会互相顶掉。SQLite 无法 ALTER 约束，
+    // 只能整表重建。顺带清掉历史遗留的孤儿行（scope='project' 且 project_id=NULL
+    // —— 无项目时仍可保存项目级 cookie 产生的，之后哪儿都查不到）。
+    let cookie_cols: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM pragma_table_info('cookies')")
+            .fetch_all(pool)
+            .await?;
+    if !cookie_cols.iter().any(|c| c == "env_id") {
+        // 上次中断遗留的半成品表先清掉，保证幂等
+        sqlx::query("DROP TABLE IF EXISTS cookies_new").execute(pool).await?;
+        sqlx::query(
+            "CREATE TABLE cookies_new (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                scope_type TEXT    NOT NULL DEFAULT 'global',
+                project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+                env_id     INTEGER REFERENCES environments(id) ON DELETE CASCADE,
+                domain     TEXT    NOT NULL,
+                name       TEXT    NOT NULL,
+                value      TEXT    NOT NULL DEFAULT '',
+                path       TEXT    DEFAULT '/',
+                expires_at DATETIME,
+                http_only  INTEGER DEFAULT 0,
+                secure     INTEGER DEFAULT 0,
+                enabled    INTEGER DEFAULT 1,
+                UNIQUE(scope_type, project_id, env_id, domain, path, name)
+            )",
+        )
+        .execute(pool)
+        .await?;
+        sqlx::query(
+            "INSERT INTO cookies_new
+                (id, scope_type, project_id, env_id, domain, name, value, path,
+                 expires_at, http_only, secure, enabled)
+             SELECT id, scope_type, project_id, NULL, domain, name, value, path,
+                    expires_at, http_only, secure, enabled
+             FROM cookies
+             WHERE NOT (scope_type = 'project' AND project_id IS NULL)",
+        )
+        .execute(pool)
+        .await?;
+        sqlx::query("DROP TABLE cookies").execute(pool).await?;
+        sqlx::query("ALTER TABLE cookies_new RENAME TO cookies").execute(pool).await?;
+    }
+
     Ok(())
 }

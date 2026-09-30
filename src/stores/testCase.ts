@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { CaseType, RunCaseResult, TestCase, TestCaseHistory } from '../types'
+import { useCookieStore } from './cookie'
 
 /**
  * 按最近使用降序排列用例。
@@ -185,6 +186,9 @@ export const useTestCaseStore = defineStore('testCase', () => {
       testCaseId,
       envId: envId ?? null,
     })
+    // 1.0.7：用例执行会回存 Set-Cookie，桌面端同步 reload（写操作后 store 自行 reload）
+    // fire-and-forget，不阻断用例结果展示
+    useCookieStore().loadCookies().catch(() => {})
     // 同步本地镜像：用例的执行状态字段
     for (const list of Object.values(testCaseMap.value)) {
       const idx = list.findIndex(c => c.id === testCaseId)

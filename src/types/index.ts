@@ -229,12 +229,16 @@ export interface EnvVariable {
 
 export interface CookieItem {
   id: number
-  scope_type: string     // "global" | "project"
+  /** 1.0.7：作用域三层 global | project | env，覆盖优先级 env > project > global */
+  scope_type: string
   project_id: number | null
+  /** 1.0.7：环境级作用域，scope_type='env' 时非空 */
+  env_id: number | null
   domain: string
   name: string
   value: string
   path: string
+  /** null = 会话 cookie（永不过期） */
   expires_at: string | null
   http_only: number
   secure: number

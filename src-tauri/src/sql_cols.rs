@@ -25,7 +25,8 @@ pub const ENV_COLS: &str = "id, project_id, name, base_url, is_active, created_a
 pub const ENV_VAR_COLS: &str = "id, env_id, key, value, description, enabled";
 
 /// cookies
-pub const COOKIE_COLS: &str = "id, scope_type, project_id, domain, name, value, path, \
+/// 列顺序必须与 types::Cookie 字段顺序一致（含 1.0.7 新增 env_id）
+pub const COOKIE_COLS: &str = "id, scope_type, project_id, env_id, domain, name, value, path, \
     expires_at, http_only, secure, enabled";
 
 /// data_dictionaries

@@ -1,6 +1,6 @@
 # ApiCat 数据模型速查
 
-> 同步自 `src-tauri/migrations/`，1.0.5 版本。
+> 同步自 `src-tauri/migrations/`，1.0.5 版本（cookies 表含 1.0.7 的 `env_id`）。
 
 **本文件两部分**：
 - [一、断言 JSON 格式](#一断言-json-格式) —— 技能高频引用，写用例时必读
@@ -110,5 +110,19 @@ UNIQUE(project_id, request_id, field_name)。dictionary_id=null 表示解绑。
 | 列 | 类型 | |
 |---|---|---|
 | request_id | INTEGER FK | |
-| config_json | TEXT | {concurrent, mode, value} |
+| config_json | TEXT | {concurrent, mode, value, cookie_snapshot} |
 | stats_json | TEXT | StressStats |
+
+### cookies
+| 列 | 类型 | 说明 |
+|---|---|---|
+| id | INTEGER PK | |
+| scope_type | TEXT | global/project/env |
+| project_id | INTEGER FK | global 层为 null |
+| env_id | INTEGER FK | 1.0.7：env 层非空，其余 null |
+| domain | TEXT | 已规范化（子域匹配） |
+| name / value | TEXT | |
+| path | TEXT | 简单前缀匹配 |
+| expires_at | TEXT | null=会话 cookie（永不过期） |
+| http_only / secure | INTEGER 0/1 | 只存储展示，不参与匹配 |
+| enabled | INTEGER 0/1 | |

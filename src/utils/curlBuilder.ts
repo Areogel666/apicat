@@ -9,6 +9,12 @@ export interface CurlBuildParams {
   body?: string
   authType?: string
   authConfig?: string
+  /**
+   * 1.0.7（Q17-A）：cookie 存储里按当前 URL host 命中的 `a=1; b=2`。
+   * 有值时输出 `-b '...'`；若 headers 里还有手动 Cookie 行，则合并成
+   * `手动; 存储` 一条（与发送侧 `cookies::inject_cookies` 同序），不产生双头。
+   */
+  jarCookie?: string
 }
 
 /**
@@ -68,7 +74,17 @@ export function buildCurl(params: CurlBuildParams): string {
     parts.push(`-H "${escapeShell(authHeaderKey)}: ${escapeShell(authHeaderValue)}"`)
   }
 
+  // Cookie：存储命中时走 `-b`（curl 语义更准），手动 Cookie 行并入同一条，不产生双头
+  const manualCookie = enabledHeaders.find(h => h.key.toLowerCase() === 'cookie')
+  const jarCookie = params.jarCookie ?? ''
+  if (jarCookie || manualCookie) {
+    const merged = [manualCookie?.value, jarCookie].filter(Boolean).join('; ')
+    parts.push(`-b '${merged.replace(/'/g, "'\\''")}'`)
+  }
+
   for (const h of enabledHeaders) {
+    // Cookie 行已并入 -b，跳过
+    if (h.key.toLowerCase() === 'cookie') continue
     parts.push(`-H "${escapeShell(h.key)}: ${escapeShell(h.value)}"`)
   }
 

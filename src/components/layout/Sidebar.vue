@@ -129,7 +129,7 @@
 
 <script setup lang="ts">
 import { h, ref, computed, watch, onMounted, onUnmounted, defineComponent } from 'vue'
-import { NInput, NEmpty, NButton, NTree, NSpin, NModal, NSpace, NSelect, NTag, NDropdown, useMessage } from 'naive-ui'
+import { NInput, NEmpty, NButton, NTree, NSpin, NModal, NSpace, NSelect, NTag, NDropdown, useMessage, useDialog } from 'naive-ui'
 import type { TreeOption } from 'naive-ui'
 import { useProjectStore } from '../../stores/project'
 import { useCollectionStore } from '../../stores/collection'
@@ -137,8 +137,10 @@ import { useRequestStore } from '../../stores/request'
 import { useTabStore } from '../../stores/tab'
 import { useTestCaseStore } from '../../stores/testCase'
 import { useEnvironmentStore } from '../../stores/environment'
+import { useCookieStore } from '../../stores/cookie'
 import { parseUrl, resolveEffectiveUrl, hasUnresolvedPlaceholder } from '../../utils/urlParser'
 import { buildCurl } from '../../utils/curlBuilder'
+import { parseCurl } from '../../utils/curlParser'
 import { copyText } from '../../utils/clipboard'
 import { useCollectionTreeDnd } from '../../composables/useCollectionTreeDnd'
 import type { ApiRequest, Collection, ParamItem } from '../../types'
@@ -149,7 +151,9 @@ const requestStore = useRequestStore()
 const tabStore = useTabStore()
 const testCaseStore = useTestCaseStore()
 const envStore = useEnvironmentStore()
+const cookieStore = useCookieStore()
 const message = useMessage()
+const dialog = useDialog()
 
 /**
  * NodeStatusDot — 一个真正的 Vue 组件，有独立的 setup 响应式上下文。
@@ -881,52 +885,6 @@ async function executeCreateRequest(collectionId: number, name: string, method: 
   }
 }
 
-// cURL 解析与导入
-function parseCurl(curlText: string): { method: string; url: string; headers: ParamItem[]; bodyType: string; body: string } {
-  const text = curlText.trim().replace(/\s*\\\s*\n\s*/g, ' ') // join line continuations
-  const urlMatch = text.match(/https?:\/\/[^\s'"]+/)
-  const url = urlMatch ? urlMatch[0].replace(/['"]/g, '') : ''
-  const methodMatch = text.match(/-X\s+([A-Z]+)/i)
-  const method = methodMatch ? methodMatch[1].toUpperCase() : (text.includes('-d ') || text.includes('--data') || text.includes('--data-urlencode') ? 'POST' : 'GET')
-  const headers: ParamItem[] = []
-  const headerRe = /-H\s+['"]([^'"]+)['"]/g
-  let hm: RegExpExecArray | null
-  while ((hm = headerRe.exec(text)) !== null) {
-    const colonIdx = hm[1].indexOf(':')
-    if (colonIdx > 0) {
-      headers.push({ key: hm[1].substring(0, colonIdx).trim(), value: hm[1].substring(colonIdx + 1).trim(), enabled: true })
-    }
-  }
-  // 匹配 --data / -d / --data-binary / --data-raw / --data-urlencode（curl 的 data 参数全家族）
-  // 用反向引用 \1 配对同一引号，body 内含双引号也不截断（如 --data-raw '{"a":1}' 的 JSON）
-  const dataMatch =
-    text.match(/(?:--data(?:-binary|-raw|-urlencode)?|-d)\s+(["'])([\s\S]*?)\1/s) ||
-    text.match(/(?:--data(?:-binary|-raw|-urlencode)?|-d)\s+\$(["'])([\s\S]*?)\1/s)
-
-  let body = ''
-  if (dataMatch) {
-    const rawValue = dataMatch[2]  // [1] 是引号字符，[2] 才是 body 内容（反向引用正则）
-    // --data-urlencode：值已经 URL 编码，解码后作为 body
-    if (text.includes('--data-urlencode')) {
-      try {
-        body = decodeURIComponent(rawValue)
-      } catch {
-        body = rawValue
-      }
-    } else {
-      body = rawValue
-    }
-  }
-  let bodyType = 'none'
-  if (body) {
-    const ct = headers.find(h => h.key.toLowerCase() === 'content-type')?.value ?? ''
-    if (ct.includes('json')) bodyType = 'raw_json'
-    else if (ct.includes('form') && ct.includes('urlencoded')) bodyType = 'form_urlencoded'
-    else bodyType = 'raw_text'
-  }
-  return { method, url, headers, bodyType, body }
-}
-
 async function doImportCurl() {
   const pid = currentProjectId.value
   if (!pid || targetCollectionId.value === null) return
@@ -941,6 +899,11 @@ async function doImportCurl() {
       message.error('无法解析 URL，请检查 cURL 格式')
       return
     }
+    // Cookie 统一落成接口 header 的 Cookie 行（Q11-A）
+    const headersForSave: ParamItem[] = parsed.cookie
+      ? [...parsed.headers, { key: 'Cookie', value: parsed.cookie, enabled: true }]
+      : parsed.headers
+
     const parsedName = parseUrl(parsed.url, parsed.method).displayName || 'Imported Request'
     const existingReqs = requestStore.requestMap[targetCollectionId.value] ?? []
     const existing = existingReqs.find(r => r.name === parsedName)
@@ -953,7 +916,7 @@ async function doImportCurl() {
         name: '',
         method: parsed.method,
         url: parsed.url,
-        headers: JSON.stringify(parsed.headers),
+        headers: JSON.stringify(headersForSave),
         params_: '[]',
         bodyType: parsed.bodyType,
         body: parsed.body,
@@ -965,7 +928,7 @@ async function doImportCurl() {
 
       // Update headers and body
       await requestStore.updateRequest(req.id, {
-        headers: JSON.stringify(parsed.headers),
+        headers: JSON.stringify(headersForSave),
         body_type: parsed.bodyType,
         body: parsed.body
       })
@@ -974,6 +937,22 @@ async function doImportCurl() {
 
       message.success('cURL 导入成功')
     }
+
+    if (parsed.ignored.length) {
+      message.info(`以下参数已忽略：${parsed.ignored.join('；')}`)
+    }
+    // Q3-C：写 header 后问一句要不要也进 Cookie 管理（默认作用域 = 当前项目 + 当前环境）
+    if (parsed.cookie) {
+      const importedUrl = parsed.url
+      dialog.info({
+        title: '把这些 Cookie 存进 Cookie 管理？',
+        content: `已写入接口 header 的 Cookie 行。是否同时存入 Cookie 管理（作用域：当前项目 + 当前激活环境），以便其它接口复用？\n\n${parsed.cookie}`,
+        positiveText: '存入',
+        negativeText: '不要',
+        onPositiveClick: () => storeCookiesToManager(parsed.cookie, importedUrl),
+      })
+    }
+
     showCurlImportDialog.value = false
     curlImportText.value = ''
     targetCollectionId.value = null
@@ -982,6 +961,50 @@ async function doImportCurl() {
   } finally {
     creating.value = false
   }
+}
+
+/**
+ * 把 curl 带进来的 cookie 串拆成 name=value 逐条存入 Cookie 管理。
+ * 作用域：当前项目 + 当前激活环境（与 Set-Cookie 回存同层，Q9-A）。
+ */
+async function storeCookiesToManager(cookieStr: string, url: string) {
+  let host = ''
+  try { host = new URL(url).host } catch { /* 非法 URL 时 domain 留空 */ }
+  if (!host) {
+    message.warning('无法从 URL 解析域名，Cookie 未存入 Cookie 管理')
+    return
+  }
+  // 作用域取「能取到的最细一层」；没项目时退到 global，避免造 project_id=NULL 孤儿行
+  const envId = envStore.activeEnvId
+  const projectId = currentProjectId.value
+  const scopeType: 'env' | 'project' | 'global' = envId && projectId
+    ? 'env'
+    : projectId
+      ? 'project'
+      : 'global'
+  let ok = 0
+  for (const pair of cookieStr.split(';')) {
+    const eq = pair.indexOf('=')
+    if (eq <= 0) continue
+    const name = pair.slice(0, eq).trim()
+    const value = pair.slice(eq + 1).trim()
+    if (!name) continue
+    try {
+      await cookieStore.createCookie({
+        scopeType,
+        projectId,
+        envId: scopeType === 'env' ? envId : null,
+        domain: host,
+        name,
+        value,
+        path: '/',
+      })
+      ok++
+    } catch {
+      /* 单条失败不影响其余 */
+    }
+  }
+  message.success(`已存入 ${ok} 条 Cookie`)
 }
 </script>
 

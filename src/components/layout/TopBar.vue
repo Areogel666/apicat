@@ -206,9 +206,13 @@ const showSkillManager = ref(false)
 
 // 1.0.5：Bridge 开关（默认开；Rust 侧启动时读同一 key）
 const bridgeEnabled = ref(true)
+// 1.0.7：Set-Cookie 自动回存开关（Q15-A，默认开）
+const persistSetCookie = ref(true)
 onMounted(async () => {
   const v = await readSetting<boolean>('bridgeEnabled')
   bridgeEnabled.value = v ?? true
+  const p = await readSetting<boolean>('persistSetCookie')
+  persistSetCookie.value = p ?? true
 })
 const themeStudioModalRef = ref<InstanceType<typeof ThemeStudioModal> | null>(null)
 
@@ -248,6 +252,7 @@ const settingsMenuOptions = computed(() => [
   { label: '🎨 主题工作室…', key: 'themeStudio' },
   { type: 'divider', key: 'd3' },
   { label: `${bridgeEnabled.value ? '🟢' : '⚪'} HTTP Bridge（${bridgeEnabled.value ? '开' : '关'}）`, key: 'bridgeToggle' },
+  { label: `${persistSetCookie.value ? '🟢' : '⚪'} 自动保存 Set-Cookie（${persistSetCookie.value ? '开' : '关'}）`, key: 'persistSetCookieToggle' },
   { label: '🗑️ 清理历史记录...', key: 'cleanupHistory' },
   { label: '🔄 检查更新...', key: 'checkUpdate' },
 ])
@@ -273,6 +278,15 @@ async function handleSettingsMenu(key: string) {
       bridgeEnabled.value
         ? 'Bridge 已开启（重启应用后生效）'
         : 'Bridge 已关闭（重启应用后生效）',
+    )
+  }
+  else if (key === 'persistSetCookieToggle') {
+    persistSetCookie.value = !persistSetCookie.value
+    await writeSetting('persistSetCookie', persistSetCookie.value)
+    message.info(
+      persistSetCookie.value
+        ? '响应回来的 Set-Cookie 会自动存入 Cookie 管理'
+        : '已关闭 Set-Cookie 自动保存',
     )
   }
   else if (key.startsWith('theme:')) {
