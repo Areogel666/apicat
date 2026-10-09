@@ -5,7 +5,7 @@
     一款基于 Tauri、Rust 和 Vue 3 构建的轻量、高性能 API 调试与测试工具。
   </p>
   <p>
-    <img src="https://img.shields.io/badge/version-1.0.6-orange" alt="version"/>
+    <img src="https://img.shields.io/badge/version-1.0.7-orange" alt="version"/>
     <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="platform"/>
     <img src="https://img.shields.io/badge/license-MIT-green" alt="license"/>
   </p>
@@ -40,7 +40,8 @@ ApiCat is a modern desktop application for API debugging and testing, powered by
 - **Param Metadata**: Field `type` / `description` persisted per request — survive switching requests, test cases, and KV/JSON/Text modes; never bleed across requests.
 - **Stress History Tab**: A dedicated "Stress" tab beside the request editor listing past runs with report download (Markdown) and two-run comparison.
 - **Localhost HTTP Bridge**: A local REST service on `127.0.0.1:17320` (token-secured) that lets AI skills read and write projects, requests, dictionaries, test cases, and stress runs — data stays in one place instead of scripts touching the database directly.
-- **AI Skills Installer**: One-click install/uninstall of four bundled skills — `apicat-lib` (Bridge access base), `apicat-edit` (edit requests/dictionaries, batch-import from Markdown docs), `apicat-test-gen` (generate test cases / stress runs), `apicat-doc-gen` (generate API docs) — into your Agent's skills directory via junction links; dangling links are auto-repaired on app startup.
+- **AI Skills Installer**: One-click install/uninstall of four bundled skills — `apicat-lib` (Bridge access base), `apicat-edit` (edit requests/dictionaries, batch-import from Markdown docs), `apicat-test-gen` (generate test cases / stress runs), `apicat-doc-gen` (generate API docs) — into your Agent's skills directory via junction links; broken installs are auto-repaired on app startup, and the manager flags skills that are behind the current app version (skills ship with the app) with a one-click update.
+- **Cookie Management**: Three-level scoping (global / project / environment, precedence `env > project > global`); `Set-Cookie` responses are auto-saved and replayed on the next request; cookies are injected into every send path (debug Send, test cases, stress runs, cURL export) and importable from `curl -b`. Inline editing covers expiry, and duplicate keys are rejected instead of silently stacking rows. `Secure` cookies are sent over https/wss only.
 - **Test Assertions**: Test cases can declare assertions (`status_code` / JSON Path); running a case gives a clear pass/fail verdict.
 - **Stress Report Preview & Thresholds**: Built-in Markdown report generator shared by the app and the Bridge, with in-app preview and Markdown/HTML export. P95/P99 reference lines are configurable per project with per-request overrides.
 - **API Docs Panel**: A third sidebar tab browsing your local API documentation directory — open files directly or reveal them in the file explorer.
@@ -93,8 +94,8 @@ Build output: `src-tauri/target/release/bundle/msi/`
 
 ### 📋 Changelog
 
-- Latest stable: [docs/release/1.0.6.md](docs/release/1.0.6.md)
-- Previous: [docs/release/1.0.5.md](docs/release/1.0.5.md)
+- Latest stable: [docs/release/1.0.7.md](docs/release/1.0.7.md)
+- Previous: [docs/release/1.0.6.md](docs/release/1.0.6.md)
 - Beta history: [docs/release/1.0.0-beta.md](docs/release/1.0.0-beta.md)
 
 ### 📄 License
@@ -125,7 +126,8 @@ ApiCat 是一款基于 Tauri 2.0 + Rust + Vue 3 的轻量、高性能、无跨�
 - **参数元数据持久化**：字段「类型 / 描述」随每个接口独立保存，切换接口、用例或 KV/JSON/Text 模式都不丢、不串扰。
 - **压测历史 Tab**：编辑区新增常驻「压测」页，本接口历史回看、Markdown 报告下载、双条历史对比。
 - **本地 HTTP Bridge**：`127.0.0.1:17320` 上的本地 REST 服务（token 鉴权），供 AI 技能读写项目、接口、字典、用例与压测数据——数据真源收敛到一处，脚本不再直连数据库。
-- **AI 技能安装器**：一键把 4 个内置技能安装/卸载到各 Agent 的 skills 目录（junction 链接）：`apicat-lib`（Bridge 访问底座）、`apicat-edit`（增删改接口/字典、从 Markdown 文档批量导入）、`apicat-test-gen`（生成用例/压测）、`apicat-doc-gen`（生成接口文档）；App 启动时自动修复悬空链接。
+- **AI 技能安装器**：一键把 4 个内置技能安装/卸载到各 Agent 的 skills 目录（junction 链接）：`apicat-lib`（Bridge 访问底座）、`apicat-edit`（增删改接口/字典、从 Markdown 文档批量导入）、`apicat-test-gen`（生成用例/压测）、`apicat-doc-gen`（生成接口文档）；App 启动时会自动修复失效的安装，并标记落后于当前 App 版本的技能、支持一键更新。
+- **Cookie 管理**：三级作用域（全局 / 项目 / 环境，优先级 `环境 > 项目 > 全局`）；`Set-Cookie` 自动回存并在下次请求带上；四条发送链路（调试 / 用例 / 压测 / 导出 cURL）统一注入，支持从 `curl -b` 导入；可行内编辑（含过期时间），重复键明确拦截而非静默堆积；`Secure` 的 cookie 只在 https / wss 发送。
 - **用例断言**：测试用例可声明断言（`status_code` / JSON Path），运行后给出明确的通过/失败判定。
 - **压测报告预览与参考线**：Markdown 报告生成器在 Rust 侧下沉，App 与 Bridge 共用同一真源；支持应用内预览与 Markdown/HTML 导出；P95/P99 参考线可按项目配置、按接口覆盖。
 - **接口文档面板**：侧边栏第三个 Tab，浏览本地接口文档目录，双击打开文件或在文件管理器中定位。
@@ -189,8 +191,8 @@ npm run tauri build
 
 ### 📋 更新记录
 
-- 最新稳定版说明： [docs/release/1.0.6.md](docs/release/1.0.6.md)
-- 上一版本说明： [docs/release/1.0.5.md](docs/release/1.0.5.md)
+- 最新稳定版说明： [docs/release/1.0.7.md](docs/release/1.0.7.md)
+- 上一版本说明： [docs/release/1.0.6.md](docs/release/1.0.6.md)
 - Beta 阶段历史记录： [docs/release/1.0.0-beta.md](docs/release/1.0.0-beta.md)
 
 ### 📄 开源协议

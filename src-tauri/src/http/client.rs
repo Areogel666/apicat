@@ -205,5 +205,7 @@ pub async fn send(client: &reqwest::Client, params: &SendRequestParams) -> Resul
         elapsed_ms,
         is_truncated,
         history_id: 0, // 由 send_request command 写库后填入
+        // 同理：cookie 注入发生在 command 层，跳过数也由那里回填
+        cookie_skipped: 0,
     })
 }

@@ -63,6 +63,9 @@ pub struct HttpResponse {
     pub elapsed_ms: u64,
     pub is_truncated: bool,
     pub history_id: i64, // 写入 request_history 后的 ID
+    /// 因 Secure 标记被跳过的 cookie 条数（请求非 https/wss 时才会 > 0）。
+    /// 由 send_request command 在注入后回填——cookie 语义在 command 层
+    pub cookie_skipped: usize,
 }
 
 // ── 历史记录条目（用于 History Tab 列表）─────────────────────

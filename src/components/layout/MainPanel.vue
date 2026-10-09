@@ -2156,6 +2156,12 @@ async function handleSend() {
     await shouldPersistSetCookie(),
   )
 
+  // 因 Secure 被跳过的 cookie（请求非 https/wss 时才会 > 0）：
+  // 静默跳过会被误当成「cookie 没配好」，这里明确给出原因
+  if (resp?.cookie_skipped) {
+    message.warning(`已跳过 ${resp.cookie_skipped} 个 Secure Cookie（当前请求非 HTTPS）`)
+  }
+
   // 响应含 Set-Cookie 时，Rust 侧已回存 cookies 表——桌面端同步 reload，
   // 否则要重开 Cookie 管理才看得见（CLAUDE.md：写操作后 store 自行 reload）
   if (resp?.headers?.some(([k]) => k.toLowerCase() === 'set-cookie')) {

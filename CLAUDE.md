@@ -35,6 +35,15 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 - 写操作业务逻辑放 `commands/*_impl`，IPC 与 Bridge 共用同一份实现，**禁止两侧各写 SQL/业务分叉**。
 - `update_request` 的 impl 是全量覆写；Bridge 侧先 SELECT 旧值合并未传字段再调 impl（COALESCE 便利留在协议层，UI 的 IPC 签名不变）。
 
+### Cookie
+
+- **三级作用域**：`cookies.scope_type` = `global` / `project` / `env`，覆盖优先级 `env > project > global`；同 `name`+`path` 取最高层那条。
+- **匹配与注入的唯一真源是 `src-tauri/src/cookies.rs`**：`collect_cookies_for_url`（取某 URL 命中的 cookie）/ `filter_cookies`（domain 子域 + path 前缀 + 过期 + Secure + 优先级去重）/ `inject_cookies`（合并进请求头，顺序固定 `手动; 存储`）。五条链路（调试 Send / 用例 / 压测 / 导出 cURL / Bridge）全部走它，**不要各自内联 SQL**。
+- **`secure` 参与过滤，`http_only` 不参与**：Secure 的 cookie 只在 https / wss 发送（`filter_cookies` 的 `secure_ok`）；HttpOnly 约束的是「浏览器页面脚本能否读 cookie」，ApiCat 不是浏览器、没有可执行该约束的对象，该字段只做记录。
+- **查重必须走 `cookies::find_cookie_id`，且用 `IS ?` 而非 `=`**：`=` 遇 NULL 恒为 unknown，global / project 层（`project_id` / `env_id` 为 NULL）永远查不中。**也不要依赖表的 UNIQUE 约束**——SQLite 的 UNIQUE 索引遇 NULL 列不判等，它实际只对 env 层生效，global / project 层可无限插入重复行（实测确认）。
+- **新建拦截 vs 回存覆盖是两条路径**：`create_cookie_impl`（手工新建）遇重复键**返回错误**；Set-Cookie 回存走独立的 `cookies::upsert_cookie`（命中即覆盖）。二者共用 `find_cookie_id`，改一处别牵连另一处。
+- `expires_at` 落库是 **UTC 串**（`YYYY-MM-DD HH:MM:SS`，无时区标记）：前端比对用 `nowUtcString()`，date-picker 往返用 `tsToUtcString` / `utcStringToTs`（显式按 UTC 解析，别用 `new Date(s)`——该串的时区行为跨引擎不一致）。
+
 ### 用例与断言
 
 - 断言 JSON 形状：`{status_code, json_path}`，运行结果给出通过/失败判定。
@@ -81,7 +90,8 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 
 - 4 个内置技能：`apicat-lib`（Bridge 访问底座，其余技能的前置）、`apicat-edit`（增删改接口/字典/字段绑定、从 Markdown 文档批量导入）、`apicat-test-gen`（7 种类型用例生成 + 压测）、`apicat-doc-gen`（接口文档生成）。安装器名单见 `skill_installer.rs` 的 `SKILL_NAMES`。
 - 技能经 HTTP Bridge 读写数据，**禁止直连 SQLite**；安装用 Windows junction（`mklink /J`，无需管理员权限）挂到各 Agent 的 skills 目录。
-- App 启动时自动检测并修复悬空的 junction 链接（更新安装包后路径失效的场景）。
+- App 启动时自动检测并修复失效的技能安装（链接悬空 / 链接指向旧版 App 残留目录 / 副本版本标记过期）。
+- **技能版本 ≡ App 版本**（技能随 App 打包，无独立版本号）；判定唯一真源是 `skill_installer::skill_state`（UI 展示与启动静默修复共用，别写成两套）。链接的判据是「**指向当前 App 的内置技能目录**」而非「没悬空」——旧 App 残留目录还在磁盘时链接并不悬空，只判悬空会漏掉「技能内容已过期」。
 - 技能脚本里中文请求体必须走 heredoc/文件传入——内联参数会被 Git Bash 转码。
 
 ## 发布流程

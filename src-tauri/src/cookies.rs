@@ -4,7 +4,7 @@
 //!   - 归属层级 全局 / 项目 / 环境，覆盖优先级 环境 > 项目 > 全局
 //!   - domain 支持子域匹配（`host == d || host.ends_with(".d")`）
 //!   - path 简单前缀匹配（Q22-B，接受 `/api` 串到 `/apixyz` 的偏差）
-//!   - expires 参与过滤；secure / http_only 存而不匹配
+//!   - expires / secure 参与过滤；http_only 存而不匹配（ApiCat 不是浏览器，没有页面脚本会去读 cookie）
 //!   - Max-Age 优先于 Expires；两者皆无 = 会话 cookie（不写 expires_at，永不过期）
 //!
 //! 本模块是 cookie 查询/注入的**唯一真源**（Q30-A）：
@@ -217,9 +217,21 @@ pub fn parse_set_cookie(raw: &str, request_host: &str, request_path: &str) -> Op
 ///
 /// 入参 `rows` 必须已按「env > project > global，层内 id DESC」排序，
 /// 这样 `seen` 命中即跳过就等价于「高层覆盖低层」。
-pub fn filter_cookies(rows: Vec<Cookie>, host: &str, path: &str) -> Vec<Cookie> {
+///
+/// `secure_ok` = 本次请求是否处于安全上下文（https / wss）。按 HTTP 规范，
+/// `secure=1` 的 cookie 不该出现在明文请求上，故非安全上下文一律跳过。
+///
+/// 返回 `(命中的 cookie, 因 Secure 被跳过的条数)`。跳过数只统计已通过
+/// domain / path / 过期筛选的候选——即「本该发送、却被 Secure 拦下」的那些。
+pub fn filter_cookies(
+    rows: Vec<Cookie>,
+    host: &str,
+    path: &str,
+    secure_ok: bool,
+) -> (Vec<Cookie>, usize) {
     let mut seen = HashSet::new();
     let mut out = Vec::new();
+    let mut skipped_secure = 0usize;
     for c in rows {
         if !domain_matches(&c.domain, host) {
             continue;
@@ -230,11 +242,17 @@ pub fn filter_cookies(rows: Vec<Cookie>, host: &str, path: &str) -> Vec<Cookie> 
         if is_expired(c.expires_at.as_deref()) {
             continue;
         }
+        // 必须放在 seen 去重**之前**：被 Secure 拦下的不该占用「高层覆盖低层」的名额，
+        // 否则高层那条被拦后，低层同名的非 Secure cookie 会被误判为重复而丢弃
+        if c.secure == 1 && !secure_ok {
+            skipped_secure += 1;
+            continue;
+        }
         if seen.insert(format!("{}\u{0}{}", c.name, c.path)) {
             out.push(c);
         }
     }
-    out
+    (out, skipped_secure)
 }
 
 /// 拼 `Cookie` 请求头的值：`a=1; b=2`
@@ -276,21 +294,27 @@ pub fn inject_cookies(params: &mut SendRequestParams, cookies: &[Cookie]) {
 
 /// 按 URL 收集可注入 cookie（**唯一真源**，Q30-A）。
 ///
-/// 一次取回全局/项目/环境三层，再在应用层做子域、path、过期与优先级过滤。
+/// 一次取回全局/项目/环境三层，再在应用层做子域、path、过期、Secure 与优先级过滤。
 /// 子域匹配无法用 `domain=?` 表达，故不能只靠 SQL 过滤。
-pub async fn collect_cookies_for_url(
+///
+/// 返回 `(命中的 cookie, 因 Secure 被跳过的条数)`。拆出 `_with_skipped` 只为不动其余
+/// 调用点：用例 / 压测 / Bridge 只关心命中结果，只有调试发送需要把跳过数回显给用户。
+/// 二者共用本函数，过滤规则仍只有一份。
+pub async fn collect_cookies_for_url_with_skipped(
     pool: &SqlitePool,
     url: &str,
     project_id: Option<i64>,
     env_id: Option<i64>,
-) -> Result<Vec<Cookie>, crate::error::AppError> {
+) -> Result<(Vec<Cookie>, usize), crate::error::AppError> {
     let Ok(parsed) = reqwest::Url::parse(url) else {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), 0));
     };
     let Some(host) = parsed.host_str().map(|s| s.to_string()) else {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), 0));
     };
     let path = parsed.path().to_string();
+    // wss 也算安全上下文——它同样是加密通道
+    let secure_ok = matches!(parsed.scheme(), "https" | "wss");
 
     let rows = sqlx::query_as::<_, Cookie>(&format!(
         "SELECT {COOKIE_COLS} FROM cookies WHERE enabled=1 AND \
@@ -304,7 +328,56 @@ pub async fn collect_cookies_for_url(
     .fetch_all(pool)
     .await?;
 
-    Ok(filter_cookies(rows, &host, &path))
+    Ok(filter_cookies(rows, &host, &path, secure_ok))
+}
+
+/// 取某 URL 命中的可用 cookie（子域 / path / 过期 / Secure / 优先级过滤后）。
+pub async fn collect_cookies_for_url(
+    pool: &SqlitePool,
+    url: &str,
+    project_id: Option<i64>,
+    env_id: Option<i64>,
+) -> Result<Vec<Cookie>, crate::error::AppError> {
+    Ok(
+        collect_cookies_for_url_with_skipped(pool, url, project_id, env_id)
+            .await?
+            .0,
+    )
+}
+
+/// 按「作用域 + domain + path + name」查已有行 id —— cookie 查重的唯一真源。
+///
+/// `IS ?` 而非 `=`：NULL 必须能参与等值比较——`=` 遇 NULL 恒为 unknown，
+/// global / project 层（project_id / env_id 为 NULL）会永远查不中。
+///
+/// **不要改依赖表的 UNIQUE 约束**：SQLite 的 UNIQUE 索引遇 NULL 列不判等，
+/// `UNIQUE(scope_type, project_id, env_id, domain, path, name)` 对 global / project
+/// 作用域实际失效（实测可无限插入完全相同的行），查重一律走本函数。
+///
+/// 调用方：`upsert_cookie`（Set-Cookie 回存，命中即覆盖）与
+/// `commands::cookie::create_cookie_impl`（手工新建，命中即拦截）。
+pub async fn find_cookie_id(
+    pool: &SqlitePool,
+    scope_type: &str,
+    project_id: Option<i64>,
+    env_id: Option<i64>,
+    domain: &str,
+    path: &str,
+    name: &str,
+) -> Result<Option<i64>, crate::error::AppError> {
+    let id = sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM cookies WHERE scope_type=? AND project_id IS ? AND env_id IS ? \
+         AND domain=? AND path=? AND name=? LIMIT 1",
+    )
+    .bind(scope_type)
+    .bind(project_id)
+    .bind(env_id)
+    .bind(domain)
+    .bind(path)
+    .bind(name)
+    .fetch_optional(pool)
+    .await?;
+    Ok(id)
 }
 
 /// 同名（domain+path+name+作用域）覆盖写入；找不到就插一条
@@ -315,19 +388,8 @@ async fn upsert_cookie(
     env_id: Option<i64>,
     pc: &ParsedSetCookie,
 ) -> Result<(), crate::error::AppError> {
-    // `IS ?` 让 NULL 也能参与等值比较（`=` 遇 NULL 恒不匹配）
-    let existing: Option<i64> = sqlx::query_scalar(
-        "SELECT id FROM cookies WHERE scope_type=? AND project_id IS ? AND env_id IS ? \
-         AND domain=? AND path=? AND name=? LIMIT 1",
-    )
-    .bind(scope_type)
-    .bind(project_id)
-    .bind(env_id)
-    .bind(&pc.domain)
-    .bind(&pc.path)
-    .bind(&pc.name)
-    .fetch_optional(pool)
-    .await?;
+    let existing =
+        find_cookie_id(pool, scope_type, project_id, env_id, &pc.domain, &pc.path, &pc.name).await?;
 
     let (http_only, secure) = (pc.http_only as i64, pc.secure as i64);
     match existing {
@@ -566,7 +628,7 @@ mod tests {
             Cookie { id: 3, scope_type: "global".into(), value: "glob".into(), ..ck("a", "e.com", "/", None) },
             Cookie { id: 8, scope_type: "env".into(), env_id: Some(1), value: "b".into(), ..ck("b", "e.com", "/", None) },
         ];
-        let out = filter_cookies(rows, "e.com", "/");
+        let (out, _) = filter_cookies(rows, "e.com", "/", true);
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].value, "env", "同 name+path 应保留最高层");
         assert_eq!(out[1].value, "b");
@@ -581,9 +643,45 @@ mod tests {
             Cookie { value: "x".into(), ..ck("badpath", "e.com", "/admin", None) },
             Cookie { value: "x".into(), ..ck("dead", "e.com", "/", Some("2000-01-01 00:00:00")) },
         ];
-        let out = filter_cookies(rows, "sub.e.com", "/api");
+        let (out, _) = filter_cookies(rows, "sub.e.com", "/api", true);
         let names: Vec<_> = out.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, vec!["ok", "sub"]);
+    }
+
+    // ── Secure：只在安全上下文发送 ──
+    #[test]
+    fn secure_cookies_only_sent_over_secure_scheme() {
+        let mk = || {
+            vec![
+                Cookie { secure: 1, ..ck("token", "e.com", "/", None) },
+                ck("plain", "e.com", "/", None),
+            ]
+        };
+
+        // https（安全上下文）：两条都发
+        let (out, skipped) = filter_cookies(mk(), "e.com", "/", true);
+        assert_eq!(out.len(), 2);
+        assert_eq!(skipped, 0);
+
+        // http（明文）：Secure 那条被拦下，并计入跳过数
+        let (out, skipped) = filter_cookies(mk(), "e.com", "/", false);
+        let names: Vec<_> = out.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["plain"]);
+        assert_eq!(skipped, 1);
+    }
+
+    // 被 Secure 拦下的不占「高层覆盖低层」的名额：
+    // 否则高层那条被拦后，低层同名的非 Secure cookie 会被误判为重复而一起丢掉
+    #[test]
+    fn skipped_secure_does_not_consume_dedupe_slot() {
+        let rows = vec![
+            Cookie { id: 2, scope_type: "project".into(), project_id: Some(1), secure: 1, ..ck("t", "e.com", "/", None) },
+            Cookie { id: 1, scope_type: "global".into(), ..ck("t", "e.com", "/", None) },
+        ];
+        let (out, skipped) = filter_cookies(rows, "e.com", "/", false);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, 1, "高层被 Secure 拦下后，低层同名应补位");
+        assert_eq!(skipped, 1);
     }
 
     // ── build / inject ──
@@ -629,5 +727,58 @@ mod tests {
         assert_eq!(p.headers.len(), 1);
         assert_eq!(p.headers[0].key, "Cookie");
         assert_eq!(p.headers[0].value, "a=v");
+    }
+
+    // ── find_cookie_id：cookie 查重的唯一真源 ──
+    //
+    // 锁住「NULL 必须用 `IS ?` 比对」：一旦改回 `=`，global / project 层
+    // （project_id / env_id 为 NULL）永远查不中，重复拦截静默失效。
+    // 同理也不能改依赖表的 UNIQUE 约束——SQLite 的 UNIQUE 遇 NULL 列不判等。
+    #[tokio::test]
+    async fn find_cookie_id_matches_rows_with_null_columns() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::query(
+            "CREATE TABLE cookies (id INTEGER PRIMARY KEY, scope_type TEXT, project_id INTEGER, \
+             env_id INTEGER, domain TEXT, name TEXT, path TEXT)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO cookies (id, scope_type, project_id, env_id, domain, name, path) \
+             VALUES (1, 'global', NULL, NULL, 'a.com', 'k', '/')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // global 层：两个 NULL 列也要能命中
+        assert_eq!(
+            find_cookie_id(&pool, "global", None, None, "a.com", "/", "k")
+                .await
+                .unwrap(),
+            Some(1)
+        );
+        // 作用域不同 → 不误判
+        assert_eq!(
+            find_cookie_id(&pool, "project", Some(7), None, "a.com", "/", "k")
+                .await
+                .unwrap(),
+            None
+        );
+        // path 不同 → 不误判
+        assert_eq!(
+            find_cookie_id(&pool, "global", None, None, "a.com", "/api", "k")
+                .await
+                .unwrap(),
+            None
+        );
+        // name 不同 → 不误判
+        assert_eq!(
+            find_cookie_id(&pool, "global", None, None, "a.com", "/", "other")
+                .await
+                .unwrap(),
+            None
+        );
     }
 }

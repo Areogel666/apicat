@@ -142,6 +142,8 @@ export interface HttpResponse {
   elapsed_ms: number
   is_truncated: boolean
   history_id: number
+  /** 因 Secure 标记被跳过的 cookie 条数（请求非 https/wss 时才会 > 0） */
+  cookie_skipped: number
 }
 
 export interface HistoryRecord {

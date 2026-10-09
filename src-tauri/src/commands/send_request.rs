@@ -141,7 +141,9 @@ pub async fn send_request_impl(
     }
 
     // 0.1 注入域名 Cookie（唯一真源在 cookies 模块，Q30-A）
-    let jar = crate::cookies::collect_cookies_for_url(
+    // 用 _with_skipped 取「因 Secure 被跳过」的条数，随响应回显给用户——
+    // http/ws 请求本就不该带 secure=1 的 cookie，但静默跳过会被当成「cookie 没配好」
+    let (jar, cookie_skipped) = crate::cookies::collect_cookies_for_url_with_skipped(
         pool,
         &resolved_params.url,
         effective_project_id,
@@ -237,6 +239,8 @@ pub async fn send_request_impl(
 
         resp.history_id = history_id;
     }
+    // 注入阶段算出的「因 Secure 被跳过」条数，回填给前端做提示
+    resp.cookie_skipped = cookie_skipped;
     Ok(resp)
 }
 
