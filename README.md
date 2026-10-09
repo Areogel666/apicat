@@ -5,7 +5,7 @@
     一款基于 Tauri、Rust 和 Vue 3 构建的轻量、高性能 API 调试与测试工具。
   </p>
   <p>
-    <img src="https://img.shields.io/badge/version-1.0.6-orange" alt="version"/>
+    <img src="https://img.shields.io/badge/version-1.0.7-orange" alt="version"/>
     <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="platform"/>
     <img src="https://img.shields.io/badge/license-MIT-green" alt="license"/>
   </p>
@@ -94,8 +94,8 @@ Build output: `src-tauri/target/release/bundle/msi/`
 
 ### 📋 Changelog
 
-- Latest stable: [docs/release/1.0.6.md](docs/release/1.0.6.md)
-- Previous: [docs/release/1.0.5.md](docs/release/1.0.5.md)
+- Latest stable: [docs/release/1.0.7.md](docs/release/1.0.7.md)
+- Previous: [docs/release/1.0.6.md](docs/release/1.0.6.md)
 - Beta history: [docs/release/1.0.0-beta.md](docs/release/1.0.0-beta.md)
 
 ### 📄 License
@@ -191,8 +191,8 @@ npm run tauri build
 
 ### 📋 更新记录
 
-- 最新稳定版说明： [docs/release/1.0.6.md](docs/release/1.0.6.md)
-- 上一版本说明： [docs/release/1.0.5.md](docs/release/1.0.5.md)
+- 最新稳定版说明： [docs/release/1.0.7.md](docs/release/1.0.7.md)
+- 上一版本说明： [docs/release/1.0.6.md](docs/release/1.0.6.md)
 - Beta 阶段历史记录： [docs/release/1.0.0-beta.md](docs/release/1.0.0-beta.md)
 
 ### 📄 开源协议
