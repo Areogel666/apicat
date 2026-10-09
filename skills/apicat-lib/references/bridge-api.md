@@ -365,6 +365,8 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_cookies?scope_type=env&pro
 | `secure` | 否 | 布尔或整数 0/1 |
 
 返回新建的 Cookie 行。
+
+**⚠️ 重复键会被拒绝**：同组 `scope_type + project_id + env_id + domain + path + name` 已存在时返回错误（`ok:false`，HTTP 500）：「已存在同名 Cookie（作用域 · domain · name），请编辑已有条目」。要改已有条目请走 `POST /update_cookie`（先用 `GET /list_cookies` 取 `id`），不要重复 create。
 ```bash
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"scopeType": "project", "projectId": 1, "domain": "example.com", "name": "session", "value": "abc", "path": "/"}' \

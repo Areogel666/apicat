@@ -25,8 +25,12 @@
                 <span class="status-hint">该工具的 skills 目录不存在</span>
               </template>
               <template v-else-if="t.skills_installed">
-                <span class="status-badge installed">已安装</span>
-                <span class="status-hint">{{ t.installed_skills.length }} 个技能</span>
+                <span v-if="staleCount(t)" class="status-badge outdated">{{ staleCount(t) }} 个待更新</span>
+                <span v-else class="status-badge installed">已安装</span>
+                <span class="status-hint" :title="skillsTitle(t)">
+                  {{ t.skills.length }} 个技能 ·
+                  {{ staleCount(t) ? '落后于当前版本' : `最新（v${t.bundled_version}）` }}
+                </span>
               </template>
               <template v-else>
                 <span class="status-badge not-installed">未安装</span>
@@ -35,12 +39,12 @@
           </div>
           <div class="target-actions">
             <n-button
-              v-if="t.agent_installed && !t.skills_installed"
+              v-if="t.agent_installed && (!t.skills_installed || staleCount(t))"
               size="small"
               type="primary"
               :loading="installing === t.id"
               @click="install(t.id)"
-            >安装</n-button>
+            >{{ t.skills_installed ? '更新' : '安装' }}</n-button>
             <n-button
               v-if="t.skills_installed"
               size="small"
@@ -67,13 +71,25 @@ import { ref, watch } from 'vue'
 import { NModal, NButton } from 'naive-ui'
 import { invoke } from '@tauri-apps/api/core'
 
+interface SkillState {
+  name: string
+  /** link（软链/junction，跟随 App 资源）| copy（副本，靠版本标记刷新）| missing */
+  kind: string
+  /** 副本的出厂版本标记 */
+  version: string | null
+  /** 落后于当前 App 内置的技能，需重建 */
+  stale: boolean
+}
+
 interface SkillTarget {
   id: string
   name: string
   path: string
   agent_installed: boolean
   skills_installed: boolean
-  installed_skills: string[]
+  skills: SkillState[]
+  /** 当前 App 版本 = 技能应有版本（技能随 App 打包分发） */
+  bundled_version: string
 }
 
 const props = defineProps<{ show: boolean }>()
@@ -97,12 +113,26 @@ async function refresh() {
   }
 }
 
+/** 落后于当前 App 的技能数（0 = 已是最新） */
+function staleCount(t: SkillTarget): number {
+  return t.skills.filter(s => s.stale).length
+}
+
+/** 逐技能明细，挂在 hint 的 title 上，不额外占版面 */
+function skillsTitle(t: SkillTarget): string {
+  const kindLabel = (k: string) =>
+    k === 'link' ? '链接' : k === 'copy' ? '副本' : '未安装'
+  return t.skills
+    .map(s => `${s.name}：${kindLabel(s.kind)}${s.version ? ` v${s.version}` : ''}${s.stale ? '（待更新）' : ''}`)
+    .join('\n')
+}
+
 async function install(targetId: string) {
   installing.value = targetId
   message.value = ''
   try {
     const result = await invoke<string>('install_skills', { targetId })
-    message.value = `安装成功（${result}）`
+    message.value = `完成（${result}）`
     messageType.value = 'success'
     await refresh()
   } catch (e) {
@@ -206,6 +236,11 @@ watch(() => props.show, (v) => {
 .status-badge.installed {
   background: color-mix(in srgb, var(--color-success, #18a058) 12%, transparent);
   color: var(--color-success, #18a058);
+}
+
+.status-badge.outdated {
+  background: color-mix(in srgb, var(--color-warning, #f0a020) 12%, transparent);
+  color: var(--color-warning, #f0a020);
 }
 
 .status-badge.not-installed {

@@ -138,6 +138,8 @@ Cookie 走 Bridge 的 5 个端点，作用域三层：`scope_type = 'global' | '
 `POST /create_cookie`，字段：`scopeType`（或 `scope_type`）/`projectId`（或 `project_id`）/`envId`（或 `env_id`）/`domain`/`name`/`value`/`path`（默认 `"/"`）/`expiresAt`（或 `expires_at`）/`httpOnly`（或 `http_only`）/`secure`。
 `domain` 会自动规范化（填完整 URL 也行）；`httpOnly`/`secure` 接受布尔或整数 0/1；`expiresAt` 不传或传空串 = 会话 cookie。返回新建的 Cookie 行。
 
+**⚠️ 重复键会被拒绝**：同组（作用域 + domain + path + name）已存在时返回错误「已存在同名 Cookie（…），请编辑已有条目」，不会静默新增或覆盖。要改已有条目请先 `GET /list_cookies` 取 `id`，再走 `POST /update_cookie`。
+
 ### 改
 `POST /update_cookie`，必填 `id`。可改：`domain`/`name`/`value`/`path`/`expiresAt`/`httpOnly`/`secure`/`enabled`。
 除 `expiresAt` 外均为 COALESCE 语义（不传保留原值）；`expiresAt` 是**三态**——不传=保留、传非空串=覆盖、**传空串 `""` = 清空过期时间（改回会话 cookie）**。

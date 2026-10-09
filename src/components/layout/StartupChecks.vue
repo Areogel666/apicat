@@ -13,13 +13,13 @@ import { invoke } from '@tauri-apps/api/core'
 import SkillManager from '../settings/SkillManager.vue'
 import { checkForUpdateAtStartup, skillGuideShownThisVersion, markSkillGuideShown } from '../../stores/startupChecks'
 
+/** 只用到两个标志位（首启引导的判据）；完整形状见 SkillManager.vue */
 interface SkillTarget {
   id: string
   name: string
   path: string
   agent_installed: boolean
   skills_installed: boolean
-  installed_skills: string[]
 }
 
 const dialog = useDialog()

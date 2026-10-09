@@ -9,16 +9,16 @@
         <span style="flex:1.6">值</span>
         <span style="width:56px">路径</span>
         <span style="width:104px">过期</span>
-        <span style="width:36px; text-align:center" title="HttpOnly（仅展示，不参与匹配）">Http</span>
-        <span style="width:36px; text-align:center" title="Secure（仅展示，不参与匹配）">Sec</span>
+        <span style="width:36px; text-align:center" title="HttpOnly（仅记录，不影响发送）">Http</span>
+        <span style="width:36px; text-align:center" title="Secure（仅在 https / wss 请求中发送）">Sec</span>
         <span style="width:44px; text-align:center">启用</span>
-        <span style="width:32px"></span>
+        <span style="width:64px"></span>
       </div>
       <div
         v-for="c in cookies"
         :key="c.id"
         class="table-row"
-        :class="{ expired: isExpired(c) }"
+        :class="{ expired: isExpired(c), editing: c.id === editingId }"
       >
         <span class="cell scope" style="width:52px">{{ scopeLabel(c) }}</span>
         <span class="cell" style="flex:1.2" :title="c.domain">{{ c.domain }}</span>
@@ -34,7 +34,10 @@
             @update:checked="(v) => emit('toggle', c.id, v)"
           />
         </div>
-        <n-button size="tiny" quaternary style="width:32px; color:var(--color-error)" @click="emit('delete', c.id)">✕</n-button>
+        <div style="width:64px; display:flex; justify-content:center; gap:2px">
+          <n-button size="tiny" quaternary style="width:28px" title="编辑" @click="emit('edit', c)">✎</n-button>
+          <n-button size="tiny" quaternary style="width:28px; color:var(--color-error)" title="删除" @click="emit('delete', c.id)">✕</n-button>
+        </div>
       </div>
     </div>
   </div>
@@ -45,9 +48,14 @@ import { NEmpty, NCheckbox, NButton } from 'naive-ui'
 import type { CookieItem } from '../../types'
 import { nowUtcString } from '../../utils/time'
 
-defineProps<{ cookies: CookieItem[] }>()
+defineProps<{
+  cookies: CookieItem[]
+  /** 正在编辑的行 id —— 高亮该行，与下方编辑区呼应 */
+  editingId?: number | null
+}>()
 const emit = defineEmits<{
   delete: [id: number]
+  edit: [cookie: CookieItem]
   toggle: [id: number, enabled: boolean]
 }>()
 
@@ -94,6 +102,12 @@ function expiryTitle(c: CookieItem) {
   border-bottom: 1px solid var(--border-base);
 }
 .table-row:hover { background: var(--bg-hover); }
+/* 编辑中的行：必须放在 :hover 之后——同特异性下后定义者胜，
+   否则鼠标一悬停高亮就被 hover 底色盖掉 */
+.table-row.editing {
+  background: var(--bg-selected);
+  box-shadow: inset 2px 0 0 var(--color-primary);
+}
 /* Q19-C：过期标灰 */
 .table-row.expired { opacity: 0.45; }
 .table-row.expired .scope::after {

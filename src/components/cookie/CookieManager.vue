@@ -18,6 +18,7 @@
       />
       <span class="hint">{{ projectHint }}</span>
       <span style="flex:1" />
+      <n-button size="small" type="primary" @click="startCreate">+ 添加 Cookie</n-button>
       <n-popover trigger="click" placement="bottom-end">
         <template #trigger>
           <n-button size="small" quaternary>清理…</n-button>
@@ -38,13 +39,18 @@
 
     <CookieTable
       :cookies="visibleCookies"
-      @delete="cookieStore.deleteCookie"
+      :editing-id="editingCookie?.id ?? null"
+      @delete="onDelete"
+      @edit="startEdit"
       @toggle="toggleCookie"
     />
     <AddCookieForm
       :default-scope="defaultScope"
       :project-id="projectStore.currentProjectId"
-      @created="reload"
+      :creating="creating"
+      :editing="editingCookie"
+      @saved="reload"
+      @cancel="cancelEdit"
     />
 
     <template #footer>
@@ -57,6 +63,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { NModal, NButton, NSelect, NPopover, NCheckbox, useMessage } from 'naive-ui'
 import { useCookieStore, type CookieScopeFilter } from '../../stores/cookie'
+import type { CookieItem } from '../../types'
 import { useProjectStore } from '../../stores/project'
 import { useEnvironmentStore } from '../../stores/environment'
 import CookieTable from './CookieTable.vue'
@@ -125,7 +132,35 @@ const expiredCount = computed(() => {
 })
 const sessionCount = computed(() => cookieStore.cookies.filter(c => !c.expires_at).length)
 
+/** 正在编辑的 cookie；非空时编辑区进入编辑模式 */
+const editingCookie = ref<CookieItem | null>(null)
+/** 新建模式；为真时编辑区显示空白表单 */
+const creating = ref(false)
+
+function startEdit(c: CookieItem) {
+  creating.value = false
+  editingCookie.value = c
+}
+
+function startCreate() {
+  editingCookie.value = null
+  creating.value = true
+}
+
+/** 收起编辑区（编辑与新建两种模式一起收） */
+function cancelEdit() {
+  editingCookie.value = null
+  creating.value = false
+}
+
+/** 删除时若正编辑该条，先退出编辑态——否则表单会提交到一个已不存在的 id */
+async function onDelete(id: number) {
+  if (editingCookie.value?.id === id) editingCookie.value = null
+  await cookieStore.deleteCookie(id)
+}
+
 async function reload() {
+  cancelEdit() // 写入完成后收起编辑区
   // 固定拉全量，筛选交给 visibleCookies（见其注释）
   await cookieStore.loadCookies({
     scope: 'all',

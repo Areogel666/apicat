@@ -55,6 +55,19 @@ fn home_dir() -> Result<PathBuf, crate::error::AppError> {
         .ok_or_else(|| crate::error::AppError::Custom("无法获取用户主目录".to_string()))
 }
 
+/// 单个技能的安装状态
+#[derive(Debug, Serialize, Clone)]
+pub struct SkillState {
+    /// 技能名
+    pub name: String,
+    /// "link"（软链 / junction，自动跟随 App 资源）| "copy"（副本，靠版本标记刷新）| "missing"
+    pub kind: String,
+    /// 副本的出厂版本标记（写下时的 App 版本）；link / missing 为 None
+    pub version: Option<String>,
+    /// 是否落后于当前 App 内置的技能（需重建）
+    pub stale: bool,
+}
+
 /// 安装目标定义
 #[derive(Debug, Serialize)]
 pub struct SkillTarget {
@@ -68,44 +81,128 @@ pub struct SkillTarget {
     pub agent_installed: bool,
     /// apicat 技能是否已安装（junction/目录存在）
     pub skills_installed: bool,
-    /// 已安装的技能名列表
-    pub installed_skills: Vec<String>,
+    /// 各技能的安装方式与是否需更新
+    pub skills: Vec<SkillState>,
+    /// 当前 App 版本 = 技能应有的版本（技能随 App 打包分发，无独立版本号）
+    pub bundled_version: String,
 }
 
 /// 内置技能名列表
 const SKILL_NAMES: &[&str] = &["apicat-lib", "apicat-edit", "apicat-test-gen", "apicat-doc-gen"];
 
-fn check_target(id: &str, name: &str, skills_dir: PathBuf) -> SkillTarget {
-    let agent_installed = skills_dir.parent().map_or(false, |p| p.exists());
-    let mut installed = Vec::new();
-    for skill in SKILL_NAMES {
-        if skills_dir.join(skill).exists() {
-            installed.push(skill.to_string());
-        }
+/// 判定单个技能的状态 —— 技能的**版本判定唯一真源**。
+///
+/// `get_skill_targets`（UI 展示）与 `repair_skill_links`（启动静默修复）共用同一份，
+/// 避免出现「UI 说过期、启动认为没事」的两套标准。
+///
+/// `builtin` = 当前 App 的内置技能目录。技能随 App 打包分发，故「最新版本」= 当前 App 的 skills/。
+fn skill_state(builtin: Option<&Path>, dest: &Path, name: &str, bundled_version: &str) -> SkillState {
+    // 链接/目录**本身**是否存在。不能用 exists()——它跟随链接看目标，悬空链接返回 false，
+    // 会把「装过但链接失效」误判成「没装过」，于是永远不修。
+    if dest.symlink_metadata().is_err() {
+        return SkillState {
+            name: name.to_string(),
+            kind: "missing".to_string(),
+            version: None,
+            stale: false,
+        };
     }
+
+    if is_link(dest) {
+        // 链接的判据是「是否指向当前 App 的内置技能目录」。
+        // 指向别处 = 旧版 App 残留的资源目录 → 内容可能是旧的，需重建。
+        // （只看链接是否悬空会漏掉这种：旧 App 还在磁盘上时链接并不悬空）
+        let stale = match builtin {
+            Some(b) => !link_points_to(&b.join(name), dest),
+            // 内置目录不可用：无法判定，保守视为最新，不误报「需更新」
+            None => false,
+        };
+        return SkillState {
+            name: name.to_string(),
+            kind: "link".to_string(),
+            version: None,
+            stale,
+        };
+    }
+
+    // 副本不跟随 App 资源目录，靠出厂版本标记判断；标记缺失也判过期（下次启动自愈重刷）
+    let marked = std::fs::read_to_string(dest.join(COPY_VERSION_MARKER)).ok();
+    let stale = marked.as_deref().map(str::trim) != Some(bundled_version);
+    SkillState {
+        name: name.to_string(),
+        kind: "copy".to_string(),
+        version: marked.map(|s| s.trim().to_string()),
+        stale,
+    }
+}
+
+/// 链接是否指向给定目录（跟随链接后与目标同一路径）。
+///
+/// 两侧都 `canonicalize` 再比：Windows 上 junction 的路径带 `\\?\` 前缀且大小写不敏感，
+/// 直接比字符串会把**所有**有效链接误判成过期。canonicalize 统一前缀与大小写；
+/// 链接悬空时 dest 侧失败 → 返回 false（判为需重建）。
+fn link_points_to(expected: &Path, dest: &Path) -> bool {
+    match (std::fs::canonicalize(expected), std::fs::canonicalize(dest)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
+}
+
+fn check_target(
+    id: &str,
+    name: &str,
+    skills_dir: PathBuf,
+    builtin: Option<&Path>,
+    bundled_version: &str,
+) -> SkillTarget {
+    let agent_installed = skills_dir.parent().map_or(false, |p| p.exists());
+    let skills: Vec<SkillState> = SKILL_NAMES
+        .iter()
+        .map(|s| skill_state(builtin, &skills_dir.join(s), s, bundled_version))
+        .collect();
+    // 「已安装」以链接/目录本身存在为准（skill_state 内用 symlink_metadata），
+    // 悬空链接也算装过——它该被显示出来并修，而不是装作没有
+    let installed_count = skills.iter().filter(|s| s.kind != "missing").count();
     SkillTarget {
         id: id.to_string(),
         name: name.to_string(),
         path: skills_dir.to_string_lossy().to_string(),
         agent_installed,
-        skills_installed: !installed.is_empty(),
-        installed_skills: installed,
+        skills_installed: installed_count > 0,
+        skills,
+        bundled_version: bundled_version.to_string(),
     }
 }
 
-/// 查询所有安装目标的状态
+/// 查询所有安装目标的状态（含每个技能的安装方式与是否需更新）
 #[tauri::command]
-pub async fn get_skill_targets() -> CmdResult<Vec<SkillTarget>> {
+pub async fn get_skill_targets(app: tauri::AppHandle) -> CmdResult<Vec<SkillTarget>> {
     let home = home_dir()?;
+    let version = app.package_info().version.to_string();
+    // 内置技能目录拿不到时降级：仍返回目标列表，只是无法判定链接是否指向当前 App
+    // （保守视为最新，不误报「需更新」）——好过整个弹窗打不开
+    let builtin = builtin_skills_dir(&app).ok();
     let targets = vec![
-        check_target("claude", "Claude Code / OpenCode / mimocode", home.join(".claude").join("skills")),
-        check_target("codex", "Codex", home.join(".codex").join("skills")),
+        check_target(
+            "claude",
+            "Claude Code / OpenCode / mimocode",
+            home.join(".claude").join("skills"),
+            builtin.as_deref(),
+            &version,
+        ),
+        check_target(
+            "codex",
+            "Codex",
+            home.join(".codex").join("skills"),
+            builtin.as_deref(),
+            &version,
+        ),
     ];
     Ok(targets)
 }
 
-/// App 启动时静默检测已安装的技能链接是否有效，失效则重建。
-/// 只处理「已安装但源目录不存在」的情况（App 更新后资源目录被替换）。
+/// App 启动时静默检测已安装的技能是否为「当前 App 那一份」，不是则重建。
+/// 覆盖三种：链接悬空 / 链接指向旧版 App 残留的资源目录 / 副本版本标记过期。
 /// 未安装的目标不处理（用户没装过就不自动装）。
 pub fn repair_skill_links(app: &tauri::AppHandle) {
     let Ok(src) = builtin_skills_dir(app) else { return };
@@ -128,31 +225,19 @@ pub fn repair_skill_links(app: &tauri::AppHandle) {
         let mut repaired = Vec::new();
         for skill in SKILL_NAMES {
             let dest = skills_dir.join(skill);
-            // 链接/目录本身不存在 → 该技能没装过，跳过
-            if dest.symlink_metadata().is_err() {
+            // 判定与 UI（get_skill_targets）走同一份逻辑，避免两套标准
+            let st = skill_state(Some(&src), &dest, skill, &version);
+            if st.kind == "missing" || !st.stale {
                 continue;
             }
-
-            // 需要重建的两种情况：
-            //   1) 链接悬空 —— 链接本身在（symlink_metadata 成功）但目标不存在（exists 跟随链接后为 false）
-            //      （App 被移动/更新到新路径时）
-            //   2) 副本版本过期 —— 副本不会像链接那样自动跟随 App，需比对「出厂版本」标记
-            let reason = if !dest.exists() {
-                Some("检测到悬空链接")
-            } else if !is_link(&dest) {
-                let marked = std::fs::read_to_string(dest.join(COPY_VERSION_MARKER)).ok();
-                let stale = marked.as_deref().map(str::trim) != Some(version.as_str());
-                if stale { Some("副本版本过期") } else { None }
-            } else {
-                None // 有效链接：自动跟随 App 资源目录，无需处理
-            };
-
-            if let Some(reason) = reason {
-                eprintln!("[skill_installer] {reason}: {} → 重建", dest.display());
-                match create_link(&src.join(skill), &dest, &version) {
-                    Ok(method) => repaired.push(format!("{skill}:{method}")),
-                    Err(e) => eprintln!("[skill_installer] 重建 {skill} 失败: {e}"),
-                }
+            eprintln!(
+                "[skill_installer] {skill} 需重建（{}）: {} → 重建",
+                st.kind,
+                dest.display()
+            );
+            match create_link(&src.join(skill), &dest, &version) {
+                Ok(method) => repaired.push(format!("{skill}:{method}")),
+                Err(e) => eprintln!("[skill_installer] 重建 {skill} 失败: {e}"),
             }
         }
         if !repaired.is_empty() {
@@ -325,4 +410,64 @@ pub async fn uninstall_skills(target_id: String) -> CmdResult<()> {
         remove_link(&dest.join(skill))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 锁住本次修复的核心：链接判据是「指向当前 App 的内置技能目录」，
+    /// 而不是「链接没悬空」。旧逻辑下，链接指向旧版 App 残留目录时
+    /// （旧 App 还在磁盘上 → 不悬空）会被误判为最新。
+    #[cfg(unix)]
+    #[test]
+    fn link_points_to_requires_exact_target() {
+        let base = std::env::temp_dir().join(format!("apicat_link_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let real = base.join("real");
+        let stale = base.join("stale");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::create_dir_all(&stale).unwrap();
+
+        let link = base.join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        // 指向当前目录 → 最新
+        assert!(link_points_to(&real, &link));
+        // 指向旧版 App 残留目录 → 必须判为「不是最新」（旧逻辑会漏掉这种）
+        assert!(!link_points_to(&stale, &link));
+
+        // 目标被删（链接悬空）→ 也判为需重建
+        std::fs::remove_dir_all(&real).unwrap();
+        assert!(!link_points_to(&real, &link));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// 副本靠版本标记判断；标记与当前 App 版本不符即过期
+    #[test]
+    fn skill_state_flags_copy_by_version_marker() {
+        let base = std::env::temp_dir().join(format!("apicat_copy_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let dest = base.join("apicat-lib");
+        std::fs::create_dir_all(&dest).unwrap();
+
+        // 标记为旧版本 → 过期
+        std::fs::write(dest.join(COPY_VERSION_MARKER), "1.0.6").unwrap();
+        let st = skill_state(None, &dest, "apicat-lib", "1.0.7");
+        assert_eq!(st.kind, "copy");
+        assert!(st.stale);
+        assert_eq!(st.version.as_deref(), Some("1.0.6"));
+
+        // 标记与当前版本一致 → 最新
+        std::fs::write(dest.join(COPY_VERSION_MARKER), "1.0.7").unwrap();
+        assert!(!skill_state(None, &dest, "apicat-lib", "1.0.7").stale);
+
+        // 未安装（目录不存在）
+        let st = skill_state(None, &base.join("nope"), "apicat-lib", "1.0.7");
+        assert_eq!(st.kind, "missing");
+        assert!(!st.stale);
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }

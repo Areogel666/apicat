@@ -224,6 +224,15 @@ pub async fn get_cookies_for_domain(
     .await?)
 }
 
+/// 作用域中文名（仅用于错误提示）
+fn scope_label(scope_type: &str) -> &'static str {
+    match scope_type {
+        "project" => "项目",
+        "env" => "环境",
+        _ => "全局",
+    }
+}
+
 /// 写库用的 cookie 归一化载荷（create 与 Set-Cookie 回存共用）
 pub struct CookieUpsert {
     pub scope_type: String,
@@ -239,10 +248,35 @@ pub struct CookieUpsert {
 }
 
 /// 核心逻辑（供 Tauri command 与 HTTP bridge 共用）
+///
+/// 重复键**拦截**而非覆盖：命中同组（作用域 + domain + path + name）时返回友好错误。
+/// 覆盖语义由 `update_cookie` 承担；Set-Cookie 回存的覆盖走 `cookies::upsert_cookie`，
+/// 是另一条路径，不受此处影响。
 pub async fn create_cookie_impl(
     pool: &SqlitePool,
     c: &CookieUpsert,
 ) -> Result<Cookie, crate::error::AppError> {
+    // 查重必须在应用层——表的 UNIQUE 约束对含 NULL 列的作用域失效（见 find_cookie_id 注释）
+    if crate::cookies::find_cookie_id(
+        pool,
+        &c.scope_type,
+        c.project_id,
+        c.env_id,
+        &c.domain,
+        &c.path,
+        &c.name,
+    )
+    .await?
+    .is_some()
+    {
+        return Err(crate::error::AppError::Custom(format!(
+            "已存在同名 Cookie（{} · {} · {}），请编辑已有条目",
+            scope_label(&c.scope_type),
+            c.domain,
+            c.name
+        )));
+    }
+
     let row = sqlx::query_as::<_, Cookie>(&format!(
         "INSERT INTO cookies (scope_type, project_id, env_id, domain, name, value, path, \
            expires_at, http_only, secure, enabled) \
