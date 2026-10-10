@@ -26,13 +26,10 @@
         :node-props="nodeProps"
         :render-suffix="renderSuffix"
         :render-label="renderLabel"
-        :allow-drop="allowDrop"
         block-line
-        draggable
         expand-on-click
         :default-expanded-keys="expandedKeys"
         @update:selected-keys="onSelectNode"
-        @drop="onDrop"
       />
     </div>
 
@@ -143,6 +140,7 @@ import { buildCurl } from '../../utils/curlBuilder'
 import { parseCurl } from '../../utils/curlParser'
 import { copyText } from '../../utils/clipboard'
 import { useCollectionTreeDnd } from '../../composables/useCollectionTreeDnd'
+import { useTreePointerDnd } from '../../composables/useTreePointerDnd'
 import type { ApiRequest, Collection, ParamItem } from '../../types'
 
 const projectStore = useProjectStore()
@@ -482,11 +480,19 @@ function openNewRequestDialog(collectionId: number | null = null) {
 }
 
 function renderLabel(info: { option: TreeOption }) {
+  const key = String(info.option.key ?? '')
   const label = String(info.option.label ?? '')
+  // pointer 拖拽入口 + key 标记挂在 label 上：nodeProps 的 data-key 会被
+  // NTree 内部 Object.assign 的写死属性覆盖（见 useTreePointerDnd.locateNodeAt）
+  const labelProps = {
+    class: 'node-label',
+    'data-key': key,
+    onMousedown: (e: MouseEvent) => onNodePointerdown(e, info.option),
+  }
   // 1.0.4：request 节点 label 形如 "GET 登录" —— 拆出方法渲染为彩色 NTag
   const m = label.match(/^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+(.+)$/)
-  if (m && String(info.option.key ?? '').startsWith('req-')) {
-    return h('span', { class: 'node-label' }, [
+  if (m && key.startsWith('req-')) {
+    return h('span', labelProps, [
       h(NTag, {
         size: 'small',
         bordered: false,
@@ -499,7 +505,7 @@ function renderLabel(info: { option: TreeOption }) {
     ])
   }
   // 圆点已移至 renderSuffix（按钮左侧），此处只渲染 label
-  return h('span', { class: 'node-label' }, label)
+  return h('span', labelProps, label)
 }
 
 
@@ -680,13 +686,19 @@ const treeData = computed<TreeOption[]>(() => {
   if (!pid) return []
   const cols = collectionStore.getCollections(pid)
 
+  // 按 sort_order 排序：拖拽排序只更新元素的 sort_order 字段（数组顺序不变），
+  // 显示顺序必须由 sort_order 决定，否则「文件夹同级前后拖拽」UI 永远不动
   const rootCols = cols.filter(c => c.parent_id === null)
+    .sort((a, b) => a.sort_order - b.sort_order)
   const childMap: Record<number, Collection[]> = {}
   for (const c of cols) {
     if (c.parent_id !== null) {
       childMap[c.parent_id] = childMap[c.parent_id] ?? []
       childMap[c.parent_id].push(c)
     }
+  }
+  for (const k of Object.keys(childMap)) {
+    childMap[Number(k)].sort((a, b) => a.sort_order - b.sort_order)
   }
 
   const keyword = searchText.value.trim().toLowerCase()
@@ -743,6 +755,9 @@ onMounted(() => {
 })
 
 // ── 节点 props（右键菜单 + hover 状态追踪） ───────────────
+// 拖拽入口不挂这里：NTree 内部 Object.assign 会用写死属性覆盖 nodeProps
+// 的 data-key（naive-ui TreeNode.mjs），入口与 key 标记改挂 renderLabel 的
+// 自有 VNode（见 renderLabel 的 labelProps）
 function nodeProps({ option }: { option: TreeOption }) {
   const key = option.key as string
   return {
@@ -775,8 +790,11 @@ function nodeProps({ option }: { option: TreeOption }) {
 }
 
 // ── 拖拽排序 / 移动 ───────────────────────────────────────
-// 逻辑在 useCollectionTreeDnd（只依赖 store + IPC，与模板零耦合）
-const { allowDrop, onDrop } = useCollectionTreeDnd(currentProjectId)
+// 业务逻辑在 useCollectionTreeDnd（只依赖 store + IPC，与模板零耦合）；
+// 拖拽引擎在 useTreePointerDnd（pointer 自研，替代被 dragDropEnabled=true
+// 拦截的 NTree 原生 draggable），把落点构造为等价 drop 信息后调 onDrop
+const { onDrop } = useCollectionTreeDnd(currentProjectId)
+const { onNodePointerdown } = useTreePointerDnd(treeData, onDrop)
 
 // ── 创建文件夹 ────────────────────────────────────────────
 async function createCollection() {
@@ -1117,5 +1135,28 @@ async function storeCookiesToManager(cookieStr: string, url: string) {
 .node-action-btn--add:hover {
   background: var(--color-primary-soft);
   color: var(--color-primary);
+}
+</style>
+
+<!-- 非 scoped：pointer 拖拽（useTreePointerDnd）的落点视觉加在 NTree 内部渲染的
+     .n-tree-node 上，DOM 无 Sidebar scope 哈希，必须全局 CSS -->
+<style>
+/* ── pointer 拖拽视觉反馈 ───────────────────────────────────── */
+body.ptd-dragging,
+body.ptd-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important; /* 拖拽期间禁文本圈选（pointermove preventDefault 管不住 selection） */
+}
+.n-tree-node.ptd-dragging-src {
+  opacity: 0.45;
+}
+.n-tree-node.ptd-drop-before {
+  box-shadow: inset 0 2px 0 var(--color-primary);
+}
+.n-tree-node.ptd-drop-after {
+  box-shadow: inset 0 -2px 0 var(--color-primary);
+}
+.n-tree-node.ptd-drop-inside {
+  background: var(--color-primary-soft);
 }
 </style>

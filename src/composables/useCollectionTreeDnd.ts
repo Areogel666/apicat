@@ -70,6 +70,8 @@ export function useCollectionTreeDnd(currentProjectId: Ref<number | null>) {
   /**
    * allowDrop：仅基于目标节点做静态判断，不依赖 dragNode。
    * Naive UI NTree AllowDrop 回调参数不含 dragNode，其余规则在 onDrop 中兜底。
+   * （allowDrop 已随拖拽引擎迁到 useTreePointerDnd 的 positionFor 三段判定，
+   * 保留导出仅为类型引用兼容）
    */
   function allowDrop({ dropPosition, node }: { dropPosition: string; node: TreeOption }) {
     const targetKey = node.key as string
@@ -78,7 +80,8 @@ export function useCollectionTreeDnd(currentProjectId: Ref<number | null>) {
     return true
   }
 
-  async function onDrop(info: TreeDropInfo) {
+  // 参数放宽为 Pick：NTree @drop 与 pointer 拖拽（无原生事件对象）都能喂进来
+  async function onDrop(info: Pick<TreeDropInfo, 'node' | 'dragNode' | 'dropPosition'>) {
     const { node, dragNode, dropPosition } = info
     const pid = currentProjectId.value
     if (!pid) return
