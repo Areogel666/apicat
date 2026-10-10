@@ -36,6 +36,37 @@ export const useProjectStore = defineStore('project', () => {
     }
   })
 
+  /** 首次安装播种示例数据：仅走「无任何项目 → 自动建 Default」分支，老用户升级不补种。
+   *  播种在后台跑（不 await），失败仅 warn，绝不阻塞首启。 */
+  async function seedSampleData(defaultProject: Project): Promise<void> {
+    try {
+      const col = await invoke<{ id: number }>('create_collection', {
+        projectId: defaultProject.id,
+        name: '示例集合',
+      })
+      const getReq = await invoke<{ id: number }>('create_request', {
+        collectionId: col.id, name: '示例：HTTPBin GET', method: 'GET', url: 'https://httpbin.org/get',
+      })
+      const postReq = await invoke<{ id: number }>('create_request', {
+        collectionId: col.id, name: '示例：HTTPBin POST', method: 'POST', url: 'https://httpbin.org/post',
+      })
+      // POST 示例带 JSON body（update_request 为全量覆写，CLAUDE.md 写操作真源节）
+      await invoke('update_request', {
+        id: postReq.id, name: '示例：HTTPBin POST', method: 'POST', url: 'https://httpbin.org/post',
+        bodyType: 'json', body: '{"name":"ApiCat"}',
+      })
+      const caseResp = await invoke<{ id: number }>('create_test_case', {
+        requestId: getReq.id, collectionId: col.id,
+        name: '示例：校验返回 200', method: 'GET', url: 'https://httpbin.org/get', caseType: 'happy_path',
+      })
+      await invoke('update_test_case', {
+        id: caseResp.id, name: '示例：校验返回 200',
+        assertions: JSON.stringify([{ type: 'status_code', operator: 'eq', expected: '200' }]),
+      })
+    } catch (e) {
+      console.warn('[seed] 示例数据播种失败:', e)
+    }
+  }
   async function loadProjects() {
     loading.value = true
     try {
@@ -45,6 +76,7 @@ export const useProjectStore = defineStore('project', () => {
       if (list.length === 0) {
         const defaultProj = await invoke<Project>('create_project', { name: 'Default Project', description: null })
         list = [defaultProj]
+        void seedSampleData(defaultProj)
       }
 
       projects.value = list
