@@ -1,5 +1,6 @@
 <template>
   <div class="stress-tab">
+  <GuideBar guide-id="stress" />
     <!-- 配置条 -->
     <div class="stress-tab__toolbar">
       <div class="cfg-group">
@@ -159,6 +160,7 @@
 </template>
 
 <script setup lang="ts">
+import GuideBar from '../guide/GuideBar.vue'
 import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { NButton, NInputNumber, NRadioGroup, NRadioButton, NSelect, NSpin, NEmpty } from 'naive-ui'
 import { useStressStore } from '../../stores/stress'

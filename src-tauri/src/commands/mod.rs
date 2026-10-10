@@ -7,6 +7,7 @@ pub mod project;
 pub mod request;
 pub mod send_request;
 pub mod skill_installer;
+pub mod stats;
 pub mod test_case;
 pub mod test_case_run;
 pub mod stress;

@@ -344,3 +344,24 @@ export interface RunCaseResult {
   total_count: number
   error_message: string | null
 }
+
+/**
+ * 使用统计（与 src-tauri/src/commands/stats.rs 的 UsageStats 镜像：camelCase、字段顺序一致）。
+ * 口径：请求类指标只算调试发送（test_case_id IS NULL）；成功率 2xx/3xx；NULL/≥400 失败。
+ */
+export interface UsageStats {
+  kpi: {
+    totalInterfaces: number
+    /** 窗口内请求数（窗口由 range 决定，'all' 为累计） */
+    requestsCount: number
+    /** 0-100 一位小数；-1 = 窗口内无请求，UI 显示「—」 */
+    successRate: number
+    stressRunCount: number
+  }
+  /** 粒度：窗口 <=90 天按日，更久/全部按周（点日期为周一）；固定窗口的空档由前端补零 */
+  trend: { granularity: 'day' | 'week'; points: { date: string; count: number }[] }
+  statusDist: { name: string; count: number }[]
+  methodDist: { name: string; count: number }[]
+  dictionary: { dictCount: number; itemCount: number; ruleCount: number; overrideCount: number }
+  docs: { fileCount: number; totalSize: number; lastModified: string | null }
+}

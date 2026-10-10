@@ -8,6 +8,7 @@
     @update:show="(v: boolean) => emit('update:show', v)"
   >
     <div class="skill-manager">
+    <GuideBar guide-id="skills" />
       <p class="intro">
         将 ApiCat 的 AI 技能安装到本机的 AI 编码工具，使其能直接操作 ApiCat 本地库。
       </p>
@@ -67,6 +68,7 @@
 </template>
 
 <script setup lang="ts">
+import GuideBar from '../guide/GuideBar.vue'
 import { ref, watch } from 'vue'
 import { NModal, NButton } from 'naive-ui'
 import { invoke } from '@tauri-apps/api/core'

@@ -21,7 +21,7 @@ pub struct DocFile {
 }
 
 /// 递归扫描目录下的 .md 文件
-fn scan_md_files(root: &Path, base: &Path, out: &mut Vec<DocFile>) {
+pub(crate) fn scan_md_files(root: &Path, base: &Path, out: &mut Vec<DocFile>) {
     let Ok(entries) = std::fs::read_dir(root) else { return };
     for entry in entries.flatten() {
         let path = entry.path();

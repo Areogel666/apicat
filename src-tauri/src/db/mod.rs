@@ -54,7 +54,7 @@ fn split_sql_statements(sql: &str) -> Vec<&str> {
 
 /// 将 migration SQL 编译时内嵌进二进制，运行时逐条执行
 /// 使用增强版 split_sql_statements 过滤多行注释中的 ';' 字面量
-async fn run_migrations(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) async fn run_migrations(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Error>> {
     let migration_sql = include_str!("../../migrations/0001_init.sql");
 
     for stmt in split_sql_statements(migration_sql) {

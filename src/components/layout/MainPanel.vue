@@ -5,7 +5,13 @@
 
     <!-- 无激活 Tab 时显示引导页 -->
     <div v-if="tabStore.activeRequestId === null" class="tab-empty-guide">
-      <n-empty description="← 从左侧选择接口开始调试" />
+      <n-empty description="← 从左侧选择接口开始调试">
+        <template #extra>
+          <div v-if="!guide.isSeen('firstRequest')" class="first-request-hint">
+            {{ GUIDE_CONTENT.firstRequest.body }}
+          </div>
+        </template>
+      </n-empty>
     </div>
 
     <!-- 有激活 Tab 时显示请求编辑区 + 响应区 -->
@@ -630,6 +636,8 @@ import { useDictionaryStore } from '../../stores/dictionary'
 import { useTabStore } from '../../stores/tab'
 import { useThemeStore } from '../../stores/theme'
 import { useCookieStore } from '../../stores/cookie'
+import { useGuideStore } from '../../stores/guide'
+import { GUIDE_CONTENT } from '../../config/guideContent'
 import { readSetting } from '../../stores/_persistedSettings'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
@@ -733,6 +741,13 @@ const headerTemplateStore = useHeaderTemplateStore()
 const tabStore = useTabStore()
 const themeStore = useThemeStore()
 const cookieStore = useCookieStore()
+const guide = useGuideStore()
+
+// 用户打开第一个 Tab 即视为完成「发第一个请求」引导
+watch(() => tabStore.openTabs.length, (n, o) => {
+  if (n > 0 && o === 0) guide.markSeen('firstRequest')
+})
+
 const message = useMessage()
 const dialog = useDialog()
 

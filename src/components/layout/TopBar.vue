@@ -211,6 +211,7 @@ import { useProjectStore } from '../../stores/project'
 import { useEnvironmentStore } from '../../stores/environment'
 import { useThemeStore, type ThemeMode } from '../../stores/theme'
 import { readSetting, writeSetting } from '../../stores/_persistedSettings'
+import { useGuideStore } from '../../stores/guide'
 import EnvManager from '../env/EnvManager.vue'
 import CookieManager from '../cookie/CookieManager.vue'
 import ImportDialog from '../io/ImportDialog.vue'
@@ -224,6 +225,7 @@ const envStore = useEnvironmentStore()
 const themeStore = useThemeStore()
 const dialog = useDialog()
 const message = useMessage()
+const guideStore = useGuideStore()
 
 const showEnvManager = ref(false)
 const showCookieManager = ref(false)
@@ -292,6 +294,7 @@ const settingsMenuOptions = computed(() => [
   { label: '🎨 主题工作室…', key: 'themeStudio' },
   { type: 'divider', key: 'd3' },
   { label: '🔧 开关设置...', key: 'toggleSettings' },
+  { label: '📖 重看新手引导', key: 'guideReset' },
   { label: '🗑️ 清理历史记录...', key: 'cleanupHistory' },
   { label: '🔄 检查更新...', key: 'checkUpdate' },
 ])
@@ -311,6 +314,10 @@ async function handleSettingsMenu(key: string) {
   else if (key === 'checkUpdate') await checkForUpdate()
   else if (key === 'cleanupHistory') showCleanupHistoryModal.value = true
   else if (key === 'toggleSettings') showToggleSettings.value = true
+  else if (key === 'guideReset') {
+    guideStore.resetAll()
+    message.success('新手引导已重置，进入各功能时会重新出现')
+  }
   else if (key.startsWith('theme:')) {
     const mode = key.slice('theme:'.length) as ThemeMode
     await themeStore.setMode(mode)
