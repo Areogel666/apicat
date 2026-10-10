@@ -11,6 +11,7 @@
     @positive-click="handleImport"
     @negative-click="show = false"
   >
+    <GuideBar guide-id="import" />
     <div class="import-body">
       <!-- 导入格式 -->
       <div class="field-row">
@@ -48,6 +49,7 @@
 </template>
 
 <script setup lang="ts">
+import GuideBar from '../guide/GuideBar.vue'
 import { ref, computed } from 'vue'
 import { NModal, NRadioGroup, NRadio, NSelect, NButton } from 'naive-ui'
 import { invoke } from '@tauri-apps/api/core'

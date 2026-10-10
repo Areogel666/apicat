@@ -1,6 +1,7 @@
 <template>
   <n-modal v-model:show="show" preset="card" title="环境管理" style="width: 780px; max-width: 95vw">
     <div class="env-manager">
+    <GuideBar guide-id="env" />
       <!-- 左侧：环境列表 -->
       <div class="env-list">
         <div
@@ -129,6 +130,7 @@
 </template>
 
 <script setup lang="ts">
+import GuideBar from '../guide/GuideBar.vue'
 import { ref, computed, watch, nextTick } from 'vue'
 import { NModal, NButton, NInput, NCheckbox, NDivider, NEmpty, NTag } from 'naive-ui'
 import { useEnvironmentStore } from '../../stores/environment'

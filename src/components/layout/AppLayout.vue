@@ -11,12 +11,14 @@
           title="接口树"
           @click="leftPanel = 'interface'"
         >🔗</button>
-        <button
-          class="activity-item"
-          :class="{ active: leftPanel === 'dictionary' }"
-          title="数据字典"
-          @click="leftPanel = 'dictionary'"
-        >📖</button>
+        <GuideTip guide-id="dictionary" :active="leftPanel === 'dictionary'">
+          <button
+            class="activity-item"
+            :class="{ active: leftPanel === 'dictionary' }"
+            title="数据字典"
+            @click="leftPanel = 'dictionary'"
+          >📖</button>
+        </GuideTip>
         <button
           class="activity-item"
           :class="{ active: leftPanel === 'docs' }"
@@ -78,6 +80,7 @@ import { ref, watch, computed } from 'vue'
 import TopBar from './TopBar.vue'
 import Sidebar from './Sidebar.vue'
 import DictionarySidebar from './DictionarySidebar.vue'
+import GuideTip from '../guide/GuideTip.vue'
 import DictionaryJsonPanel from './DictionaryJsonPanel.vue'
 import MainPanel from './MainPanel.vue'
 import DocsSidebar from '../docs/DocsSidebar.vue'

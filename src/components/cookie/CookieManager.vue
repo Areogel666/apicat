@@ -1,6 +1,7 @@
 <template>
   <n-modal v-model:show="show" preset="card" title="Cookie 管理" style="width: 860px; max-width: 95vw">
     <!-- 工具条：作用域筛选 + 清理（Q14-B：一张表 + 筛选列，不再分 tab） -->
+    <GuideBar guide-id="cookie" />
     <div class="toolbar">
       <n-select
         v-model:value="scopeFilter"
@@ -60,6 +61,7 @@
 </template>
 
 <script setup lang="ts">
+import GuideBar from '../guide/GuideBar.vue'
 import { computed, reactive, ref, watch } from 'vue'
 import { NModal, NButton, NSelect, NPopover, NCheckbox, useMessage } from 'naive-ui'
 import { useCookieStore, type CookieScopeFilter } from '../../stores/cookie'
