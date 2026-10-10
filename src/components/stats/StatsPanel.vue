@@ -10,7 +10,16 @@
 
     <n-spin :show="loading">
       <n-empty
-        v-if="!loading && data && data.kpi.requests30d === 0 && data.kpi.totalInterfaces === 0"
+        v-if="loadError"
+        description="统计加载失败"
+        class="stats-panel__empty"
+      >
+        <template #extra>
+          <n-button size="tiny" @click="load">重试</n-button>
+        </template>
+      </n-empty>
+      <n-empty
+        v-else-if="!loading && data && data.kpi.requests30d === 0 && data.kpi.totalInterfaces === 0"
         description="还没有任何数据——发送第一个请求后这里会出现统计"
         class="stats-panel__empty"
       />
@@ -70,7 +79,7 @@
             <ul v-else class="stats-list">
               <li><span>Markdown 文件数</span><b>{{ data.docs.fileCount }}</b></li>
               <li><span>总体量</span><b>{{ formatSize(data.docs.totalSize) }}</b></li>
-              <li><span>最近更新</span><b>{{ data.docs.lastModified ?? '—' }}</b></li>
+              <li><span>最近更新</span><b>{{ formatDateTime(data.docs.lastModified) }}</b></li>
             </ul>
           </section>
         </div>
@@ -82,7 +91,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { NRadioGroup, NRadioButton, NSpin, NEmpty } from 'naive-ui'
+import { NRadioGroup, NRadioButton, NSpin, NEmpty, NButton } from 'naive-ui'
 import StatsChart from './StatsChart.vue'
 import type { UsageStats } from '../../types'
 
@@ -90,10 +99,16 @@ const range = ref<'30d' | 'all'>('30d')
 const loading = ref(false)
 const data = ref<UsageStats | null>(null)
 
+const loadError = ref(false)
+
 async function load() {
   loading.value = true
+  loadError.value = false
   try {
     data.value = await invoke<UsageStats>('get_usage_stats', { range: range.value })
+  } catch (e) {
+    console.warn('[stats] 统计加载失败:', e)
+    loadError.value = true
   } finally {
     loading.value = false
   }
@@ -149,6 +164,11 @@ const methodOption = computed(() => {
   }
 })
 
+/** RFC3339 → 本地展示 'YYYY-MM-DD HH:MM'（只截显示，不做时区换算） */
+function formatDateTime(s: string | null): string {
+  return s ? s.slice(0, 16).replace('T', ' ') : '—'
+}
+
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -183,7 +203,7 @@ function formatSize(bytes: number): string {
 .stats-kpi {
   flex: 1;
   background: var(--bg-elevated);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-base);
   border-radius: var(--radius-md);
   padding: var(--spacing-md);
   text-align: center;
@@ -208,7 +228,7 @@ function formatSize(bytes: number): string {
 }
 .stats-card {
   background: var(--bg-elevated);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-base);
   border-radius: var(--radius-md);
   padding: var(--spacing-md);
 }
@@ -225,7 +245,7 @@ function formatSize(bytes: number): string {
   display: flex;
   justify-content: space-between;
   padding: var(--spacing-xs) 0;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-base);
 }
 .stats-list li:last-child {
   border-bottom: none;

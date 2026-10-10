@@ -1,5 +1,5 @@
 <template>
-  <n-alert v-if="!guide.isSeen(guideId)" type="info" :show-icon="true" class="guide-bar" @close="dismiss">
+  <n-alert v-if="!guide.isSeen(guideId)" type="info" :show-icon="true" closable class="guide-bar" @close="dismiss">
     <b>{{ content.title }}：</b>{{ content.body }}
   </n-alert>
 </template>

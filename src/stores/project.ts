@@ -51,18 +51,24 @@ export const useProjectStore = defineStore('project', () => {
         collectionId: col.id, name: '示例：HTTPBin POST', method: 'POST', url: 'https://httpbin.org/post',
       })
       // POST 示例带 JSON body（update_request 为全量覆写，CLAUDE.md 写操作真源节）
+      // update_request 为全量覆写且 IPC 参数全为必填（request.rs:92-104），缺一即被 Tauri reject
       await invoke('update_request', {
         id: postReq.id, name: '示例：HTTPBin POST', method: 'POST', url: 'https://httpbin.org/post',
-        bodyType: 'json', body: '{"name":"ApiCat"}',
+        params: '[]', headers: '[]', bodyType: 'json', body: '{"name":"ApiCat"}',
+        authType: 'none', authConfig: '{}',
       })
       const caseResp = await invoke<{ id: number }>('create_test_case', {
         requestId: getReq.id, collectionId: col.id,
         name: '示例：校验返回 200', method: 'GET', url: 'https://httpbin.org/get', caseType: 'happy_path',
       })
+      // update_test_case 仅 case_type/assertions 做 COALESCE，method/url 会直接覆写，必须回传
       await invoke('update_test_case', {
         id: caseResp.id, name: '示例：校验返回 200',
+        method: 'GET', url: 'https://httpbin.org/get',
         assertions: JSON.stringify([{ type: 'status_code', operator: 'eq', expected: '200' }]),
       })
+      // 播种是后台异步，Sidebar 树早已按空集合加载完毕；递增 tick 强制刷新（同 ImportDialog 模式）
+      sidebarReloadTick.value++
     } catch (e) {
       console.warn('[seed] 示例数据播种失败:', e)
     }

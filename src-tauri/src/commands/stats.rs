@@ -1,6 +1,7 @@
 //! 使用统计聚合（纯本地只读）。全部指标从现有表派生，无埋点、无网络。
 //! 口径（共识基线）：请求类只算调试发送（test_case_id IS NULL）；
 //! 成功率 = 2xx/3xx 成功，NULL 或 >=400 失败；压测次数 = stress_runs 全量 COUNT。
+//! TS 镜像接口见 src/types/index.ts 的 UsageStats（字段顺序一致）。
 
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
