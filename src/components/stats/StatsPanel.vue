@@ -169,7 +169,8 @@ const trendOption = computed(() => {
     const anchor = new Date()
     if (trend.granularity === 'week') anchor.setUTCDate(anchor.getUTCDate() - ((anchor.getUTCDay() + 6) % 7))
     const step = trend.granularity === 'week' ? 7 : 1
-    const n = trend.granularity === 'week' ? Math.ceil(windowDays / 7) : windowDays
+    // 槽数比窗口略宽（日 +1、周 +2）：窗口左缘可能落在半个周里，避免最早的桶被截掉
+    const n = trend.granularity === 'week' ? Math.ceil(windowDays / 7) + 2 : windowDays + 1
     for (let i = n - 1; i >= 0; i--) {
       const d = new Date(anchor)
       d.setUTCDate(d.getUTCDate() - i * step)

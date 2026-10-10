@@ -115,11 +115,13 @@ async fn collect_usage_stats(pool: &SqlitePool, range: &str) -> Result<UsageStat
     .fetch_one(pool)
     .await?;
     // ---- 趋势（粒度自适应，空档不返回，由前端补零） ----
-    // 周分组：weekday 1 取下一个周一再回退 6 天 = 归到所属周一，规避周编号跨年对齐问题
+    // 周分组：先回退 6 天再取下一个周一 = 归到所属周一。
+    // 注意顺序不可反：'weekday 1' 遇当天已是周一会原地不动，
+    // 若先 'weekday 1' 后 '-6 days'，周一记录会错归上一周（实测踩坑）。
     let bucket = if granularity == "day" {
         "date(created_at)"
     } else {
-        "date(created_at, 'weekday 1', '-6 days')"
+        "date(created_at, '-6 days', 'weekday 1')"
     };
     let trend_rows = sqlx::query(&format!(
         "SELECT {bucket} AS d, COUNT(*) AS c FROM request_history \
@@ -328,6 +330,12 @@ mod tests {
         assert_eq!(wide.trend.granularity, "week"); // 180 天 > 90 天阈值
         assert_eq!(wide.trend.points.iter().map(|d| d.count).sum::<i64>(), 3);
         assert_eq!(wide.trend.points.len(), 3); // 三条记录分属三个不同周
+        // 周桶正确性：每个桶日期必须是周一（strftime %w：1=Monday）
+        for pt in &wide.trend.points {
+            let dow: String = sqlx::query_scalar("SELECT strftime('%w', ?)")
+                .bind(&pt.date).fetch_one(&pool).await.unwrap();
+            assert_eq!(dow, "1", "周桶 {} 不是周一", pt.date);
+        }
         assert_eq!(wide.kpi.stress_run_count, 2);
 
         // 切回 30 天：仅剩 1 条请求 + 1 次压测，粒度回到按日
