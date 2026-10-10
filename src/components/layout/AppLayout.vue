@@ -25,6 +25,15 @@
           title="接口文档"
           @click="leftPanel = 'docs'"
         >📄</button>
+
+        <GuideTip guide-id="stats" :active="leftPanel === 'stats'">
+          <button
+            class="activity-item"
+            :class="{ active: leftPanel === 'stats' }"
+            title="使用统计"
+            @click="leftPanel = 'stats'"
+          >📊</button>
+        </GuideTip>
       </div>
       <!-- 左右面板均常驻(v-show)，切换时保留全部浏览状态；折叠时整栏收起 -->
       <!-- hoverOpen 为临时预览：仅显示当前 leftPanel 对应栏，不改变 collapsed/不持久化 -->
@@ -71,6 +80,7 @@
       <MainPanel v-show="leftPanel === 'interface'" style="flex: 1; min-width: 0" />
       <DictionaryJsonPanel v-show="leftPanel === 'dictionary'" style="flex: 1; min-width: 0" />
       <DocsPanel v-show="leftPanel === 'docs'" :file="selectedDocFile" style="flex: 1; min-width: 0" />
+      <StatsPanel v-show="leftPanel === 'stats'" style="flex: 1; min-width: 0" />
     </div>
   </div>
 </template>
@@ -81,6 +91,7 @@ import TopBar from './TopBar.vue'
 import Sidebar from './Sidebar.vue'
 import DictionarySidebar from './DictionarySidebar.vue'
 import GuideTip from '../guide/GuideTip.vue'
+import StatsPanel from '../stats/StatsPanel.vue'
 import DictionaryJsonPanel from './DictionaryJsonPanel.vue'
 import MainPanel from './MainPanel.vue'
 import DocsSidebar from '../docs/DocsSidebar.vue'
@@ -125,7 +136,7 @@ const handleLeft = computed(() => {
 })
 
 // 左侧内容面板切换（接口树 / 字典树 / 文档）
-const leftPanel = ref<'interface' | 'dictionary' | 'docs'>('interface')
+const leftPanel = ref<'interface' | 'dictionary' | 'docs' | 'stats'>('interface')
 
 const selectedDocFile = ref<DocFile | null>(null)
 
