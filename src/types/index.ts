@@ -352,13 +352,14 @@ export interface RunCaseResult {
 export interface UsageStats {
   kpi: {
     totalInterfaces: number
-    requests30d: number
-    /** 0-100 一位小数；-1 = 30 天无请求，UI 显示「—」 */
-    successRate30d: number
+    /** 窗口内请求数（窗口由 range 决定，'all' 为累计） */
+    requestsCount: number
+    /** 0-100 一位小数；-1 = 窗口内无请求，UI 显示「—」 */
+    successRate: number
     stressRunCount: number
   }
-  /** 近 30 天逐日（UTC），空日由前端补零 */
-  trend: { date: string; count: number }[]
+  /** 粒度：窗口 <=90 天按日，更久/全部按周（点日期为周一）；固定窗口的空档由前端补零 */
+  trend: { granularity: 'day' | 'week'; points: { date: string; count: number }[] }
   statusDist: { name: string; count: number }[]
   methodDist: { name: string; count: number }[]
   dictionary: { dictCount: number; itemCount: number; ruleCount: number; overrideCount: number }

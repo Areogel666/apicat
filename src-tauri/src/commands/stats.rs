@@ -13,9 +13,11 @@ use crate::{db::AppDb, error::CmdResult};
 #[serde(rename_all = "camelCase")]
 pub struct KpiStats {
     pub total_interfaces: i64,
-    pub requests_30d: i64,
-    /// 0-100 的一位小数；30 天无请求时为 -1（前端显示「—」）
-    pub success_rate_30d: f64,
+    /// 窗口内请求数（窗口由 range 决定，'all' 为累计）
+    pub requests_count: i64,
+    /// 0-100 的一位小数；窗口内无请求时为 -1（前端显示「—」）
+    pub success_rate: f64,
+    /// 窗口内压测次数
     pub stress_run_count: i64,
 }
 
@@ -50,11 +52,20 @@ pub struct DocsStats {
     pub total_size: i64,
     pub last_modified: Option<String>,
 }
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Trend {
+    /// 趋势粒度：窗口 <=90 天按日，更久/全部按周（点日期为周一）
+    pub granularity: String,
+    pub points: Vec<DailyCount>,
+}
+
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageStats {
     pub kpi: KpiStats,
-    pub trend: Vec<DailyCount>,
+    pub trend: Trend,
     pub status_dist: Vec<NameCount>,
     pub method_dist: Vec<NameCount>,
     pub dictionary: DictStats,
@@ -65,44 +76,59 @@ pub struct UsageStats {
 const REQ_FILTER: &str = "test_case_id IS NULL";
 
 async fn collect_usage_stats(pool: &SqlitePool, range: &str) -> Result<UsageStats, sqlx::Error> {
-    // range 只作用于状态/方法分布的窗口；trend 恒近 30 天，KPI 固定口径
-    let dist_filter = if range == "all" {
-        REQ_FILTER.to_string()
-    } else {
-        format!("{REQ_FILTER} AND created_at >= datetime('now','-30 days')")
+    // 档位 -> 窗口天数（None = 累计全部）
+    let window_days: Option<i64> = match range {
+        "all" => None,
+        "180d" => Some(180),
+        "365d" => Some(365),
+        _ => Some(30),
     };
+    let window = window_days
+        .map(|d| format!("created_at >= datetime('now','-{d} days')"))
+        .unwrap_or_else(|| "1=1".to_string());
+    let dist_filter = format!("{REQ_FILTER} AND {window}");
+    // 趋势粒度：窗口 <=90 天按日，更久/全部按周（每条记录归到所属周一）
+    let granularity = if window_days.map_or(false, |d| d <= 90) { "day" } else { "week" };
 
     // ---- KPI ----
     let total_interfaces: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM api_requests").fetch_one(pool).await?;
-    let requests_30d: i64 = sqlx::query_scalar(&format!(
-        "SELECT COUNT(*) FROM request_history WHERE {REQ_FILTER} AND created_at >= datetime('now','-30 days')"
+    let requests_count: i64 = sqlx::query_scalar(&format!(
+        "SELECT COUNT(*) FROM request_history WHERE {dist_filter}"
     ))
     .fetch_one(pool)
     .await?;
-    let (ok30, all30): (i64, i64) = sqlx::query_as(&format!(
+    let (ok_n, all_n): (i64, i64) = sqlx::query_as(&format!(
         "SELECT \
            COALESCE(SUM(CASE WHEN status_code BETWEEN 200 AND 399 THEN 1 ELSE 0 END), 0), \
            COUNT(*) \
-         FROM request_history WHERE {REQ_FILTER} AND created_at >= datetime('now','-30 days')"
+         FROM request_history WHERE {dist_filter}"
     ))
     .fetch_one(pool)
     .await?;
-    let success_rate_30d = if all30 == 0 { -1.0 } else {
-        ((ok30 as f64) / (all30 as f64) * 1000.0).round() / 10.0
+    let success_rate = if all_n == 0 { -1.0 } else {
+        ((ok_n as f64) / (all_n as f64) * 1000.0).round() / 10.0
     };
-    let stress_run_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM stress_runs").fetch_one(pool).await?;
-    // ---- 趋势（近 30 天逐日，空日不返回，由前端补零） ----
+    let stress_run_count: i64 = sqlx::query_scalar(&format!(
+        "SELECT COUNT(*) FROM stress_runs WHERE {window}"
+    ))
+    .fetch_one(pool)
+    .await?;
+    // ---- 趋势（粒度自适应，空档不返回，由前端补零） ----
+    // 周分组：weekday 1 取下一个周一再回退 6 天 = 归到所属周一，规避周编号跨年对齐问题
+    let bucket = if granularity == "day" {
+        "date(created_at)"
+    } else {
+        "date(created_at, 'weekday 1', '-6 days')"
+    };
     let trend_rows = sqlx::query(&format!(
-        "SELECT date(created_at) AS d, COUNT(*) AS c FROM request_history \
-         WHERE {REQ_FILTER} AND created_at >= datetime('now','-30 days') \
-         GROUP BY d ORDER BY d"
+        "SELECT {bucket} AS d, COUNT(*) AS c FROM request_history \
+         WHERE {dist_filter} GROUP BY d ORDER BY d"
     ))
     .fetch_all(pool)
     .await?;
 
-    let trend = trend_rows
+    let trend_points = trend_rows
         .iter()
         .map(|r| DailyCount { date: r.get::<String, _>("d"), count: r.get::<i64, _>("c") })
         .collect();
@@ -173,8 +199,8 @@ async fn collect_usage_stats(pool: &SqlitePool, range: &str) -> Result<UsageStat
     }
 
     Ok(UsageStats {
-        kpi: KpiStats { total_interfaces, requests_30d, success_rate_30d, stress_run_count },
-        trend,
+        kpi: KpiStats { total_interfaces, requests_count, success_rate, stress_run_count },
+        trend: Trend { granularity: granularity.to_string(), points: trend_points },
         status_dist,
         method_dist,
         dictionary: DictStats { dict_count, item_count, rule_count, override_count },
@@ -250,10 +276,11 @@ mod tests {
         let s = collect_usage_stats(&pool, "30d").await.unwrap();
 
         assert_eq!(s.kpi.total_interfaces, 1);
-        assert_eq!(s.kpi.requests_30d, 4); // 5 条调试发送 - 1 条 40 天前
-        assert_eq!(s.kpi.success_rate_30d, 50.0); // 2 成功 / 4 总
+        assert_eq!(s.kpi.requests_count, 4); // 5 条调试发送 - 1 条 40 天前
+        assert_eq!(s.kpi.success_rate, 50.0); // 2 成功 / 4 总
         assert_eq!(s.kpi.stress_run_count, 0);
-        assert_eq!(s.trend.iter().map(|d| d.count).sum::<i64>(), 4);
+        assert_eq!(s.trend.granularity, "day");
+        assert_eq!(s.trend.points.iter().map(|d| d.count).sum::<i64>(), 4);
 
         let bucket = |n: &str| s.status_dist.iter().find(|b| b.name == n).map(|b| b.count).unwrap_or(0);
         assert_eq!(bucket("2xx/3xx"), 2);
@@ -271,11 +298,48 @@ mod tests {
         let pool = mem_db().await;
         let s = collect_usage_stats(&pool, "30d").await.unwrap();
         assert_eq!(s.kpi.total_interfaces, 0);
-        assert_eq!(s.kpi.requests_30d, 0);
-        assert_eq!(s.kpi.success_rate_30d, -1.0);
-        assert!(s.trend.is_empty());
+        assert_eq!(s.kpi.requests_count, 0);
+        assert_eq!(s.kpi.success_rate, -1.0);
+        assert_eq!(s.trend.granularity, "day");
+        assert!(s.trend.points.is_empty());
         assert!(s.status_dist.is_empty());
         assert_eq!(s.docs.file_count, 0);
+    }
+
+    #[tokio::test]
+    async fn stats_week_granularity_and_wider_window() {
+        let pool = mem_db().await;
+        let rid = seed_chain(&pool).await;
+
+        // 180d 窗口内：1 天前、40 天前、100 天前各一条；400 天前不计入
+        seed_history(&pool, rid, 1, Some(200), None, "GET").await;
+        seed_history(&pool, rid, 40, Some(500), None, "POST").await;
+        seed_history(&pool, rid, 100, Some(200), None, "GET").await;
+        seed_history(&pool, rid, 400, Some(200), None, "GET").await;
+
+        // 压测：10 天前与 100 天前各一次
+        sqlx::query("INSERT INTO stress_runs (request_id, created_at) VALUES (?, datetime('now','-10 days'))")
+            .bind(rid).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO stress_runs (request_id, created_at) VALUES (?, datetime('now','-100 days'))")
+            .bind(rid).execute(&pool).await.unwrap();
+
+        let wide = collect_usage_stats(&pool, "180d").await.unwrap();
+        assert_eq!(wide.kpi.requests_count, 3); // 400 天前那条不计入
+        assert_eq!(wide.trend.granularity, "week"); // 180 天 > 90 天阈值
+        assert_eq!(wide.trend.points.iter().map(|d| d.count).sum::<i64>(), 3);
+        assert_eq!(wide.trend.points.len(), 3); // 三条记录分属三个不同周
+        assert_eq!(wide.kpi.stress_run_count, 2);
+
+        // 切回 30 天：仅剩 1 条请求 + 1 次压测，粒度回到按日
+        let narrow = collect_usage_stats(&pool, "30d").await.unwrap();
+        assert_eq!(narrow.kpi.requests_count, 1);
+        assert_eq!(narrow.kpi.stress_run_count, 1);
+        assert_eq!(narrow.trend.granularity, "day");
+
+        // 累计档：4 条请求全算
+        let all = collect_usage_stats(&pool, "all").await.unwrap();
+        assert_eq!(all.kpi.requests_count, 4);
+        assert_eq!(all.trend.granularity, "week");
     }
 
     #[tokio::test]

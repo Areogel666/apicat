@@ -3,6 +3,8 @@
     <div class="stats-panel__toolbar">
       <n-radio-group v-model:value="range" size="small">
         <n-radio-button value="30d">近 30 天</n-radio-button>
+        <n-radio-button value="180d">近半年</n-radio-button>
+        <n-radio-button value="365d">近一年</n-radio-button>
         <n-radio-button value="all">全部</n-radio-button>
       </n-radio-group>
       <span class="stats-panel__note">数据仅保存在本机；请求趋势基于本地历史，清理历史后不可恢复</span>
@@ -19,7 +21,7 @@
         </template>
       </n-empty>
       <n-empty
-        v-else-if="!loading && data && data.kpi.requests30d === 0 && data.kpi.totalInterfaces === 0"
+        v-else-if="!loading && data && data.kpi.requestsCount === 0 && data.kpi.totalInterfaces === 0"
         description="还没有任何数据——发送第一个请求后这里会出现统计"
         class="stats-panel__empty"
       />
@@ -31,22 +33,22 @@
             <span class="stat__label">接口总数</span>
           </div>
           <div class="stat">
-            <span class="stat__value">{{ data.kpi.requests30d }}</span>
-            <span class="stat__label">近 30 天请求</span>
+            <span class="stat__value">{{ data.kpi.requestsCount }}</span>
+            <span class="stat__label">{{ range === 'all' ? '累计请求' : rangeLabel + '请求' }}</span>
           </div>
           <div class="stat">
             <span class="stat__value">{{ successRateText }}</span>
-            <span class="stat__label">请求成功率（30 天）</span>
+            <span class="stat__label">{{ range === 'all' ? '累计成功率' : rangeLabel + '成功率' }}</span>
           </div>
           <div class="stat">
             <span class="stat__value">{{ data.kpi.stressRunCount }}</span>
-            <span class="stat__label">压测次数</span>
+            <span class="stat__label">{{ range === 'all' ? '累计压测' : rangeLabel + '压测' }}</span>
           </div>
         </div>
 
         <div class="stats-grid">
           <section class="stats-section">
-            <h3 class="stats-section__title">请求趋势（近 30 天）</h3>
+            <h3 class="stats-section__title">请求趋势（{{ rangeLabel }}）</h3>
             <StatsChart v-if="trendOption" :option="trendOption" :height="230" />
             <n-empty v-else description="近 30 天暂无请求" class="stats-section__empty" />
           </section>
@@ -105,7 +107,12 @@ import StatsChart from './StatsChart.vue'
 import { useThemeStore } from '../../stores/theme'
 import type { UsageStats } from '../../types'
 
-const range = ref<'30d' | 'all'>('30d')
+const range = ref<'30d' | '180d' | '365d' | 'all'>('30d')
+/** 档位 -> 展示词（KPI 标签与趋势标题共用） */
+const RANGE_LABEL: Record<typeof range.value, string> = {
+  '30d': '近 30 天', '180d': '近半年', '365d': '近一年', all: '全部',
+}
+const rangeLabel = computed(() => RANGE_LABEL[range.value])
 const loading = ref(false)
 const loadError = ref(false)
 const data = ref<UsageStats | null>(null)
@@ -126,7 +133,7 @@ onMounted(load)
 watch(range, load)
 
 const successRateText = computed(() => {
-  const r = data.value?.kpi.successRate30d ?? -1
+  const r = data.value?.kpi.successRate ?? -1
   return r < 0 ? '—' : `${r}%`
 })
 
@@ -151,17 +158,30 @@ function cssVar(name: string): string {
 
 /** 近 30 天逐日序列补零（Rust 只返回有数据的日期） */
 const trendOption = computed(() => {
-  if (!data.value || data.value.trend.length === 0) return null
-  const map = new Map(data.value.trend.map((d) => [d.date, d.count]))
+  if (!data.value || data.value.trend.points.length === 0) return null
+  const trend = data.value.trend
+  const map = new Map(trend.points.map((d) => [d.date, d.count]))
   const days: string[] = []
   const counts: number[] = []
-  const now = new Date()
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date(now)
-    d.setUTCDate(d.getUTCDate() - i)
-    const key = d.toISOString().slice(0, 10)
-    days.push(key.slice(5))
-    counts.push(map.get(key) ?? 0)
+  // 固定窗口补零：日粒度逐日、周粒度逐周（锚定当前周一）；'全部'档不补零，轴自动抽稀
+  const windowDays = ({ '30d': 30, '180d': 180, '365d': 365 } as Partial<Record<string, number>>)[range.value]
+  if (windowDays) {
+    const anchor = new Date()
+    if (trend.granularity === 'week') anchor.setUTCDate(anchor.getUTCDate() - ((anchor.getUTCDay() + 6) % 7))
+    const step = trend.granularity === 'week' ? 7 : 1
+    const n = trend.granularity === 'week' ? Math.ceil(windowDays / 7) : windowDays
+    for (let i = n - 1; i >= 0; i--) {
+      const d = new Date(anchor)
+      d.setUTCDate(d.getUTCDate() - i * step)
+      const key = d.toISOString().slice(0, 10)
+      days.push(key.slice(5))
+      counts.push(map.get(key) ?? 0)
+    }
+  } else {
+    for (const p of trend.points) {
+      days.push(p.date.slice(5))
+      counts.push(p.count)
+    }
   }
   return {
     color: [cssVar('--color-primary')],
