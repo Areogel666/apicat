@@ -38,6 +38,7 @@ use commands::{
     io::{export_apicat, export_postman, import_apicat, import_postman, import_openapi},
     docs::{scan_docs_dir, reveal_in_explorer, open_file_with_default, get_home_dir, read_doc_file},
     skill_installer::{get_skill_targets, install_skills, uninstall_skills},
+    stats::get_usage_stats,
 };
 use db::{init_db, AppDb};
 use tauri::Manager;
@@ -109,6 +110,7 @@ pub fn run() {
             copy_dictionary_to_project,
             start_stress,
             list_stress_runs, delete_stress_run, get_stress_report,
+            get_usage_stats,
             export_apicat, export_postman, import_apicat, import_postman, import_openapi,
             scan_docs_dir, reveal_in_explorer, open_file_with_default, get_home_dir, read_doc_file,
             get_skill_targets, install_skills, uninstall_skills,
