@@ -41,6 +41,10 @@ pub struct ParamItem {
     pub key: String,
     pub value: String,
     pub enabled: bool,
+    /// 字段类型标记（前端 ParamItem.type，自由文本；"file" = 文件字段，value 存本地路径）。
+    /// 旧 body JSON 无此字段，serde default 兜底为空串
+    #[serde(rename = "type", default)]
+    pub field_type: String,
 }
 
 /// 构建并发送 HTTP 请求，返回 HttpResponse（不含 history_id，由上层写库后填入）
@@ -73,8 +77,15 @@ pub async fn send(client: &reqwest::Client, params: &SendRequestParams) -> Resul
 
     let mut builder = client.request(method.clone(), parsed_url);
 
+    // Form Data 的 Content-Type（含 boundary）由 reqwest 自动生成，手动填写会发坏请求，
+    // 发送时直接忽略该 header（前端发送时已有提示，此处兜底 Bridge 等直调入口）
+    let skip_manual_ct = params.body_type == "form_data";
+
     // ── 添加 Headers ──────────────────────────────────────────
-    for h in params.headers.iter().filter(|h| h.enabled && !h.key.is_empty()) {
+    for h in params.headers.iter().filter(|h| {
+        h.enabled && !h.key.is_empty()
+            && !(skip_manual_ct && h.key.eq_ignore_ascii_case("content-type"))
+    }) {
         builder = builder.header(&h.key, &h.value);
     }
 
@@ -108,8 +119,11 @@ pub async fn send(client: &reqwest::Client, params: &SendRequestParams) -> Resul
                     let mut url_with_key = base_url.clone();
                     url_with_key.query_pairs_mut().append_pair(key, value);
                     builder = client.request(method.clone(), url_with_key);
-                    // 重新添加 headers（因为 builder 被重置了）
-                    for h in params.headers.iter().filter(|h| h.enabled && !h.key.is_empty()) {
+                    // 重新添加 headers（因为 builder 被重置了）；form_data 时同样忽略手动 Content-Type
+                    for h in params.headers.iter().filter(|h| {
+                        h.enabled && !h.key.is_empty()
+                            && !(skip_manual_ct && h.key.eq_ignore_ascii_case("content-type"))
+                    }) {
                         builder = builder.header(&h.key, &h.value);
                     }
                 }
@@ -136,12 +150,24 @@ pub async fn send(client: &reqwest::Client, params: &SendRequestParams) -> Resul
                 .body(params.body.clone());
         }
         "form_data" => {
-            // body 为 JSON 数组 [{key, value, enabled}]，构建 multipart/form-data
-            let fields: Vec<ParamItem> =
-                serde_json::from_str(&params.body).unwrap_or_default();
+            // body 为 JSON 数组 [{key, value, enabled, type}]；type="file" 的字段
+            // value 存本地绝对路径，发送时读盘构建文件 part（MIME 按扩展名推断）
+            let fields: Vec<ParamItem> = serde_json::from_str(&params.body)
+                .map_err(|e| format!("Form Data body 解析失败（应为字段 JSON 数组）: {e}"))?;
             let mut form = reqwest::multipart::Form::new();
             for f in fields.iter().filter(|f| f.enabled && !f.key.is_empty()) {
-                form = form.text(f.key.clone(), f.value.clone());
+                if f.field_type == "file" {
+                    let bytes = std::fs::read(&f.value).map_err(|e| {
+                        format!("字段「{}」的文件读取失败（{}）: {e}", f.key, f.value)
+                    })?;
+                    let part = reqwest::multipart::Part::bytes(bytes)
+                        .file_name(file_name_of(&f.value))
+                        .mime_str(mime_for_path(&f.value))
+                        .map_err(|e| format!("字段「{}」MIME 设置失败: {e}", f.key))?;
+                    form = form.part(f.key.clone(), part);
+                } else {
+                    form = form.text(f.key.clone(), f.value.clone());
+                }
             }
             builder = builder.multipart(form);
         }
@@ -208,4 +234,123 @@ pub async fn send(client: &reqwest::Client, params: &SendRequestParams) -> Resul
         // 同理：cookie 注入发生在 command 层，跳过数也由那里回填
         cookie_skipped: 0,
     })
+}
+
+/// 从路径提取文件名（multipart part 的 filename，服务器多靠它识别文件类型）
+pub(crate) fn file_name_of(path: &str) -> String {
+    std::path::Path::new(path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("file")
+        .to_string()
+}
+
+/// 按扩展名推断文件 part 的 MIME；推断不出用 octet-stream 兜底。
+/// 覆盖常见办公/图片/压缩/媒体类型即可，表格/图片/二进制同一条上传路径
+fn mime_for_path(path: &str) -> &'static str {
+    let ext = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    match ext.as_str() {
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "xls" => "application/vnd.ms-excel",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "doc" => "application/msword",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "pdf" => "application/pdf",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        "svg" => "image/svg+xml",
+        "csv" => "text/csv",
+        "json" => "application/json",
+        "xml" => "application/xml",
+        "txt" | "log" | "md" => "text/plain",
+        "html" | "htm" => "text/html",
+        "zip" => "application/zip",
+        "gz" => "application/gzip",
+        "tar" => "application/x-tar",
+        "mp3" => "audio/mpeg",
+        "mp4" => "video/mp4",
+        _ => "application/octet-stream",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mime_for_path_covers_common_types() {
+        assert_eq!(
+            mime_for_path("/a/b.xlsx"),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        );
+        assert_eq!(mime_for_path("/a/b.PNG"), "image/png"); // 大小写不敏感
+        assert_eq!(mime_for_path("/a/b.unknownext"), "application/octet-stream");
+        assert_eq!(mime_for_path("noext"), "application/octet-stream");
+    }
+
+    #[test]
+    fn file_name_of_extracts_last_segment() {
+        assert_eq!(file_name_of("/home/u/导入表.xlsx"), "导入表.xlsx");
+        assert_eq!(file_name_of("noext"), "noext");
+    }
+
+    /// 端到端：form_data 文件字段真的以 multipart part 发出（filename / MIME / 内容 /
+    /// boundary 自动生成），且手动 Content-Type 被忽略
+    #[tokio::test]
+    async fn form_data_file_part_is_sent_as_multipart() {
+        let dir = std::env::temp_dir().join("apicat_formdata_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let fpath = dir.join("t.xlsx");
+        std::fs::write(&fpath, b"hello").unwrap();
+
+        let app = axum::Router::new().route(
+            "/upload",
+            axum::routing::post(
+                |headers: axum::http::HeaderMap, body: String| async move {
+                    let ct = headers.get("content-type").unwrap().to_str().unwrap();
+                    assert!(ct.starts_with("multipart/form-data; boundary="));
+                    assert!(body.contains("name=\"file\""));
+                    assert!(body.contains("filename=\"t.xlsx\""));
+                    assert!(body.contains(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    ));
+                    assert!(body.contains("hello"));
+                    axum::http::StatusCode::OK
+                },
+            ),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let params = SendRequestParams {
+            method: "POST".into(),
+            url: format!("http://{addr}/upload"),
+            query_params: vec![],
+            headers: vec![ParamItem {
+                key: "Content-Type".into(),
+                value: "text/plain".into(), // 手动值：应被忽略而非覆盖 multipart 头
+                enabled: true,
+                field_type: String::new(),
+            }],
+            body_type: "form_data".into(),
+            body: format!(
+                "[{{\"key\":\"file\",\"value\":\"{}\",\"enabled\":true,\"type\":\"file\"}}]",
+                fpath.display()
+            ),
+            path_params: vec![],
+            auth_type: String::new(),
+            auth_config: String::new(),
+        };
+        let client = reqwest::Client::new();
+        let resp = send(&client, &params).await.unwrap();
+        assert_eq!(resp.status_code, 200);
+    }
 }

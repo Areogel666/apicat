@@ -265,6 +265,25 @@ pub async fn send_request(
     ).await?)
 }
 
+/// Form Data 文件字段的元信息（前端 file 行展示文件名/大小 + 发送前存在性校验）。
+/// 本地调试工具，路径来自用户选择/手输，任意路径均需可查——因此走自定义 command
+/// 而非 tauri-plugin-fs（后者需要预配 scope，任意路径授权反而麻烦）
+#[derive(serde::Serialize)]
+pub struct FileMeta {
+    pub exists: bool,
+    pub name: String,
+    pub size: u64,
+}
+
+#[tauri::command]
+pub async fn file_meta(path: String) -> FileMeta {
+    let name = crate::http::client::file_name_of(&path);
+    match tokio::fs::metadata(&path).await {
+        Ok(m) if m.is_file() => FileMeta { exists: true, name, size: m.len() },
+        _ => FileMeta { exists: false, name, size: 0 },
+    }
+}
+
 /// 获取接口最近 20 条历史记录（轻量：不含 response_body / request_snapshot /
 /// response_headers，列表 UI 只用 status/time；diff 与回填走 get_history_record 单条补拉）
 #[tauri::command]

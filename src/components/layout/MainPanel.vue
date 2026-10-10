@@ -363,28 +363,30 @@
               />
             </template>
 
-            <!-- form-data / json_table KV 表格 -->
+            <!-- form-data / json_table KV 表格（.formdata-table 是文件拖拽的落点定位容器） -->
             <template v-if="bodyType === 'form_data' || bodyType === 'json_table'">
-              <n-empty v-if="!formDataParams.length" description="暂无字段" size="small" />
-              <!-- 1.0.4：表头行（值紧随字段名） -->
-              <div v-else class="param-row param-row--header">
-                <span class="param-col-check" />
-                <span class="param-col-key" @click="toggleSort('formdata')">
-                  字段名 {{ sortIndicators.formdata }}
-                </span>
-                <span class="param-col-value" style="flex:1">值</span>
-                <span class="param-col-type">类型</span>
-                <span class="param-col-desc">描述</span>
-                <span class="param-col-del" />
+              <div class="formdata-table">
+                <n-empty v-if="!formDataParams.length" description="暂无字段" size="small" />
+                <!-- 1.0.4：表头行（值紧随字段名） -->
+                <div v-else class="param-row param-row--header">
+                  <span class="param-col-check" />
+                  <span class="param-col-key" @click="toggleSort('formdata')">
+                    字段名 {{ sortIndicators.formdata }}
+                  </span>
+                  <span class="param-col-value" style="flex:1">值</span>
+                  <span class="param-col-type">类型</span>
+                  <span class="param-col-desc">描述</span>
+                  <span class="param-col-del" />
+                </div>
+                <div v-for="(f, idx) in sortedFormData" :key="rowKey(idx, f)" class="param-row-wrap">
+                  <ParamRow :item="f" :type-options="formDataRowTypeOptions" key-placeholder="字段名" value-placeholder="值"
+                    @remove="removeFormDataField(f)"
+                    @pick-dict="openDictPicker" />
+                </div>
+                <n-button size="small" dashed style="margin-top:4px; width:100%" @click="addFormDataField">
+                  + 添加字段
+                </n-button>
               </div>
-              <div v-for="(f, idx) in sortedFormData" :key="rowKey(idx, f)" class="param-row-wrap">
-                <ParamRow :item="f" :type-options="typeOptions" key-placeholder="字段名" value-placeholder="值"
-                  @remove="removeFormDataField(f)"
-                  @pick-dict="openDictPicker" />
-              </div>
-              <n-button size="small" dashed style="margin-top:4px; width:100%" @click="addFormDataField">
-                + 添加字段
-              </n-button>
             </template>
           </div>
         </n-tab-pane>
@@ -594,6 +596,12 @@
 
     <!-- 压测结果弹窗 -->
     <StressResultPanel v-model:show="showStressResult" />
+
+    <!-- 文件拖入提示浮层（Form Data 模式）：pointer-events:none 纯视觉，
+         不挡 elementFromPoint 的行定位 -->
+    <div v-if="fileDragOverlay" class="file-drag-overlay">
+      <div class="file-drag-overlay__card">📄 松开以上传文件到 Form Data</div>
+    </div>
     </template><!-- end v-else (has active tab) -->
   </main>
 </template>
@@ -624,6 +632,7 @@ import { useThemeStore } from '../../stores/theme'
 import { useCookieStore } from '../../stores/cookie'
 import { readSetting } from '../../stores/_persistedSettings'
 import { invoke } from '@tauri-apps/api/core'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
 import type { CookieItem } from '../../types'
 import TabBar from './TabBar.vue'
 import ResponsePanel from '../response/ResponsePanel.vue'
@@ -785,6 +794,13 @@ const typeOptions = [
   { label: 'object', value: 'object' },
   { label: 'null', value: 'null' },
 ]
+
+// Form Data 专属：file = 文件字段（值 = 本地绝对路径，发送时读盘上传）。
+// JSON Table 不提供 file（JSON 对象无文件语义），仍用基础 typeOptions
+const formDataTypeOptions = [...typeOptions, { label: 'file', value: 'file' }]
+const formDataRowTypeOptions = computed(() =>
+  bodyType.value === 'form_data' ? formDataTypeOptions : typeOptions,
+)
 
 // 排序状态：target = 哪张表在排序；dir = 升降序
 const sortTarget = ref<'query' | 'header' | 'urlencoded' | 'formdata' | null>(null)
@@ -1069,6 +1085,78 @@ function syncFormData() {
     bodyContent.value = JSON.stringify(formDataParams.value)
   }
 }
+
+// ── 文件拖拽进 Form Data 表格 ─────────────────────────────────
+// 走 Tauri 的 onDragDropEvent（tauri.conf.json dragDropEnabled=true）。
+// 实测结论（2026-10，窗口标题探针取证）：本机 webkitGTK 在 dragDropEnabled=false
+// 时不把外部文件拖拽派发为 DOM 事件（dragenter/over/drop 全不触发），HTML5 DnD
+// 方案在 Linux 上是死路；且 webkitGTK 会把文件内容按 Latin-1 读出来插进输入框
+// （CSV 乱码根源）——dragDropEnabled=true 后 drop 在 GTK 层被 Tauri 接管，两个
+// 问题一并消除。侧边栏 NTree 排序因此换 pointer 自研引擎（useTreePointerDnd）。
+// 落点规则：file 行=替换；普通行=转 file 行并填路径；表格空白=新增一行 file
+const fileDragOverlay = ref(false)
+let dragHoverRow: HTMLElement | null = null
+let unlistenDragDrop: (() => void) | null = null
+
+function clearDragHover() {
+  dragHoverRow?.classList.remove('drag-over-file')
+  dragHoverRow = null
+}
+
+function locateFormdataTarget(x: number, y: number) {
+  const el = document.elementFromPoint(x, y)
+  return {
+    row: (el?.closest('.formdata-table .param-row-wrap') as HTMLElement | null) ?? null,
+    inTable: !!el?.closest('.formdata-table'),
+  }
+}
+
+function applyFormdataDrop(path: string, row: HTMLElement | null, inTable: boolean) {
+  if (row) {
+    // DOM 行序 = sortedFormData 渲染序（v-for），据此反查参数项
+    const wraps = Array.from(row.parentElement?.querySelectorAll('.param-row-wrap') ?? [])
+    const item = sortedFormData.value[wraps.indexOf(row)]
+    if (item) { item.type = 'file'; item.value = path }
+  } else if (inTable) {
+    pushUndo()
+    formDataParams.value.push({ key: 'file', value: path, type: 'file', enabled: true })
+  }
+}
+
+onMounted(async () => {
+  try {
+    unlistenDragDrop = await getCurrentWebview().onDragDropEvent((ev) => {
+      const p = ev.payload
+      if (p.type === 'leave') {
+        clearDragHover()
+        fileDragOverlay.value = false
+        return
+      }
+      if (bodyType.value !== 'form_data') {
+        fileDragOverlay.value = false
+        return
+      }
+      // Tauri 给物理像素，elementFromPoint 吃 CSS 像素，需换算
+      const pos = p.position.toLogical(window.devicePixelRatio)
+      const { row, inTable } = locateFormdataTarget(pos.x, pos.y)
+      if (p.type === 'enter' || p.type === 'over') {
+        // Form Data 模式下显示全屏提示（纯视觉，不挡行定位）
+        fileDragOverlay.value = true
+        if (row !== dragHoverRow) {
+          clearDragHover()
+          if (row) { row.classList.add('drag-over-file'); dragHoverRow = row }
+        }
+        return
+      }
+      // drop：写入路径（paths[0] = 拖入的第一个文件），浮层关闭
+      clearDragHover()
+      fileDragOverlay.value = false
+      const path = p.paths[0] ?? ''
+      if (path) applyFormdataDrop(path, row, inTable)
+    })
+  } catch { /* Tauri 拖拽不可用时静默降级，📁 按钮仍可用 */ }
+})
+onUnmounted(() => { unlistenDragDrop?.(); clearDragHover() })
 
 /**
  * 把 KV/JSON 文本模式的内容同步回权威的 ParamItem[]（表格数据源）。
@@ -2127,6 +2215,24 @@ async function handleSend() {
     } catch {}
   }
 
+  // Form Data 文件字段校验：路径为空 / 文件不存在时明确报错，不发请求
+  // （file_meta 失败时放行，由 Rust 发送侧读盘报错兜底，错误信息均指明字段）
+  if (bodyType.value === 'form_data') {
+    let fileFields: ParamItem[] = []
+    try { fileFields = (JSON.parse(sendBody) as ParamItem[]).filter(f => f.enabled && f.type === 'file') } catch {}
+    for (const f of fileFields) {
+      if (!f.value) { message.error(`字段「${f.key || '（未命名）'}」未选择文件`); return }
+      try {
+        const meta = await invoke<{ exists: boolean }>('file_meta', { path: f.value })
+        if (!meta.exists) { message.error(`字段「${f.key}」的文件不存在：${f.value}`); return }
+      } catch { /* 由 Rust 侧兜底 */ }
+    }
+    // Content-Type 自动管理提示：multipart 的 boundary 由 reqwest 生成，手动填写会被忽略
+    if (requestHeaders.value.some(h => h.enabled && h.key.toLowerCase() === 'content-type')) {
+      message.warning('Form Data 模式的 Content-Type 由系统自动生成（含 boundary），发送时忽略手动填写')
+    }
+  }
+
   const activeReq = requestStore.activeRequest
   if (!activeReq) return
 
@@ -2676,6 +2782,17 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
     }
   }
 
+  // 压测引擎不做变量替换（与 {{base_url}} 同规则）：文件路径含 {{...}} 时读取必失败，拒绝启动
+  if (stressBodyType === 'form_data') {
+    try {
+      const fields: ParamItem[] = JSON.parse(stressBody)
+      if (fields.some(f => f.enabled && f.type === 'file' && /\{\{/.test(f.value))) {
+        message.warning('压测不支持含 {{...}} 变量的文件路径，请先把文件字段替换为实际路径')
+        return
+      }
+    } catch {}
+  }
+
   await stressStore.startStress(
     requestStore.activeRequest?.id ?? 0,
     {
@@ -2699,6 +2816,33 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
   flex: 1;
   overflow: hidden;
   background: var(--bg-elevated);
+}
+
+/* 文件拖入 Form Data 表格时的行高亮（拖拽落点反馈） */
+.param-row-wrap.drag-over-file {
+  box-shadow: inset 0 0 0 1.5px var(--color-primary);
+  border-radius: var(--radius-sm);
+}
+
+/* 文件拖入提示浮层：全窗口、纯视觉（pointer-events:none 不挡行定位） */
+.file-drag-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--color-primary-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 2000;
+}
+.file-drag-overlay__card {
+  background: var(--bg-elevated);
+  border: 1.5px dashed var(--color-primary);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md) var(--spacing-lg);
+  font-size: var(--font-size-lg);
+  color: var(--color-primary);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
 }
 
 .request-area {

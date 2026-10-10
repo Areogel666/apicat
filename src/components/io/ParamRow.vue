@@ -3,7 +3,27 @@
     <n-checkbox v-model:checked="item.enabled" />
     <n-input v-model:value="item.key" size="small" style="width:140px; flex-shrink:0" :placeholder="keyPlaceholder" />
     <!-- 1.0.4 fix：值紧跟字段名（原排在最后，不直观） -->
-    <n-input v-model:value="item.value" size="small" style="flex:1" :placeholder="valuePlaceholder" />
+    <!-- file 类型行：值 = 本地文件绝对路径，📁 选择 / 可手输粘贴 / ✕ 清除 -->
+    <div v-if="isFileField" class="param-row__value">
+      <n-input
+        v-model:value="item.value"
+        size="small"
+        style="flex:1"
+        placeholder="文件绝对路径（点 📁 选择或直接粘贴）"
+      >
+        <template #suffix>
+          <span class="param-row__filebtns">
+            <n-button size="tiny" quaternary title="选择文件" @click="pickFile">📁</n-button>
+            <n-button v-if="item.value" size="tiny" quaternary title="清除" @click="item.value = ''">✕</n-button>
+          </span>
+        </template>
+      </n-input>
+      <!-- 文件名/大小实时派生（按路径 stat，不落库）；不存在时红字提示 -->
+      <div v-if="item.value" class="param-row__filemeta" :class="{ 'file-missing': fileMeta && !fileMeta.exists }">
+        {{ fileMetaText }}
+      </div>
+    </div>
+    <n-input v-else v-model:value="item.value" size="small" style="flex:1" :placeholder="valuePlaceholder" />
     <!-- 1.0.4：类型列 -->
     <n-select
       v-model:value="item.type"
@@ -49,8 +69,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { NInput, NButton, NSelect, NCheckbox, NPopover } from 'naive-ui'
+import { open } from '@tauri-apps/plugin-dialog'
+import { invoke } from '@tauri-apps/api/core'
 import FieldDictDesc from './FieldDictDesc.vue'
 import { useDictionaryStore } from '../../stores/dictionary'
 import { useRequestStore } from '../../stores/request'
@@ -79,6 +101,43 @@ const dictBound = computed(() => dictStore.dictIdForField(props.item.key, reques
 
 // 行内手写描述编辑弹层（每行独立状态）
 const descPop = ref(false)
+
+// ── 文件字段（type = "file"，Form Data 表格）──────────────────
+const isFileField = computed(() => props.item.type === 'file')
+
+interface FileMeta { exists: boolean; name: string; size: number }
+const fileMeta = ref<FileMeta | null>(null)
+
+// 路径变化 → Rust stat 取文件名/大小/存在性（轻量系统调用，不防抖）
+watch(
+  () => (isFileField.value ? props.item.value : ''),
+  async (path) => {
+    if (!path) { fileMeta.value = null; return }
+    try {
+      fileMeta.value = await invoke<FileMeta>('file_meta', { path })
+    } catch {
+      fileMeta.value = null
+    }
+  },
+  { immediate: true },
+)
+
+const fileMetaText = computed(() => {
+  if (!fileMeta.value) return ''
+  if (!fileMeta.value.exists) return `⚠ 文件不存在：${fileMeta.value.name}`
+  return `${fileMeta.value.name} · ${fmtSize(fileMeta.value.size)}`
+})
+
+function fmtSize(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / 1024 / 1024).toFixed(1)} MB`
+}
+
+async function pickFile() {
+  const picked = await open({ multiple: false, directory: false })
+  if (typeof picked === 'string') props.item.value = picked
+}
 </script>
 
 <style scoped>
@@ -88,6 +147,27 @@ const descPop = ref(false)
   display: flex;
   align-items: center;
   gap: 2px;
+}
+.param-row__value {
+  flex: 1;
+  min-width: 0;
+}
+.param-row__filemeta {
+  font-size: var(--font-size-sm);
+  color: var(--text-tertiary);
+  line-height: 1.4;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.param-row__filemeta.file-missing {
+  color: var(--color-error);
+}
+.param-row__filebtns {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
 }
 .fdd-edit-on {
   color: var(--color-primary);

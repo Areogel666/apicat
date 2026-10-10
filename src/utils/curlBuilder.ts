@@ -102,14 +102,31 @@ export function buildCurl(params: CurlBuildParams): string {
     parts.push(`-H "Content-Type: application/x-www-form-urlencoded"`)
     parts.push(`--data-urlencode '${body.replace(/'/g, "'\\''")}'`)
   } else if (bodyType === 'form_data' && body) {
-    // body 为 JSON 数组 [{key, value, enabled}]
+    // body 为 JSON 数组 [{key, value, enabled, type}]；type="file" 导出 -F "key=@路径"
     try {
       const fields: ParamItem[] = JSON.parse(body)
       for (const f of fields) {
         if (f.enabled && f.key) {
-          parts.push(`-F "${escapeShell(f.key)}=${escapeShell(f.value)}"`)
+          if (f.type === 'file') {
+            parts.push(`-F "${escapeShell(f.key)}=@${escapeShell(f.value)}"`)
+          } else {
+            parts.push(`-F "${escapeShell(f.key)}=${escapeShell(f.value)}"`)
+          }
         }
       }
+    } catch {
+      // 解析失败时静默跳过
+    }
+  } else if (bodyType === 'json_table' && body) {
+    // json_table 存的是 ParamItem[]，发送时序列化为 JSON 对象（与 MainPanel.handleSend 同规则）
+    try {
+      const items: ParamItem[] = JSON.parse(body)
+      const obj: Record<string, unknown> = {}
+      items.filter(i => i.enabled).forEach(i => {
+        try { obj[i.key] = JSON.parse(i.value) } catch { obj[i.key] = i.value }
+      })
+      parts.push(`-H "Content-Type: application/json"`)
+      parts.push(`--data-raw '${JSON.stringify(obj).replace(/'/g, "'\\''")}'`)
     } catch {
       // 解析失败时静默跳过
     }
