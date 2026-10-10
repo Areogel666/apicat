@@ -1,7 +1,7 @@
 <template>
   <n-modal v-model:show="show" preset="card" title="环境管理" style="width: 780px; max-width: 95vw">
-    <div class="env-manager">
     <GuideBar guide-id="env" />
+    <div class="env-manager">
       <!-- 左侧：环境列表 -->
       <div class="env-list">
         <div
