@@ -22,6 +22,7 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 - **参数元数据（type/description）随接口 `params` JSON 持久化**：`parseKvText/parseJsonToParams/parseTextToParams` 均带 `prev` 同 key 合并；用例快照缺元数据时由接口定义补全（`mergeParamMeta`）。**已作废旧 `descriptionDictRef` 字段，不再流动**（类型保留兼容旧数据）。
 - **草稿隔离**：切换接口保存/恢复草稿时参数数组一律深拷贝；落库只发生在切走瞬间并锁定离开的接口 id（`flushPersist`），不在编辑期做防抖写库。
 - **URL-Encoded 的 body 存储 = 结构化 JSON 数组**（含 type/description/enabled），旧 `k=v` 文本加载用 `parseUrlencodedBody` 兼容；发送时才 `syncUrlencodedData()` 编码为 k=v。保存路径统一用 `urlencodedStorageBody()`，勿直接存 bodyContent。
+- **Form Data 文件字段（1.0.7）**：字段 `type='file'`，`value` 存本地绝对路径，**不复制文件、不落库文件元数据**（UI 按 stat 实时派生，历史/用例同样只存路径）。发送时 Rust 读盘构建 multipart part（`client.rs` form_data 分支，MIME 按扩展名推断、失败报错指明字段）；form_data 下手动 Content-Type 被忽略（boundary 由 reqwest 生成，前端发送时有提示）。文件选择走 `tauri-plugin-dialog`，存在性查询走自定义 `file_meta` command（不走 fs 插件——任意路径 scope 难配）；**文件拖拽走 Tauri `onDragDropEvent`（`dragDropEnabled: true`）+ `elementFromPoint` 定位**。压测拒绝含 `{{var}}` 的文件路径。
 - **布局常驻**：`AppLayout` 中接口树/字典树侧栏与 `MainPanel`/`DictionaryJsonPanel` 都用 `v-show` 常驻（切换保留浏览状态），不要改回 `v-if` 卸载重挂。
 
 ### HTTP Bridge
@@ -105,6 +106,8 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 
 ## Gotchas
 
+- **dragDropEnabled 必须 true（1.0.7）**：实测 Linux webkitGTK 在 false 时不把外部文件拖拽派发为 DOM 事件（dragenter/over/drop 全不触发），且会把文件内容按 Latin-1 读出插进输入框（乱码根源）；true 后 drop 在 GTK 层被 Tauri 接管。代价是 NTree 原生 draggable 全平台失效——侧边栏排序已换成 pointer 自研引擎 `useTreePointerDnd`（复刻 NTree 三段落点语义，产出等价 drop 信息调 `useCollectionTreeDnd.onDrop`，业务逻辑零改动）。**别把 NTree 的 draggable 加回去**，也别把 conf 改回 false
+- **调试前端事件别用 `document.title` 取证**：Tauri 窗口上 webview 的 title 变化**不会同步到 GTK/系统窗口标题**，探针永远读到旧值（1.0.7 拖拽调试因此绕了多轮）。可靠通道：自定义 Rust command 写文件（如追加写 /tmp 日志，无 capability 限制）
 - 代码/JSON 编辑区字号(monospace)不随主题缩放,属刻意排除
 - `.url-highlight-layer` 需与 n-input medium 内边距同步,改动会错位
 - dev 进程后台跑时 apicat.exe 存活,vite HMR 实时生效

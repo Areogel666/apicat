@@ -65,8 +65,17 @@ allowed-tools: Bash, Read, Glob, AskUserQuestion
 - `json_table` — **POST JSON 接口首选**（结构化字段表格，含 type/description 元数据）
 - `raw_json` — 纯 JSON 文本（无字段级元数据）
 - `form_urlencoded` — 表单 k=v
-- `form_data` — 文件上传
+- `form_data` — 表单 / 文件上传
 - `none` / `raw_text`
+
+**⚠️ form_data 文件字段写法**（1.0.7）：字段 `type` 设为 `file`，`value` 填**本地绝对路径**，发送时按路径读盘上传（MIME 按扩展名推断，表格/图片/二进制同一路径）：
+
+```json
+"bodyType": "form_data"
+"body": "[{\"key\":\"file\",\"value\":\"/home/user/导入表.xlsx\",\"enabled\":true,\"type\":\"file\"}]"
+```
+
+文本字段照常 `type:"text"`（或不写 type）。
 
 **⚠️ POST JSON 接口的参数写法**：
 - **body 参数写 `body`**（bodyType=`json_table`，body 存 `ParamItem[]` JSON 字符串），**不写 `params`**
