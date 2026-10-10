@@ -24,6 +24,7 @@ import { useDictionaryStore } from './stores/dictionary'
 import { useTestCaseStore } from './stores/testCase'
 import { useCookieStore } from './stores/cookie'
 import { useEnvironmentStore } from './stores/environment'
+import { useGuideStore } from './stores/guide'
 
 const projectStore = useProjectStore()
 const themeStore = useThemeStore()
@@ -45,6 +46,10 @@ let bridgeUnlisten: UnlistenFn | null = null
 onMounted(async () => {
   await themeStore.init()
   await projectStore.initProjects()
+
+  // 新手指引：载入 guide.* seen 标记（读失败视为未看过）
+  const guideStore = useGuideStore()
+  void guideStore.init()
 
   // 1.0.5：监听 HTTP Bridge 写操作广播，按需 reload 对应 store
   bridgeUnlisten = await listen<{ kind: string }>('bridge-data-changed', async (event) => {
