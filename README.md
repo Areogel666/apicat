@@ -5,7 +5,7 @@
     一款基于 Tauri、Rust 和 Vue 3 构建的轻量、高性能 API 调试与测试工具。
   </p>
   <p>
-    <img src="https://img.shields.io/badge/version-1.0.7-orange" alt="version"/>
+    <img src="https://img.shields.io/badge/version-1.0.8-orange" alt="version"/>
     <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="platform"/>
     <img src="https://img.shields.io/badge/license-MIT-green" alt="license"/>
   </p>
@@ -94,8 +94,8 @@ Build output: `src-tauri/target/release/bundle/msi/`
 
 ### 📋 Changelog
 
-- Latest stable: [docs/release/1.0.7.md](docs/release/1.0.7.md)
-- Previous: [docs/release/1.0.6.md](docs/release/1.0.6.md)
+- Latest stable: [docs/release/1.0.8.md](docs/release/1.0.8.md)
+- Previous: [docs/release/1.0.7.md](docs/release/1.0.7.md)
 - Beta history: [docs/release/1.0.0-beta.md](docs/release/1.0.0-beta.md)
 
 ### 📄 License
@@ -131,6 +131,8 @@ ApiCat 是一款基于 Tauri 2.0 + Rust + Vue 3 的轻量、高性能、无跨�
 - **用例断言**：测试用例可声明断言（`status_code` / JSON Path），运行后给出明确的通过/失败判定。
 - **压测报告预览与参考线**：Markdown 报告生成器在 Rust 侧下沉，App 与 Bridge 共用同一真源；支持应用内预览与 Markdown/HTML 导出；P95/P99 参考线可按项目配置、按接口覆盖。
 - **接口文档面板**：侧边栏第三个 Tab，浏览本地接口文档目录，双击打开文件或在文件管理器中定位。
+- **新手指引**：8 处功能区一次性引导（数据字典 / 压测 / Cookie / AI 技能 / 导入 / 环境 / 统计 / 首个请求），首次进入即提示、不打断操作；⚙️ 菜单可随时重放；首启自动播种可直接发送的示例接口与断言用例（老用户升级不打扰）。
+- **使用统计面板**：侧栏第 4 个面板，请求趋势 / 成功率 / 状态码与方法分布 / 字典与文档建设量一屏总览；近 30 天 / 近半年 / 近一年 / 全部四档，趋势粒度日/周自适应；图表配色走 HTTP 语义 token、随主题实时联动；数据纯本地、零上报。
 - **响应字段字典翻译**：自研 JSON 树渲染响应，字段值命中已绑定字典项时值旁显示 `value ▸ 含义` 字典色微标签（hover 看字典名 + 描述）——只读翻译，不加数据模型。
 - **接口编辑撤销/重做**：结构级 undo/redo（加删行、排序、清空、粘贴、URL/method），按接口分栈（深 20）；编辑区「⚠ 未保存」标记 + 一键回到上次 Ctrl+S 版本。
 - **历史记录增强**：`test_case_history` 并入 `request_history`；点击历史行行内预览响应（对齐实时渲染）；大响应体文件化存储 + 另存为。
@@ -191,8 +193,8 @@ npm run tauri build
 
 ### 📋 更新记录
 
-- 最新稳定版说明： [docs/release/1.0.7.md](docs/release/1.0.7.md)
-- 上一版本说明： [docs/release/1.0.6.md](docs/release/1.0.6.md)
+- 最新稳定版说明： [docs/release/1.0.8.md](docs/release/1.0.8.md)
+- 上一版本说明： [docs/release/1.0.7.md](docs/release/1.0.7.md)
 - Beta 阶段历史记录： [docs/release/1.0.0-beta.md](docs/release/1.0.0-beta.md)
 
 ### 📄 开源协议

@@ -23,7 +23,7 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 - **草稿隔离**：切换接口保存/恢复草稿时参数数组一律深拷贝；落库只发生在切走瞬间并锁定离开的接口 id（`flushPersist`），不在编辑期做防抖写库。
 - **URL-Encoded 的 body 存储 = 结构化 JSON 数组**（含 type/description/enabled），旧 `k=v` 文本加载用 `parseUrlencodedBody` 兼容；发送时才 `syncUrlencodedData()` 编码为 k=v。保存路径统一用 `urlencodedStorageBody()`，勿直接存 bodyContent。
 - **Form Data 文件字段（1.0.7）**：字段 `type='file'`，`value` 存本地绝对路径，**不复制文件、不落库文件元数据**（UI 按 stat 实时派生，历史/用例同样只存路径）。发送时 Rust 读盘构建 multipart part（`client.rs` form_data 分支，MIME 按扩展名推断、失败报错指明字段）；form_data 下手动 Content-Type 被忽略（boundary 由 reqwest 生成，前端发送时有提示）。文件选择走 `tauri-plugin-dialog`，存在性查询走自定义 `file_meta` command（不走 fs 插件——任意路径 scope 难配）；**文件拖拽走 Tauri `onDragDropEvent`（`dragDropEnabled: true`）+ `elementFromPoint` 定位**。压测拒绝含 `{{var}}` 的文件路径。
-- **布局常驻**：`AppLayout` 中接口树/字典树侧栏与 `MainPanel`/`DictionaryJsonPanel` 都用 `v-show` 常驻（切换保留浏览状态），不要改回 `v-if` 卸载重挂。
+- **布局常驻**：`AppLayout` 中接口树/字典树/文档侧栏与 `MainPanel`/`DictionaryJsonPanel`/`StatsPanel` 都用 `v-show` 常驻（切换保留浏览状态），不要改回 `v-if` 卸载重挂。activity bar 四按钮中 **统计面板无侧栏**：折叠把手与 `ResizableSplitter` 的 `v-show` 带 `leftPanel !== 'stats'`，别删。
 
 ### HTTP Bridge
 
@@ -63,6 +63,23 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 - **引擎不做 `{{var}}` 替换**（与正常发送的 Rust 侧 `replace_variables` 不同）；UI 从用例发起压测时预替换 `{{base_url}}`，最终 URL 仍含 `{{...}}` 或无激活环境 → `message.warning` 提示，不静默发压测。
 - **报告真源是 Rust `build_stress_report_markdown`**（App 预览/导出与 Bridge 共用），改报告只改这一处。
 - **参考线阈值**：项目级默认（`projects.p95/p99_threshold_ms`，500/1000）+ 接口级覆盖（`api_requests`，null=继承）。压测启动时生效值快照写入 `stress_runs.config_json`；报告只读 config_json → 常量默认，不回查项目/接口表（旧记录无字段 → 用默认值，改阈值不影响历史报告）。
+
+### 新手指引（guide）
+
+- 状态 = `app-settings.json` 的 `guide.*`（`src/stores/guide.ts` 唯一读写点）；文案集中 `src/config/guideContent.ts`——**加一条引导 = GuideId + 文案 + 挂点三处联动**，键不存在 = 未看过（老用户升级自然触发）
+- **两种形态语义刻意不同，别混用**：`GuideBar`（弹窗内提示条）= **显示即记 seen**（本地 show 与 seen 解耦，弹窗关了也算了）；`GuideTip`（popover）= 点「知道了」才记 seen。弹窗是从菜单点开的、菜单项点击即消失，**锚点不存在，弹窗内不能用 popover**
+- 播种仅走 `loadProjects()` 空项目分支（`seedSampleData`，后台跑、失败仅 warn）；**`update_request` IPC 参数全必填**（缺一被 Tauri reject 且被 catch 吞），**`update_test_case` 的 method/url 会被覆写必须回传**——两个坑都踩过，seed 调用别精简参数
+- 播种完成 `sidebarReloadTick.value++` 强刷接口树（同 ImportDialog 模式），否则首启树是空的
+- 重放 = ⚙️ 菜单 `guideReset` → `resetAll()`；popover 靠响应式自动补弹，无需额外代码
+
+### 使用统计（stats）
+
+- 唯一真源 `collect_usage_stats`（`src-tauri/src/commands/stats.rs`，无 Bridge 端点）：请求类指标**恒带 `test_case_id IS NULL`**（用例行有每用例 10 条触发器裁剪，混入必失真）；成功率 = 2xx/3xx，NULL/≥400 失败；状态桶 CASE 顺序 `IS NULL→网络失败 / <400 / <500 / else`；方法分布 `json_extract(request_snapshot,'$.method')`（快照是 ApiRequest serde 串，method 单词键大小写免疫）
+- 档位 `30d/180d/365d/all`：KPI（请求数/成功率/压测）与分布跟档；**接口总数/字典/文档恒存量全量**。趋势粒度 ≤90 天按日、更久按周；固定窗前端补零、`all` 不补零
+- **周分组 SQL 必须 `date(created_at,'-6 days','weekday 1')`，修饰符顺序不可反**——`weekday 1` 遇当天已是周一会原地不动，反序会把周一错归上一周（实测踩坑；测试断言周桶 `%w=1` 锁住）
+- 字段名两侧镜像：`UsageStats`（stats.rs ↔ src/types/index.ts），`requestsCount/successRate` 不带 30d 字样；空库哨兵 `successRate=-1` → 前端显示「—」
+- 文档指标只扫已配 `docs_output_dir` 的项目（Rust 侧无默认路径回退，别臆造 `~/.apicat` 回退），区块有说明文案
+- 图表色从 CSS var 取计算值 + MutationObserver 监听 `data-theme/density/font-size` 重算（canvas 读不到 CSS var）；`StatsChart` 是 echarts/core 按需薄封装，**勿整包 import echarts**
 
 ### 编辑撤销 / 草稿恢复
 
