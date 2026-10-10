@@ -445,7 +445,20 @@ fn build_postman_collection(name: &str, collections: &[ExportCollection]) -> ser
                             "options": {"raw": {"language": "text"}}
                         })
                     } else if r.body_type == "form_urlencoded" {
-                        serde_json::json!({"mode": "urlencoded", "urlencoded": []})
+                        // k=v&k=v 文本还原成 Postman urlencoded 数组（此前导出空数组、body 丢失）
+                        let items: Vec<serde_json::Value> = r
+                            .body
+                            .split('&')
+                            .filter(|p| !p.is_empty())
+                            .filter_map(|pair| {
+                                let (k, v) = pair.split_once('=')?;
+                                Some(serde_json::json!({
+                                    "key": simple_percent_decode(k),
+                                    "value": simple_percent_decode(v),
+                                }))
+                            })
+                            .collect();
+                        serde_json::json!({"mode": "urlencoded", "urlencoded": items})
                     } else {
                         serde_json::json!({"mode": "raw", "raw": ""})
                     };
@@ -851,6 +864,43 @@ async fn import_postman_items(
                         .unwrap_or_default();
                     ("form_urlencoded".to_string(), encoded_body)
                 }
+                "form-data" => {
+                    // Postman formdata 数组 → ApiCat form_data JSON 数组。
+                    // 此前导入直接落 none，接口进来 body 全丢；file 项的路径在 src（字符串或数组）
+                    let items: Vec<serde_json::Value> = req["body"]["formdata"]
+                        .as_array()
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|item| {
+                                    let key = item["key"].as_str().unwrap_or("");
+                                    if key.is_empty() {
+                                        return None;
+                                    }
+                                    let disabled = item["disabled"].as_bool().unwrap_or(false);
+                                    let is_file = item["type"].as_str() == Some("file");
+                                    let value = if is_file {
+                                        item["src"]
+                                            .as_array()
+                                            .and_then(|a| a.first())
+                                            .and_then(|s| s.as_str())
+                                            .or_else(|| item["src"].as_str())
+                                            .unwrap_or("")
+                                            .to_string()
+                                    } else {
+                                        item["value"].as_str().unwrap_or("").to_string()
+                                    };
+                                    Some(serde_json::json!({
+                                        "key": key,
+                                        "value": value,
+                                        "enabled": !disabled,
+                                        "type": if is_file { "file" } else { "text" },
+                                    }))
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    ("form_data".to_string(), serde_json::to_string(&items).unwrap_or_default())
+                }
                 _ => ("none".to_string(), "".to_string()),
             };
 
@@ -1093,4 +1143,24 @@ fn simple_percent_encode(s: &str) -> String {
         }
     }
     out
+}
+
+/// `simple_percent_encode` 的逆操作（导出 Postman 时把 k=v 文本还原成字段数组）
+fn simple_percent_decode(s: &str) -> String {
+    let replaced = s.replace('+', " ");
+    let bytes = replaced.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(v) = u8::from_str_radix(&replaced[i + 1..i + 3], 16) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
