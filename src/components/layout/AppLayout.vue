@@ -53,8 +53,10 @@
       </div>
       <!-- 1.0.6：折叠把手（门把手式）—— 垂直居中骑在左侧栏外缘，常驻可见。
            hover 预览展开（不移除把手）；点击切换收起/展开；
-           hover 时把手朝动作方向轻推（收起态向右「拉」、展开态向左「推」）作为方向暗示。 -->
+           hover 时把手朝动作方向轻推（收起态向右「拉」、展开态向左「推」）作为方向暗示。
+           统计面板无左侧栏，把手与分割条一并隐藏。 -->
       <button
+        v-show="leftPanel !== 'stats'"
         type="button"
         class="fold-handle"
         :class="{ 'is-expanded': !collapsed }"
@@ -69,7 +71,7 @@
         <span class="fold-handle__grip"></span>
       </button>
       <ResizableSplitter
-        v-show="!collapsed"
+        v-show="leftPanel !== 'stats' && !collapsed"
         direction="horizontal"
         :default-size="sidebarWidth"
         :min-size="160"
