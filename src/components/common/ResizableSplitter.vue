@@ -102,7 +102,6 @@ function onMouseDown(e: MouseEvent) {
   align-items: center;
   justify-content: center;
   background: transparent;
-  transition: background 0.15s;
   z-index: 10;
 }
 .resizable-splitter:hover {
@@ -121,10 +120,11 @@ function onMouseDown(e: MouseEvent) {
 .splitter-line {
   width: 100%;
   height: 100%;
-  opacity: 0;
+  /* 旧 WebKitGTK(2.40 系)下 opacity 0→1 的 hover 切换会让旁边脆弱容器
+     (用例 NDataTable)整层失效白屏,且禁合成也修不了 —— 改为静态变色,无动画 */
+  background: transparent;
 }
 .resizable-splitter:hover .splitter-line {
-  opacity: 1;
   background: var(--border-strong);
   border-radius: 1px;
 }
