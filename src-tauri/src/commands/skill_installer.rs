@@ -88,7 +88,7 @@ pub struct SkillTarget {
 }
 
 /// 内置技能名列表
-const SKILL_NAMES: &[&str] = &["apicat-lib", "apicat-edit", "apicat-test-gen", "apicat-doc-gen"];
+const SKILL_NAMES: &[&str] = &["apicat-lib", "apicat-edit", "apicat-test-gen", "apicat-doc-gen", "apicat-doctor"];
 
 /// 判定单个技能的状态 —— 技能的**版本判定唯一真源**。
 ///

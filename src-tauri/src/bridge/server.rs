@@ -128,9 +128,13 @@ struct IdQuery {
 struct ProjectQuery {
     project_id: i64,
 }
+/// 接口清单二选一：按目录（collectionId）或按项目全量（projectId，1.0.9 为问诊扫描补的扁平端点）
 #[derive(Deserialize)]
-struct CollectionQuery {
-    collection_id: i64,
+struct ReqListQuery {
+    #[serde(default)]
+    collection_id: Option<i64>,
+    #[serde(default)]
+    project_id: Option<i64>,
 }
 #[derive(Deserialize)]
 struct RequestQuery {
@@ -363,9 +367,24 @@ async fn delete_collection(State(s): State<BState>, Json(body): Json<Value>) -> 
 
 const REQ_COLS: &str = REQUEST_COLS;
 
-async fn list_requests(State(s): State<BState>, Query(q): Query<CollectionQuery>) -> axum::response::Response {
+async fn list_requests(State(s): State<BState>, Query(q): Query<ReqListQuery>) -> axum::response::Response {
+    // projectId = 项目全量（跨目录扁平清单）；collectionId = 单目录。二者必传其一
+    if let Some(pid) = q.project_id {
+        let sql = format!(
+            "SELECT {REQ_COLS} FROM api_requests \
+             WHERE collection_id IN (SELECT id FROM collections WHERE project_id=?) \
+             ORDER BY collection_id, sort_order, id"
+        );
+        return match sqlx::query_as::<_, ApiRequest>(&sql).bind(pid).fetch_all(&s.pool).await {
+            Ok(rows) => ok(rows),
+            Err(e) => server_err(e),
+        };
+    }
+    let Some(cid) = q.collection_id else {
+        return err(StatusCode::BAD_REQUEST, "collectionId or projectId required");
+    };
     let sql = format!("SELECT {REQ_COLS} FROM api_requests WHERE collection_id=? ORDER BY sort_order, id");
-    match sqlx::query_as::<_, ApiRequest>(&sql).bind(q.collection_id).fetch_all(&s.pool).await {
+    match sqlx::query_as::<_, ApiRequest>(&sql).bind(cid).fetch_all(&s.pool).await {
         Ok(rows) => ok(rows),
         Err(e) => server_err(e),
     }
