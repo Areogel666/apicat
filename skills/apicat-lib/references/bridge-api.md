@@ -75,7 +75,7 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 ## 接口
 
 ### GET /list_requests?collection_id=N
-### GET /list_requests?project_id=N —— 项目全量扁平清单（跨目录，按 collection_id,sort_order 排序；与 collectionId 二选一，都缺省返回 400）
+### GET /list_requests?project_id=N —— 项目全量扁平清单（跨目录，按 collection_id,sort_order 排序；与 collection_id 二选一，都缺省返回 400）
 ### GET /get_request?id=N
 ### POST /create_request
 **⚠️ 只支持 collectionId / name / method / url 四个字段。params/headers/body 会被忽略。**

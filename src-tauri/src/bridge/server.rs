@@ -381,7 +381,7 @@ async fn list_requests(State(s): State<BState>, Query(q): Query<ReqListQuery>) -
         };
     }
     let Some(cid) = q.collection_id else {
-        return err(StatusCode::BAD_REQUEST, "collectionId or projectId required");
+        return err(StatusCode::BAD_REQUEST, "collection_id or project_id required");
     };
     let sql = format!("SELECT {REQ_COLS} FROM api_requests WHERE collection_id=? ORDER BY sort_order, id");
     match sqlx::query_as::<_, ApiRequest>(&sql).bind(cid).fetch_all(&s.pool).await {

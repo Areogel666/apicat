@@ -154,7 +154,9 @@ const treeData = computed<DictNode[]>(() =>
 // 1.0.5：默认只展开字典层（字典项收起）。
 // 必须用「受控展开」而非 default-expanded-keys：本组件 v-show 常驻，n-tree 在启动即挂载，
 // default-* 只在挂载那一刻读一次；dict 是异步加载的，之后新增节点不在初始集合里，naive 视为
-// 展开 → 字典项全开。受控后字典数据到达即恢复持久化展开状态（1.0.9：不再强制重置为全展开）。
+// 展开 → 字典项全开。受控后恢复该项目的持久化展开状态（1.0.9：不再强制重置为全展开）。
+// 严格恢复语义：persisted 即用户上次操作后的展开集合（实时写盘），过滤掉已删除的字典即可；
+// 新建字典默认收起（新建时字典项为空，用户点开一次即入持久化）。
 const { expandedKeys, restore: restoreExpanded } = useTreeExpanded('dictionary')
 watch(
   () => store.dictionaries,
@@ -163,8 +165,7 @@ watch(
       const allKeys = dicts.map(d => `dict-${d.id}`)
       const persisted = restoreExpanded()
       expandedKeys.value = persisted
-        // 持久化值过滤掉已删除的字典；persisted 中不存在的新字典默认展开
-        ? [...new Set([...persisted.filter(k => allKeys.includes(k)), ...allKeys])]
+        ? persisted.filter(k => allKeys.includes(k))
         : allKeys
     }
   },

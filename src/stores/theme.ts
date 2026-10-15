@@ -26,6 +26,22 @@ export type ThemeMode = 'light' | 'dark' | 'system'
 
 const THEME_KEY = 'theme.mode'
 
+/**
+ * 1.0.9 玻璃质感的表面色，按深浅主题各一套。
+ * 不放预设 tokens（customTokens 是跨主题持久的，深色 rgba 切到浅色主题会压过浅色变量导致不可读），
+ * 由 applyTheme 按 effectiveMode 动态注入；alpha ≥ 0.7 兜底文字对比度。
+ */
+const GLASS_SURFACE: Record<'light' | 'dark', Record<string, string>> = {
+  dark: {
+    '--bg-surface': 'rgba(31, 35, 44, 0.72)',
+    '--bg-elevated': 'rgba(42, 46, 56, 0.76)',
+  },
+  light: {
+    '--bg-surface': 'rgba(255, 255, 255, 0.72)',
+    '--bg-elevated': 'rgba(255, 255, 255, 0.80)',
+  },
+}
+
 export const useThemeStore = defineStore('theme', () => {
   const mode = ref<ThemeMode>('system')
   const systemDark = ref(window.matchMedia('(prefers-color-scheme: dark)').matches)
@@ -82,12 +98,11 @@ export const useThemeStore = defineStore('theme', () => {
       borderRadiusSmall: `${4 * scale}px`,
     }
     if (glass.value) {
-      const surface = t['--bg-surface']
-      const elevated = t['--bg-elevated']
-      if (surface) common.cardColor = surface
-      if (elevated) {
-        common.modalColor = elevated
-        common.popoverColor = elevated
+      const surface = GLASS_SURFACE[effectiveMode.value]
+      if (surface['--bg-surface']) common.cardColor = surface['--bg-surface']
+      if (surface['--bg-elevated']) {
+        common.modalColor = surface['--bg-elevated']
+        common.popoverColor = surface['--bg-elevated']
       }
     }
     return { common }
@@ -101,7 +116,11 @@ export const useThemeStore = defineStore('theme', () => {
     el.setAttribute('data-theme', effectiveMode.value)
 
     // 2. 覆盖自定义 token 到 <html style>
-    const overrides = Object.entries(customTokens.value)
+    //    玻璃态激活时按当前深浅模式追加半透明表面色（GLASS_SURFACE，切模式自动适配）
+    const tokens: Record<string, string> = glass.value
+      ? { ...customTokens.value, ...GLASS_SURFACE[effectiveMode.value] }
+      : { ...customTokens.value }
+    const overrides = Object.entries(tokens)
       .map(([k, v]) => `${k}: ${v}`)
       .join('; ')
     if (overrides) {

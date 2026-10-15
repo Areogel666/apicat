@@ -118,10 +118,8 @@ export const PRESET_THEMES: ThemePreset[] = [
       '--color-warning': '#f0c060',
       '--color-error': '#e88080',
       '--color-info': '#70c0e8',
-      // 玻璃表面：半透明 rgba 透出 --bg-base 底色；backdrop blur 由 data-glass CSS 规则负责。
-      // alpha 不低于 0.7——文字（rgba(255,255,255,0.92)）在任何底图上对比度都有兜底
-      '--bg-surface': 'rgba(31, 35, 44, 0.72)',
-      '--bg-elevated': 'rgba(42, 46, 56, 0.76)',
+      // 半透明表面色不放这里（customTokens 跨主题持久，切浅色会不可读），
+      // 由 themeStore 的 GLASS_SURFACE 按深浅模式动态注入
     },
     density: 'default',
     radiusScale: 1.5,

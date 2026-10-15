@@ -8,10 +8,13 @@ import { useProjectStore } from '../stores/project'
  * expandedKeys 即受控展开源（配合 n-tree 的 v-model:expanded-keys），
  * 调用方在数据加载完成后调 restore() 恢复持久化值，无记录时自行给默认值。
  * 用户每次展开/收起都会实时写盘，切项目/重启均不丢。
+ *
+ * setPaused(true) 可暂停写盘（接口树搜索期间展开是瞬时 UI 状态，不该污染持久化）。
  */
 export function useTreeExpanded(name: string) {
   const projectStore = useProjectStore()
   const expandedKeys = ref<string[]>([])
+  let paused = false
 
   function keyFor(pid: number | null): string | null {
     return pid == null ? null : `tree.expanded.${name}:${pid}`
@@ -30,8 +33,14 @@ export function useTreeExpanded(name: string) {
     }
   }
 
+  /** 暂停/恢复实时写盘；恢复时不补写（盘上保持暂停前的值） */
+  function setPaused(v: boolean) {
+    paused = v
+  }
+
   // 展开变化即写盘；未选项目时无归属，跳过
   watch(expandedKeys, (keys) => {
+    if (paused) return
     const key = keyFor(projectStore.currentProjectId)
     if (!key) return
     try {
@@ -41,5 +50,5 @@ export function useTreeExpanded(name: string) {
     }
   }, { deep: true })
 
-  return { expandedKeys, restore }
+  return { expandedKeys, restore, setPaused }
 }

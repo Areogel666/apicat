@@ -195,15 +195,16 @@ const searchText = ref('')
 const loading = ref(false)
 const creating = ref(false)
 // 展开状态受控 + 按项目持久化（localStorage tree.expanded.interface:{pid}）
-const { expandedKeys, restore: restoreExpanded } = useTreeExpanded('interface')
+const { expandedKeys, restore: restoreExpanded, setPaused: setExpandedPaused } = useTreeExpanded('interface')
 
 // 搜索时自动展开所有文件夹以便显示匹配；清空搜索恢复搜索前的展开快照。
-// 快照还原会覆盖持久化值（watch 自动写盘），最终状态与用户搜索前一致。
+// 搜索期间的展开是瞬时 UI 状态：暂停写盘，避免污染持久化（如搜索态关应用导致折叠布局丢失）。
 let expandedBeforeSearch: string[] | null = null
 watch(searchText, (keyword) => {
   const hasKeyword = keyword.trim().length > 0
   if (hasKeyword && expandedBeforeSearch === null) {
     expandedBeforeSearch = [...expandedKeys.value]
+    setExpandedPaused(true)
     const pid = currentProjectId.value
     if (pid) {
       expandedKeys.value = collectionStore.getCollections(pid).map(c => `col-${c.id}`)
@@ -211,6 +212,7 @@ watch(searchText, (keyword) => {
   } else if (!hasKeyword && expandedBeforeSearch !== null) {
     expandedKeys.value = expandedBeforeSearch
     expandedBeforeSearch = null
+    setExpandedPaused(false)
   }
 })
 
@@ -651,8 +653,9 @@ watch(currentProjectId, async (pid, oldPid) => {
     const cols = collectionStore.getCollections(pid)
     // 展开状态：优先恢复该项目持久化的值，无记录时默认展开前 3 个集合
     expandedKeys.value = restoreExpanded(pid) ?? cols.slice(0, 3).map(c => `col-${c.id}`)
-    // 搜索快照随项目切换失效
+    // 搜索快照随项目切换失效，恢复写盘（搜索态切项目的边缘场景）
     expandedBeforeSearch = null
+    setExpandedPaused(false)
 
     // 恢复新项目的 Tab 状态，失败不阻断 UI 渲染
     try {

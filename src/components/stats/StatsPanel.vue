@@ -125,9 +125,7 @@ import { NRadioGroup, NRadioButton, NSelect, NSpin, NEmpty, NButton } from 'naiv
 import StatsChart from './StatsChart.vue'
 import { useThemeStore } from '../../stores/theme'
 import { useProjectStore } from '../../stores/project'
-import { useCollectionStore } from '../../stores/collection'
-import { useRequestStore } from '../../stores/request'
-import type { UsageStats } from '../../types'
+import type { UsageStats, ApiRequest } from '../../types'
 
 const range = ref<'30d' | '180d' | '365d' | 'all'>('30d')
 /** 档位 -> 展示词（KPI 标签与趋势标题共用） */
@@ -141,8 +139,6 @@ const data = ref<UsageStats | null>(null)
 
 // ---- 级联筛选：项目 → 接口（1.0.9）。null = 全部，与 Rust 侧 Option 参数对应 ----
 const projectStore = useProjectStore()
-const collectionStore = useCollectionStore()
-const requestStore = useRequestStore()
 const projectFilter = ref<number | null>(null)
 const requestFilter = ref<number | null>(null)
 const requestOptions = ref<{ label: string; value: number }[]>([])
@@ -156,26 +152,25 @@ const scopeEmptyText = computed(() =>
 const projectOptions = computed(() =>
   projectStore.projects.map(p => ({ label: p.name, value: p.id })))
 
-// 选定项目后拉取其接口清单（该项目可能从未打开过，集合/接口需现拉）
+// 选定项目后拉取其接口清单（项目级扁平查询，一次 IPC）；seq 守卫防快速连切时旧项目结果迟到覆盖
+let requestOptionsSeq = 0
 watch(projectFilter, async (pid) => {
   requestFilter.value = null
+  const seq = ++requestOptionsSeq
   if (pid == null) {
     requestOptions.value = []
     return
   }
   requestOptionsLoading.value = true
   try {
-    await collectionStore.loadCollections(pid)
-    const cols = collectionStore.getCollections(pid)
-    await Promise.all(cols.map(c => requestStore.loadRequests(c.id)))
-    requestOptions.value = cols.flatMap(c =>
-      (requestStore.requestMap[c.id] ?? []).map(r => ({ label: `${r.method} ${r.name}`, value: r.id })),
-    )
+    const rows = await invoke<ApiRequest[]>('list_project_requests', { projectId: pid })
+    if (seq !== requestOptionsSeq) return
+    requestOptions.value = rows.map(r => ({ label: `${r.method} ${r.name}`, value: r.id }))
   } catch (e) {
     console.warn('[stats] 接口清单加载失败:', e)
-    requestOptions.value = []
+    if (seq === requestOptionsSeq) requestOptions.value = []
   } finally {
-    requestOptionsLoading.value = false
+    if (seq === requestOptionsSeq) requestOptionsLoading.value = false
   }
 })
 

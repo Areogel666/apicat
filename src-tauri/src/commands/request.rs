@@ -20,6 +20,25 @@ pub async fn list_requests(
     Ok(rows)
 }
 
+/// 获取项目下所有接口（跨目录扁平清单，1.0.9 统计级联筛选拉接口下拉用；
+/// 与 Bridge 的 GET /list_requests?project_id 同一查询）
+#[tauri::command]
+pub async fn list_project_requests(
+    db: State<'_, AppDb>,
+    project_id: i64,
+) -> CmdResult<Vec<ApiRequest>> {
+    let sql = format!(
+        "SELECT {REQUEST_COLS} FROM api_requests \
+         WHERE collection_id IN (SELECT id FROM collections WHERE project_id=?) \
+         ORDER BY collection_id, sort_order, id"
+    );
+    let rows = sqlx::query_as::<_, ApiRequest>(&sql)
+    .bind(project_id)
+    .fetch_all(&db.0)
+    .await?;
+    Ok(rows)
+}
+
 /// 创建接口。UI 与 Bridge 共用。
 /// Collection 内名称唯一性由 DB UNIQUE 约束保证，冲突时翻译为友好文案。
 pub async fn create_request_impl(

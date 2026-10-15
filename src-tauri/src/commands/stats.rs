@@ -202,9 +202,12 @@ async fn collect_usage_stats(
         .map(|r| NameCount { name: r.get::<String, _>("name"), count: r.get::<i64, _>("c") })
         .collect();
 
-    // ---- 字典（存量跟随项目级筛选；接口级时前端隐藏该区块，此处忽略 request_id）----
+    // ---- 字典（存量跟随项目级筛选；接口级时前端隐藏该区块，直接零值跳过全部查询）----
     // 字典树展示「项目自有 + 全局共享」，口径与之一致：project_id = ? OR IS NULL
-    let (dict_count, item_count, rule_count, override_count): (i64, i64, i64, i64) = match project_id {
+    let (dict_count, item_count, rule_count, override_count): (i64, i64, i64, i64) = if request_id.is_some() {
+        (0, 0, 0, 0)
+    } else {
+        match project_id {
         Some(pid) => {
             let dict_count: i64 = sqlx::query_scalar(&format!(
                 "SELECT COUNT(*) FROM data_dictionaries WHERE project_id = {pid} OR project_id IS NULL"
@@ -244,32 +247,35 @@ async fn collect_usage_stats(
                     .await?;
             (dict_count, item_count, rule_count, override_count)
         }
+        }
     };
 
     // ---- 文档（仅扫描已配置 docs_output_dir 的项目；目录缺失按 0 计不拖垮整体）----
-    // 项目级筛选时只扫该项目的目录
-    let docs_project_clause =
-        project_id.map(|pid| format!(" AND id = {pid}")).unwrap_or_default();
+    // 接口级筛选时前端隐藏该区块，直接零值跳过磁盘扫描；项目级筛选时只扫该项目的目录
     let mut docs = DocsStats { file_count: 0, total_size: 0, last_modified: None };
-    let dir_rows = sqlx::query(&format!(
-        "SELECT docs_output_dir FROM projects \
-         WHERE docs_output_dir IS NOT NULL AND docs_output_dir != ''{docs_project_clause}"
-    ))
-    .fetch_all(pool)
-    .await?;
-    for row in dir_rows {
-        let dir: String = row.get("docs_output_dir");
-        let root = std::path::PathBuf::from(&dir);
-        if !root.is_dir() {
-            continue; // 目录缺失/无权限按 0 计
-        }
-        let mut files = Vec::new();
-        crate::commands::docs::scan_md_files(&root, &root, &mut files);
-        docs.file_count += files.len() as i64;
-        docs.total_size += files.iter().map(|f| f.size as i64).sum::<i64>();
-        if let Some(latest) = files.iter().map(|f| f.modified_at.clone()).max() {
-            if docs.last_modified.as_ref().map_or(true, |cur| latest > *cur) {
-                docs.last_modified = Some(latest);
+    if request_id.is_none() {
+        let docs_project_clause =
+            project_id.map(|pid| format!(" AND id = {pid}")).unwrap_or_default();
+        let dir_rows = sqlx::query(&format!(
+            "SELECT docs_output_dir FROM projects \
+             WHERE docs_output_dir IS NOT NULL AND docs_output_dir != ''{docs_project_clause}"
+        ))
+        .fetch_all(pool)
+        .await?;
+        for row in dir_rows {
+            let dir: String = row.get("docs_output_dir");
+            let root = std::path::PathBuf::from(&dir);
+            if !root.is_dir() {
+                continue; // 目录缺失/无权限按 0 计
+            }
+            let mut files = Vec::new();
+            crate::commands::docs::scan_md_files(&root, &root, &mut files);
+            docs.file_count += files.len() as i64;
+            docs.total_size += files.iter().map(|f| f.size as i64).sum::<i64>();
+            if let Some(latest) = files.iter().map(|f| f.modified_at.clone()).max() {
+                if docs.last_modified.as_ref().map_or(true, |cur| latest > *cur) {
+                    docs.last_modified = Some(latest);
+                }
             }
         }
     }
