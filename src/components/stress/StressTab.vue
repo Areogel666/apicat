@@ -82,8 +82,8 @@
     </div>
     <div v-if="stressStore.error" class="stress-error">❌ {{ stressStore.error }}</div>
 
-    <!-- 实时折线图 -->
-    <div v-if="stressStore.chartPoints.length > 1" class="chart-box">
+    <!-- 实时折线图：高度可拖拽（下方分割条），拖大拖小重启保留 -->
+    <div v-if="stressStore.chartPoints.length > 1" class="chart-box" :style="{ height: chartH + 'px' }">
       <canvas ref="chartCanvas" width="620" height="150" class="stress-canvas" />
       <div class="chart-legend">
         <span class="legend-tps">▬ TPS</span>
@@ -91,8 +91,18 @@
         <span class="legend-p95">▬ P95(ms)</span>
       </div>
     </div>
+    <ResizableSplitter
+      v-if="stressStore.chartPoints.length > 1"
+      direction="vertical"
+      :default-size="chartH"
+      :min-size="120"
+      :max-size="600"
+      storage-key="layout.stressChartHeight"
+      @resizing="chartH = $event"
+      @resize="chartH = $event"
+    />
 
-    <!-- 历史 -->
+    <!-- 历史：占据剩余高度，内部滚动（曲线拉大也不会把历史挤出可视区） -->
     <div class="history-block">
       <div class="history-head">
         <span class="section-title">压测历史（本接口）</span>
@@ -167,6 +177,7 @@ import { useStressStore } from '../../stores/stress'
 import { useRequestStore } from '../../stores/request'
 import { useTestCaseStore } from '../../stores/testCase'
 import { useThemeStore } from '../../stores/theme'
+import ResizableSplitter from '../common/ResizableSplitter.vue'
 import StressReportModal from './StressReportModal.vue'
 import type { StressConfig, StressRun } from '../../types'
 import {
@@ -202,6 +213,9 @@ const compareVisible = ref(false)
 const compareSelection = ref<number[]>([])
 const compareRuns = ref<CompareRun[]>([])
 const compareMetrics = ref<CompareMetric[]>([])
+
+// 曲线区高度可拖拽（下方分割条），持久化到 localStorage 重启保留
+const chartH = ref(Number(localStorage.getItem('layout.stressChartHeight') ?? 150))
 
 const themeStore = useThemeStore()
 /** 主题切换后重新读 token（原先 compareColors 是初始化时读一次的快照） */
@@ -291,9 +305,9 @@ function onExportReport(run: StressRun) {
   flex-direction: column;
   gap: var(--spacing-sm);
   padding: var(--spacing-sm);
-  overflow-y: auto;
   flex: 1;
   min-height: 0;
+  overflow: hidden; /* 滚动下沉到历史区（flex:1 内滚），曲线区高度交给分割条拖拽 */
 }
 
 .stress-tab__toolbar {
@@ -340,10 +354,12 @@ function onExportReport(run: StressRun) {
   border: 1px solid var(--border-base);
   border-radius: var(--radius-sm);
   overflow: hidden;
+  flex-shrink: 0;
 }
-/* 高度由容器分别指定，避免属性尺寸与 CSS 不一致导致拉伸（prepareCanvas 以 CSS 为准） */
+/* 高度由容器分别指定，避免属性尺寸与 CSS 不一致导致拉伸（prepareCanvas 以 CSS 为准）；
+   曲线区高度内联 style（可拖拽），canvas 填满容器 */
 .stress-canvas { display: block; width: 100%; }
-.chart-box .stress-canvas { height: 150px; }
+.chart-box .stress-canvas { height: 100%; }
 .compare-canvas { height: 200px; }
 
 .compare-note {
@@ -376,6 +392,9 @@ function onExportReport(run: StressRun) {
 .legend-p95 { color: var(--color-warning); }
 
 .history-block {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto; /* 历史/对比内容超出时内部滚动 */
   border-top: 1px solid var(--border-base);
   padding-top: var(--spacing-sm);
 }
