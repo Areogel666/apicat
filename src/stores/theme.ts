@@ -26,20 +26,27 @@ export type ThemeMode = 'light' | 'dark' | 'system'
 
 const THEME_KEY = 'theme.mode'
 
-/**
- * 1.0.9 玻璃质感的表面色，按深浅主题各一套。
- * 不放预设 tokens（customTokens 是跨主题持久的，深色 rgba 切到浅色主题会压过浅色变量导致不可读），
- * 由 applyTheme 按 effectiveMode 动态注入；alpha ≥ 0.7 兜底文字对比度。
- */
-const GLASS_SURFACE: Record<'light' | 'dark', Record<string, string>> = {
-  dark: {
-    '--bg-surface': 'rgba(31, 35, 44, 0.72)',
-    '--bg-elevated': 'rgba(42, 46, 56, 0.76)',
-  },
-  light: {
-    '--bg-surface': 'rgba(255, 255, 255, 0.72)',
-    '--bg-elevated': 'rgba(255, 255, 255, 0.80)',
-  },
+/** 玻璃质感档位（1.0.9，主题工作室可调）：模糊强度与表面不透明度共用三档 */
+export type GlassLevel = 'light' | 'medium' | 'heavy'
+const GLASS_BLUR_PX: Record<GlassLevel, number> = { light: 8, medium: 14, heavy: 22 }
+/** 表面 alpha：light=更透 / medium=标准 / heavy=更实；alpha 档位换整串色值而非
+ *  CSS Color 4 的 rgb(/alpha) 语法——后者旧 WebKit 不支持 */
+const GLASS_ALPHA: Record<GlassLevel, number> = { light: 0.62, medium: 0.72, heavy: 0.85 }
+
+/** 玻璃表面色 RGB 基底（按深浅模式）；alpha 由档位决定，深浅两套仅色相不同 */
+const GLASS_BASE_RGB: Record<'light' | 'dark', { surface: string; elevated: string }> = {
+  dark: { surface: '31, 35, 44', elevated: '42, 46, 56' },
+  light: { surface: '255, 255, 255', elevated: '255, 255, 255' },
+}
+
+/** 玻璃激活时的半透明表面 token（跟随当前深浅模式 + 透明度档位） */
+function glassSurfaceTokens(mode: 'light' | 'dark', alphaLevel: GlassLevel): Record<string, string> {
+  const a = GLASS_ALPHA[alphaLevel]
+  const base = GLASS_BASE_RGB[mode]
+  return {
+    '--bg-surface': `rgba(${base.surface}, ${a})`,
+    '--bg-elevated': `rgba(${base.elevated}, ${Math.min(1, a + 0.04)})`,
+  }
 }
 
 export const useThemeStore = defineStore('theme', () => {
@@ -56,8 +63,11 @@ export const useThemeStore = defineStore('theme', () => {
   const radiusScale = ref<0.5 | 1.0 | 1.5>(1.0)
   /** 基础字号 */
   const fontSize = ref<'s' | 'm' | 'l'>('m')
-  /** 1.0.9 玻璃质感：卡片/弹窗半透明 + backdrop blur（由带 glass 标记的预设开启，无手动开关） */
+  /** 1.0.9 玻璃质感：卡片/弹窗半透明 + backdrop blur。可由冰晶预设开启，
+   *  也可在主题工作室手动开关；模糊强度与透明度独立三档 */
   const glass = ref(false)
+  const glassBlur = ref<GlassLevel>('medium')
+  const glassAlpha = ref<GlassLevel>('medium')
 
   /** 实际生效的两态：light 或 dark */
   const effectiveMode = computed<'light' | 'dark'>(() => {
@@ -98,7 +108,7 @@ export const useThemeStore = defineStore('theme', () => {
       borderRadiusSmall: `${4 * scale}px`,
     }
     if (glass.value) {
-      const surface = GLASS_SURFACE[effectiveMode.value]
+      const surface = glassSurfaceTokens(effectiveMode.value, glassAlpha.value)
       if (surface['--bg-surface']) common.cardColor = surface['--bg-surface']
       if (surface['--bg-elevated']) {
         common.modalColor = surface['--bg-elevated']
@@ -116,10 +126,12 @@ export const useThemeStore = defineStore('theme', () => {
     el.setAttribute('data-theme', effectiveMode.value)
 
     // 2. 覆盖自定义 token 到 <html style>
-    //    玻璃态激活时按当前深浅模式追加半透明表面色（GLASS_SURFACE，切模式自动适配）
-    const tokens: Record<string, string> = glass.value
-      ? { ...customTokens.value, ...GLASS_SURFACE[effectiveMode.value] }
-      : { ...customTokens.value }
+    //    玻璃态激活时追加：半透明表面色（按深浅模式+透明度档位）与 blur 强度变量（glass.css 消费）
+    const tokens: Record<string, string> = { ...customTokens.value }
+    if (glass.value) {
+      Object.assign(tokens, glassSurfaceTokens(effectiveMode.value, glassAlpha.value))
+      tokens['--glass-blur'] = `${GLASS_BLUR_PX[glassBlur.value]}px`
+    }
     const overrides = Object.entries(tokens)
       .map(([k, v]) => `${k}: ${v}`)
       .join('; ')
@@ -171,6 +183,8 @@ export const useThemeStore = defineStore('theme', () => {
     await writeSetting('theme.radiusScale', radiusScale.value)
     await writeSetting('theme.fontSize', fontSize.value)
     await writeSetting('theme.glass', glass.value)
+    await writeSetting('theme.glassBlur', glassBlur.value)
+    await writeSetting('theme.glassAlpha', glassAlpha.value)
     applyTheme()
   }
 
@@ -183,6 +197,8 @@ export const useThemeStore = defineStore('theme', () => {
     radiusScale: 0.5 | 1.0 | 1.5
     fontSize: 's' | 'm' | 'l'
     glass: boolean
+    glassBlur: GlassLevel
+    glassAlpha: GlassLevel
   }
   let themeSnapshot: ThemeSnapshot | null = null
 
@@ -195,6 +211,8 @@ export const useThemeStore = defineStore('theme', () => {
       radiusScale: radiusScale.value,
       fontSize: fontSize.value,
       glass: glass.value,
+      glassBlur: glassBlur.value,
+      glassAlpha: glassAlpha.value,
     }
   }
 
@@ -207,6 +225,8 @@ export const useThemeStore = defineStore('theme', () => {
     radiusScale.value = themeSnapshot.radiusScale
     fontSize.value = themeSnapshot.fontSize
     glass.value = themeSnapshot.glass
+    glassBlur.value = themeSnapshot.glassBlur
+    glassAlpha.value = themeSnapshot.glassAlpha
     themeSnapshot = null
     applyTheme()
   }
@@ -225,11 +245,15 @@ export const useThemeStore = defineStore('theme', () => {
     radiusScale.value = 1.0
     fontSize.value = 'm'
     glass.value = false
+    glassBlur.value = 'medium'
+    glassAlpha.value = 'medium'
     await deleteSetting('theme.customTokens')
     await deleteSetting('theme.density')
     await deleteSetting('theme.radiusScale')
     await deleteSetting('theme.fontSize')
     await deleteSetting('theme.glass')
+    await deleteSetting('theme.glassBlur')
+    await deleteSetting('theme.glassAlpha')
     applyTheme()
   }
 
@@ -259,6 +283,10 @@ export const useThemeStore = defineStore('theme', () => {
     // 1.0.9 玻璃质感
     const g = await readSetting<boolean>('theme.glass')
     glass.value = g === true
+    const gb = await readSetting<GlassLevel>('theme.glassBlur')
+    if (gb === 'light' || gb === 'medium' || gb === 'heavy') glassBlur.value = gb
+    const ga = await readSetting<GlassLevel>('theme.glassAlpha')
+    if (ga === 'light' || ga === 'medium' || ga === 'heavy') glassAlpha.value = ga
 
     applyTheme()
   }
@@ -278,6 +306,8 @@ export const useThemeStore = defineStore('theme', () => {
     radiusScale,
     fontSize,
     glass,
+    glassBlur,
+    glassAlpha,
     resolvedTokens,
     applyTheme,
     applyCustomTheme,

@@ -41,11 +41,46 @@
         >{{ opt.label }}</button>
       </div>
     </div>
+
+    <!-- 玻璃质感（1.0.9）：独立于预设的手动开关 + 模糊/透明度档位 -->
+    <div class="preset-row">
+      <div class="preset-label">玻璃质感</div>
+      <div class="glass-row">
+        <button
+          class="density-btn"
+          :class="{ active: themeStore.glass }"
+          :title="themeStore.glass ? '点击关闭玻璃质感' : '卡片与弹窗变为半透明毛玻璃'"
+          @click="themeStore.glass = !themeStore.glass; themeStore.applyTheme()"
+        >{{ themeStore.glass ? '开启中' : '关闭' }}</button>
+        <div class="tab-group glass-group" :class="{ disabled: !themeStore.glass }">
+          <button
+            v-for="opt in blurOptions"
+            :key="opt.value"
+            class="tab-btn"
+            :class="{ active: themeStore.glassBlur === opt.value }"
+            :disabled="!themeStore.glass"
+            :title="`背景模糊 ${opt.px}px`"
+            @click="themeStore.glassBlur = opt.value; themeStore.applyTheme()"
+          >{{ opt.label }}</button>
+        </div>
+        <div class="tab-group glass-group" :class="{ disabled: !themeStore.glass }">
+          <button
+            v-for="opt in alphaOptions"
+            :key="opt.value"
+            class="tab-btn"
+            :class="{ active: themeStore.glassAlpha === opt.value }"
+            :disabled="!themeStore.glass"
+            :title="`表面不透明度 ${opt.alpha}`"
+            @click="themeStore.glassAlpha = opt.value; themeStore.applyTheme()"
+          >{{ opt.label }}</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { useThemeStore } from '../../stores/theme'
+import { useThemeStore, type GlassLevel } from '../../stores/theme'
 
 const themeStore = useThemeStore()
 
@@ -65,6 +100,18 @@ const fontSizeOptions = [
   { label: 'S', value: 's' as const },
   { label: 'M', value: 'm' as const },
   { label: 'L', value: 'l' as const },
+]
+
+const blurOptions: { label: string; value: GlassLevel; px: number }[] = [
+  { label: '轻', value: 'light', px: 8 },
+  { label: '中', value: 'medium', px: 14 },
+  { label: '重', value: 'heavy', px: 22 },
+]
+
+const alphaOptions: { label: string; value: GlassLevel; alpha: string }[] = [
+  { label: '更透', value: 'light', alpha: '62%' },
+  { label: '标准', value: 'medium', alpha: '72%' },
+  { label: '更实', value: 'heavy', alpha: '85%' },
 ]
 </script>
 
@@ -150,5 +197,19 @@ const fontSizeOptions = [
 .font-btn.active {
   border-color: var(--color-primary);
   color: var(--color-primary);
+}
+
+/* 玻璃质感行：开关 + 两组档位并排；关闭态档位整体淡出且不可点 */
+.glass-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.glass-group.disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.tab-btn:disabled {
+  cursor: default;
 }
 </style>

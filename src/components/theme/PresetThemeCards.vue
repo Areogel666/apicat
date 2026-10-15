@@ -40,8 +40,9 @@ function selectPreset(preset: ThemePreset) {
   themeStore.density = preset.density
   themeStore.radiusScale = preset.radiusScale
   themeStore.fontSize = preset.fontSize
-  // 1.0.9 玻璃质感随预设走（非玻璃预设必须显式关闭，否则从冰晶切走会残留）
-  themeStore.glass = preset.glass === true
+  // 1.0.9 玻璃质感：带 glass 标记的预设（冰晶）打开开关；其他预设不再强制关闭——
+  // 手动开关独立于预设（深蓝+玻璃也行），关玻璃走风格面板的开关
+  if (preset.glass) themeStore.glass = true
   themeStore.applyTheme()
 }
 </script>
