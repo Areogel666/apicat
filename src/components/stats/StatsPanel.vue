@@ -7,6 +7,25 @@
         <n-radio-button value="365d">近一年</n-radio-button>
         <n-radio-button value="all">全部</n-radio-button>
       </n-radio-group>
+      <n-select
+        v-model:value="projectFilter"
+        :options="projectOptions"
+        clearable
+        placeholder="全部项目"
+        size="small"
+        class="stats-panel__filter"
+        @clear="requestFilter = null"
+      />
+      <n-select
+        v-model:value="requestFilter"
+        :options="requestOptions"
+        clearable
+        :disabled="projectFilter == null"
+        :loading="requestOptionsLoading"
+        placeholder="全部接口"
+        size="small"
+        class="stats-panel__filter stats-panel__filter--wide"
+      />
       <span class="stats-panel__note">数据仅保存在本机；请求趋势基于本地历史，清理历史后不可恢复</span>
     </div>
 
@@ -22,7 +41,7 @@
       </n-empty>
       <n-empty
         v-else-if="!loading && data && data.kpi.requestsCount === 0 && data.kpi.totalInterfaces === 0"
-        description="还没有任何数据——发送第一个请求后这里会出现统计"
+        :description="scopeEmptyText"
         class="stats-panel__empty"
       />
       <template v-else-if="data">
@@ -72,7 +91,7 @@
           </section>
         </div>
 
-        <div class="stats-grid stats-grid--two">
+        <div class="stats-grid stats-grid--two" v-if="!isRequestScoped">
           <section class="stats-section">
             <h3 class="stats-section__title">数据字典</h3>
             <ul class="stats-list">
@@ -102,9 +121,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { NRadioGroup, NRadioButton, NSpin, NEmpty, NButton } from 'naive-ui'
+import { NRadioGroup, NRadioButton, NSelect, NSpin, NEmpty, NButton } from 'naive-ui'
 import StatsChart from './StatsChart.vue'
 import { useThemeStore } from '../../stores/theme'
+import { useProjectStore } from '../../stores/project'
+import { useCollectionStore } from '../../stores/collection'
+import { useRequestStore } from '../../stores/request'
 import type { UsageStats } from '../../types'
 
 const range = ref<'30d' | '180d' | '365d' | 'all'>('30d')
@@ -117,11 +139,55 @@ const loading = ref(false)
 const loadError = ref(false)
 const data = ref<UsageStats | null>(null)
 
+// ---- 级联筛选：项目 → 接口（1.0.9）。null = 全部，与 Rust 侧 Option 参数对应 ----
+const projectStore = useProjectStore()
+const collectionStore = useCollectionStore()
+const requestStore = useRequestStore()
+const projectFilter = ref<number | null>(null)
+const requestFilter = ref<number | null>(null)
+const requestOptions = ref<{ label: string; value: number }[]>([])
+const requestOptionsLoading = ref(false)
+/** 接口级筛选时存量区块（字典/文档）无意义，隐藏 */
+const isRequestScoped = computed(() => requestFilter.value != null)
+const isScopeFiltered = computed(() => projectFilter.value != null || requestFilter.value != null)
+const scopeEmptyText = computed(() =>
+  isScopeFiltered.value ? '所选范围内暂无请求数据' : '还没有任何数据——发送第一个请求后这里会出现统计')
+
+const projectOptions = computed(() =>
+  projectStore.projects.map(p => ({ label: p.name, value: p.id })))
+
+// 选定项目后拉取其接口清单（该项目可能从未打开过，集合/接口需现拉）
+watch(projectFilter, async (pid) => {
+  requestFilter.value = null
+  if (pid == null) {
+    requestOptions.value = []
+    return
+  }
+  requestOptionsLoading.value = true
+  try {
+    await collectionStore.loadCollections(pid)
+    const cols = collectionStore.getCollections(pid)
+    await Promise.all(cols.map(c => requestStore.loadRequests(c.id)))
+    requestOptions.value = cols.flatMap(c =>
+      (requestStore.requestMap[c.id] ?? []).map(r => ({ label: `${r.method} ${r.name}`, value: r.id })),
+    )
+  } catch (e) {
+    console.warn('[stats] 接口清单加载失败:', e)
+    requestOptions.value = []
+  } finally {
+    requestOptionsLoading.value = false
+  }
+})
+
 async function load() {
   loading.value = true
   loadError.value = false
   try {
-    data.value = await invoke<UsageStats>('get_usage_stats', { range: range.value })
+    data.value = await invoke<UsageStats>('get_usage_stats', {
+      range: range.value,
+      projectId: projectFilter.value,
+      requestId: requestFilter.value,
+    })
   } catch (e) {
     console.warn('[stats] 统计加载失败:', e)
     loadError.value = true
@@ -130,7 +196,8 @@ async function load() {
   }
 }
 onMounted(load)
-watch(range, load)
+// 项目切换时 requestFilter 已被置 null，多数情况只触发一次；从接口级切项目会幂等地双查一次，本地库无感
+watch([range, projectFilter, requestFilter], load)
 
 const successRateText = computed(() => {
   const r = data.value?.kpi.successRate ?? -1
@@ -281,6 +348,13 @@ void themeStore
 .stats-panel__note {
   color: var(--text-tertiary);
   font-size: var(--font-size-sm);
+}
+.stats-panel__filter {
+  width: 170px;
+  flex-shrink: 0;
+}
+.stats-panel__filter--wide {
+  width: 230px;
 }
 .stats-panel__empty {
   margin-top: 80px;

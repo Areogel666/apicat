@@ -75,7 +75,27 @@ pub struct UsageStats {
 /// 恒定过滤条件：请求统计只算调试发送，用例执行（触发器每用例仅留 10 条）不污染趋势
 const REQ_FILTER: &str = "test_case_id IS NULL";
 
-async fn collect_usage_stats(pool: &SqlitePool, range: &str) -> Result<UsageStats, sqlx::Error> {
+/// 范围筛选（1.0.9 级联）：接口级直接 request_id（已有索引）；项目级经
+/// api_requests→collections 两跳定位。request_history 与 stress_runs 的
+/// request_id 列同名同义，同一片段两处复用。
+/// 参数为 Tauri IPC 类型化的 i64（非数字在反序列化即被拒），拼接无注入面。
+fn scope_filter_sql(project_id: Option<i64>, request_id: Option<i64>) -> String {
+    match (project_id, request_id) {
+        (_, Some(rid)) => format!("request_id = {rid}"),
+        (Some(pid), None) => format!(
+            "request_id IN (SELECT r.id FROM api_requests r \
+             JOIN collections c ON r.collection_id = c.id WHERE c.project_id = {pid})"
+        ),
+        (None, None) => "1=1".to_string(),
+    }
+}
+
+async fn collect_usage_stats(
+    pool: &SqlitePool,
+    range: &str,
+    project_id: Option<i64>,
+    request_id: Option<i64>,
+) -> Result<UsageStats, sqlx::Error> {
     // 档位 -> 窗口天数（None = 累计全部）
     let window_days: Option<i64> = match range {
         "all" => None,
@@ -86,13 +106,29 @@ async fn collect_usage_stats(pool: &SqlitePool, range: &str) -> Result<UsageStat
     let window = window_days
         .map(|d| format!("created_at >= datetime('now','-{d} days')"))
         .unwrap_or_else(|| "1=1".to_string());
-    let dist_filter = format!("{REQ_FILTER} AND {window}");
+    let scope_filter = scope_filter_sql(project_id, request_id);
+    let dist_filter = format!("{REQ_FILTER} AND {scope_filter} AND {window}");
     // 趋势粒度：窗口 <=90 天按日，更久/全部按周（每条记录归到所属周一）
     let granularity = if window_days.map_or(false, |d| d <= 90) { "day" } else { "week" };
 
     // ---- KPI ----
-    let total_interfaces: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM api_requests").fetch_one(pool).await?;
+    // 接口总数跟随范围：接口级 = 1（选中的那个），项目级 = 该项目存量，全部 = 全量
+    let total_interfaces: i64 = match (project_id, request_id) {
+        (_, Some(rid)) => sqlx::query_scalar(&format!(
+            "SELECT COUNT(*) FROM api_requests WHERE id = {rid}"
+        ))
+        .fetch_one(pool)
+        .await?,
+        (Some(pid), None) => sqlx::query_scalar(&format!(
+            "SELECT COUNT(*) FROM api_requests \
+             WHERE collection_id IN (SELECT id FROM collections WHERE project_id = {pid})"
+        ))
+        .fetch_one(pool)
+        .await?,
+        (None, None) => sqlx::query_scalar("SELECT COUNT(*) FROM api_requests")
+            .fetch_one(pool)
+            .await?,
+    };
     let requests_count: i64 = sqlx::query_scalar(&format!(
         "SELECT COUNT(*) FROM request_history WHERE {dist_filter}"
     ))
@@ -110,7 +146,7 @@ async fn collect_usage_stats(pool: &SqlitePool, range: &str) -> Result<UsageStat
         ((ok_n as f64) / (all_n as f64) * 1000.0).round() / 10.0
     };
     let stress_run_count: i64 = sqlx::query_scalar(&format!(
-        "SELECT COUNT(*) FROM stress_runs WHERE {window}"
+        "SELECT COUNT(*) FROM stress_runs WHERE {window} AND {scope_filter}"
     ))
     .fetch_one(pool)
     .await?;
@@ -166,21 +202,59 @@ async fn collect_usage_stats(pool: &SqlitePool, range: &str) -> Result<UsageStat
         .map(|r| NameCount { name: r.get::<String, _>("name"), count: r.get::<i64, _>("c") })
         .collect();
 
-    // ---- 字典 ----
-    let dict_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM data_dictionaries").fetch_one(pool).await?;
-    let item_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM dictionary_items").fetch_one(pool).await?;
-    let rule_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM field_dictionary_rules").fetch_one(pool).await?;
-    let override_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM field_dictionary_overrides").fetch_one(pool).await?;
+    // ---- 字典（存量跟随项目级筛选；接口级时前端隐藏该区块，此处忽略 request_id）----
+    // 字典树展示「项目自有 + 全局共享」，口径与之一致：project_id = ? OR IS NULL
+    let (dict_count, item_count, rule_count, override_count): (i64, i64, i64, i64) = match project_id {
+        Some(pid) => {
+            let dict_count: i64 = sqlx::query_scalar(&format!(
+                "SELECT COUNT(*) FROM data_dictionaries WHERE project_id = {pid} OR project_id IS NULL"
+            ))
+            .fetch_one(pool)
+            .await?;
+            let item_count: i64 = sqlx::query_scalar(&format!(
+                "SELECT COUNT(*) FROM dictionary_items WHERE dictionary_id IN \
+                 (SELECT id FROM data_dictionaries WHERE project_id = {pid} OR project_id IS NULL)"
+            ))
+            .fetch_one(pool)
+            .await?;
+            // rules/overrides 的 project_id NOT NULL（0003 迁移），纯项目行
+            let rule_count: i64 = sqlx::query_scalar(&format!(
+                "SELECT COUNT(*) FROM field_dictionary_rules WHERE project_id = {pid}"
+            ))
+            .fetch_one(pool)
+            .await?;
+            let override_count: i64 = sqlx::query_scalar(&format!(
+                "SELECT COUNT(*) FROM field_dictionary_overrides WHERE project_id = {pid}"
+            ))
+            .fetch_one(pool)
+            .await?;
+            (dict_count, item_count, rule_count, override_count)
+        }
+        None => {
+            let dict_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM data_dictionaries").fetch_one(pool).await?;
+            let item_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM dictionary_items").fetch_one(pool).await?;
+            let rule_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM field_dictionary_rules")
+                .fetch_one(pool)
+                .await?;
+            let override_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM field_dictionary_overrides")
+                    .fetch_one(pool)
+                    .await?;
+            (dict_count, item_count, rule_count, override_count)
+        }
+    };
 
-    // ---- 文档（仅扫描已配置 docs_output_dir 的项目；目录缺失按 0 计不拖垮整体） ----
+    // ---- 文档（仅扫描已配置 docs_output_dir 的项目；目录缺失按 0 计不拖垮整体）----
+    // 项目级筛选时只扫该项目的目录
+    let docs_project_clause =
+        project_id.map(|pid| format!(" AND id = {pid}")).unwrap_or_default();
     let mut docs = DocsStats { file_count: 0, total_size: 0, last_modified: None };
-    let dir_rows = sqlx::query(
-        "SELECT docs_output_dir FROM projects WHERE docs_output_dir IS NOT NULL AND docs_output_dir != ''",
-    )
+    let dir_rows = sqlx::query(&format!(
+        "SELECT docs_output_dir FROM projects \
+         WHERE docs_output_dir IS NOT NULL AND docs_output_dir != ''{docs_project_clause}"
+    ))
     .fetch_all(pool)
     .await?;
     for row in dir_rows {
@@ -211,8 +285,13 @@ async fn collect_usage_stats(pool: &SqlitePool, range: &str) -> Result<UsageStat
 }
 
 #[tauri::command]
-pub async fn get_usage_stats(db: State<'_, AppDb>, range: String) -> CmdResult<UsageStats> {
-    Ok(collect_usage_stats(&db.0, &range).await?)
+pub async fn get_usage_stats(
+    db: State<'_, AppDb>,
+    range: String,
+    project_id: Option<i64>,
+    request_id: Option<i64>,
+) -> CmdResult<UsageStats> {
+    Ok(collect_usage_stats(&db.0, &range, project_id, request_id).await?)
 }
 
 #[cfg(test)]
@@ -275,7 +354,7 @@ mod tests {
         ).bind(rid).fetch_one(&pool).await.unwrap();
         seed_history(&pool, rid, 0, Some(200), Some(tcid), "GET").await;
 
-        let s = collect_usage_stats(&pool, "30d").await.unwrap();
+        let s = collect_usage_stats(&pool, "30d", None, None).await.unwrap();
 
         assert_eq!(s.kpi.total_interfaces, 1);
         assert_eq!(s.kpi.requests_count, 4); // 5 条调试发送 - 1 条 40 天前
@@ -298,7 +377,7 @@ mod tests {
     async fn stats_empty_db_returns_zeroed_structure() {
         // Review Focus 1：空库不得报错，成功率哨兵 -1
         let pool = mem_db().await;
-        let s = collect_usage_stats(&pool, "30d").await.unwrap();
+        let s = collect_usage_stats(&pool, "30d", None, None).await.unwrap();
         assert_eq!(s.kpi.total_interfaces, 0);
         assert_eq!(s.kpi.requests_count, 0);
         assert_eq!(s.kpi.success_rate, -1.0);
@@ -325,7 +404,7 @@ mod tests {
         sqlx::query("INSERT INTO stress_runs (request_id, created_at) VALUES (?, datetime('now','-100 days'))")
             .bind(rid).execute(&pool).await.unwrap();
 
-        let wide = collect_usage_stats(&pool, "180d").await.unwrap();
+        let wide = collect_usage_stats(&pool, "180d", None, None).await.unwrap();
         assert_eq!(wide.kpi.requests_count, 3); // 400 天前那条不计入
         assert_eq!(wide.trend.granularity, "week"); // 180 天 > 90 天阈值
         assert_eq!(wide.trend.points.iter().map(|d| d.count).sum::<i64>(), 3);
@@ -339,13 +418,13 @@ mod tests {
         assert_eq!(wide.kpi.stress_run_count, 2);
 
         // 切回 30 天：仅剩 1 条请求 + 1 次压测，粒度回到按日
-        let narrow = collect_usage_stats(&pool, "30d").await.unwrap();
+        let narrow = collect_usage_stats(&pool, "30d", None, None).await.unwrap();
         assert_eq!(narrow.kpi.requests_count, 1);
         assert_eq!(narrow.kpi.stress_run_count, 1);
         assert_eq!(narrow.trend.granularity, "day");
 
         // 累计档：4 条请求全算
-        let all = collect_usage_stats(&pool, "all").await.unwrap();
+        let all = collect_usage_stats(&pool, "all", None, None).await.unwrap();
         assert_eq!(all.kpi.requests_count, 4);
         assert_eq!(all.trend.granularity, "week");
     }
@@ -356,7 +435,7 @@ mod tests {
         let pool = mem_db().await;
         sqlx::query("INSERT INTO projects (name, docs_output_dir) VALUES ('p', '/nonexistent/xyz')")
             .execute(&pool).await.unwrap();
-        let s = collect_usage_stats(&pool, "30d").await.unwrap();
+        let s = collect_usage_stats(&pool, "30d", None, None).await.unwrap();
         assert_eq!(s.docs.file_count, 0);
     }
 
@@ -369,10 +448,65 @@ mod tests {
         sqlx::query("INSERT INTO projects (name, docs_output_dir) VALUES ('p', ?)")
             .bind(tmp.to_string_lossy().as_ref())
             .execute(&pool).await.unwrap();
-        let s = collect_usage_stats(&pool, "30d").await.unwrap();
+        let s = collect_usage_stats(&pool, "30d", None, None).await.unwrap();
         assert_eq!(s.docs.file_count, 1);
         assert!(s.docs.total_size > 0);
         assert!(s.docs.last_modified.is_some());
         std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[tokio::test]
+    async fn stats_scope_filter_project_and_request() {
+        // Review Focus（1.0.9 级联）：项目/接口筛选只作用于所选范围；
+        // 压测跟筛选走；接口总数项目级=该项目存量、接口级=1；字典存量跟随项目（含全局共享）
+        let pool = mem_db().await;
+        // 项目 A：接口 r1（2 条请求 + 1 次压测 + 1 个项目字典）；项目 B：接口 r2（1 条请求）
+        let rid_a = seed_chain(&pool).await;
+        let pa: i64 = sqlx::query_scalar("SELECT id FROM projects LIMIT 1")
+            .fetch_one(&pool).await.unwrap();
+        seed_history(&pool, rid_a, 0, Some(200), None, "GET").await;
+        seed_history(&pool, rid_a, 1, Some(500), None, "POST").await;
+        sqlx::query("INSERT INTO stress_runs (request_id, created_at) VALUES (?, datetime('now','-1 days'))")
+            .bind(rid_a).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO data_dictionaries (code, name, project_id) VALUES ('D1', 'd1', ?)")
+            .bind(pa).execute(&pool).await.unwrap();
+
+        let pb: i64 = sqlx::query_scalar("INSERT INTO projects (name) VALUES ('pb') RETURNING id")
+            .fetch_one(&pool).await.unwrap();
+        let cb: i64 = sqlx::query_scalar(
+            "INSERT INTO collections (project_id, name) VALUES (?, 'cb') RETURNING id",
+        ).bind(pb).fetch_one(&pool).await.unwrap();
+        let rid_b: i64 = sqlx::query_scalar(
+            "INSERT INTO api_requests (collection_id, name, method, url) \
+             VALUES (?, 'r2', 'GET', 'http://x') RETURNING id",
+        ).bind(cb).fetch_one(&pool).await.unwrap();
+        seed_history(&pool, rid_b, 0, Some(200), None, "GET").await;
+
+        // 全部：3 请求 / 2 接口 / 1 压测 / 1 字典
+        let all = collect_usage_stats(&pool, "all", None, None).await.unwrap();
+        assert_eq!(all.kpi.requests_count, 3);
+        assert_eq!(all.kpi.total_interfaces, 2);
+        assert_eq!(all.kpi.stress_run_count, 1);
+        assert_eq!(all.dictionary.dict_count, 1);
+
+        // 项目 A：2 请求 / 1 接口 / 1 压测 / 1 字典
+        let proj_a = collect_usage_stats(&pool, "all", Some(pa), None).await.unwrap();
+        assert_eq!(proj_a.kpi.requests_count, 2);
+        assert_eq!(proj_a.kpi.total_interfaces, 1);
+        assert_eq!(proj_a.kpi.stress_run_count, 1);
+        assert_eq!(proj_a.dictionary.dict_count, 1);
+
+        // 接口 r1：2 请求 / 接口总数 1 / 1 压测
+        let req_a = collect_usage_stats(&pool, "all", None, Some(rid_a)).await.unwrap();
+        assert_eq!(req_a.kpi.requests_count, 2);
+        assert_eq!(req_a.kpi.total_interfaces, 1);
+        assert_eq!(req_a.kpi.stress_run_count, 1);
+
+        // 项目 B：1 请求 / 1 接口 / 0 压测 / 0 字典
+        let proj_b = collect_usage_stats(&pool, "all", Some(pb), None).await.unwrap();
+        assert_eq!(proj_b.kpi.requests_count, 1);
+        assert_eq!(proj_b.kpi.total_interfaces, 1);
+        assert_eq!(proj_b.kpi.stress_run_count, 0);
+        assert_eq!(proj_b.dictionary.dict_count, 0);
     }
 }
