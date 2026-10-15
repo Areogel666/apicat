@@ -1,6 +1,6 @@
 ---
 name: apicat-doctor
-description: ApiCat 应用问诊：扫描本地库的接口/用例/字典/绑定/环境/Cookie，输出规范整理计划（命名统一、冗余清理合并、缺失内容补充），以问答形式与用户沟通定稿。只读不改——实施交给 apicat-edit / apicat-test-gen / apicat-doc-gen。触发词：问诊、体检、整理计划、规范检查、apicat doctor、apicat 问诊、扫描 apicat、接口库整理
+description: ApiCat 应用问诊：扫描本地库的接口/用例/字典/绑定/环境/Cookie，输出规范整理计划（命名统一、冗余清理合并、缺失内容补充），以问答形式与用户沟通定稿。只读不改——实施交给 apicat-edit / apicat-test-gen / apicat-doc-gen。触发词：问诊、体检、整理计划、规范检查、apicat doctor、apicat 问诊、扫描 apicat、接口库整理，以及「检查一下接口库」「看看有没有重复接口」「哪些接口没用例」「接口命名规范吗」等诊断性问题——这类也应触发本技能。但「加接口/改接口」走 apicat-edit，「生成用例」走 apicat-test-gen，本技能不开方不抓药。
 allowed-tools: Bash, Read, Glob, AskUserQuestion
 ---
 
@@ -22,7 +22,7 @@ allowed-tools: Bash, Read, Glob, AskUserQuestion
 
 ## 二、列项目选择
 
-`GET /list_projects`，把项目列表展示给用户选（可多选）。不要未经确认就扫全库。
+`GET /list_projects`，然后**用 `AskUserQuestion` 选项卡（multiSelect）让用户挑项目**——这是 apicat-lib 共享约束的统一方式，禁止打印列表让用户回复数字。不要未经确认就扫全库。
 
 ## 三、扫描（严格只读）
 
@@ -36,11 +36,14 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_field_rules?project_id=$PI
 curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_field_overrides?project_id=$PID"
 curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_environments?project_id=$PID"
 curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_cookies?scope_type=project&project_id=$PID"
+curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_cookies?scope_type=global"  # global 层同样影响本项目请求（优先级最低但会兜底注入）
 ```
 
-再逐对象下钻：`GET /list_test_cases?request_id=$RID`（用例含 `assertions` 字段）、`GET /list_dictionary_items?dictionary_id=$DID`、`GET /list_env_variables?id=$EID`。
+再逐对象下钻：`GET /list_test_cases?request_id=$RID`、`GET /list_dictionary_items?dictionary_id=$DID`、`GET /list_env_variables?id=$EID`（id 取 `is_active` 为真的环境）。
 
-接口多（>100 条）时用 `<skills>/apicat-lib/scripts/bridge_client.py` 批量拉取（可选，需 Python）；少量直接 curl。
+**两个解析要点**：
+- 用例的 `assertions` 是 **JSON 字符串**（apicat-lib 共享约束）——`"[]"` 才是无断言，必须 parse 后判断，只看字段非空会误判
+- 逐接口拉用例是扫描的主要成本（N+1，N=接口数）：接口 ≤50 直接 curl 并发跑；更多时切 `<skills>/apicat-lib/scripts/bridge_client.py` 批量拉，或先问用户「用例覆盖率要不要查」——跳过则缺失类只查元数据与环境
 
 ## 四、初版发现清单
 
@@ -57,6 +60,7 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_cookies?scope_type=project
 - 疑似重复接口：`method + url` 完全相同（高置信）；仅 URL 相同方法不同（提示，可能合理）
 - 同义字典：枚举值集高度重叠（如「状态」与「订单状态」）；合并意味着改字段绑定，注明影响面
 - 无引用对象：字典未被任何 rule/override 引用、环境从未激活、Cookie 已过期——列为清理候选，**不直接判定删除**
+  ⚠️ `project_id` 为空的**全局字典**可能被其他项目引用，跳过「项目内无引用」判定，不进清理候选
 - 接口描述与字典重复：参数 description 手写了完整枚举而字段已绑字典
 
 ### 缺失与补全
@@ -77,11 +81,28 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_cookies?scope_type=project
 
 ## 六、输出整理计划（对话内交付，不落盘）
 
-结构：
+用以下模板（结构稳定，方便用户对照、也方便后续把分项直接交给实施技能）：
 
-1. **概览**：扫描范围、对象数量、问题统计表
-2. **分项计划**：每条 = 动作（改名/合并/删除/补充）+ 目标对象（id）+ 具体参数（改成什么名/合并到哪个 id/补什么内容）+ **执行方**（apicat-edit / apicat-test-gen / apicat-doc-gen / 人工）
-3. **顺序建议**：先字典（被字段绑定引用，改动影响面最大）→ 冗余合并 → 缺失补充
-4. **结尾声明**：「本计划未执行任何变更。要动手请说『按计划执行』——接口/字典改动找 apicat-edit，用例找 apicat-test-gen，文档找 apicat-doc-gen。」
+```markdown
+# ApiCat 问诊报告：{项目名}
+
+## 概览
+| 维度 | 数量 |
+|---|---|
+| 扫描项目 | N |
+| 接口 / 用例 / 字典 | M / K / D |
+| 🔴 / 🟡 / 🟢 问题 | x / y / z |
+
+## 发现与计划
+### {类别：命名 | 冗余与可合并 | 缺失与补全}
+| # | 严重度 | 对象 | 问题与证据 | 建议动作 | 执行方 |
+|---|---|---|---|---|---|
+| 1 | 🔴 | {名称}(id={id}) | {证据，如「与接口 X(id=12) method+url 相同」} | {改名为什么/合并到谁/补什么} | apicat-edit |
+
+## 顺序建议
+{先字典（被绑定引用，影响面大）→ 冗余合并 → 缺失补充}
+```
+
+结尾固定声明：「本计划未执行任何变更。要动手请说『按计划执行』——接口/字典改动找 apicat-edit，用例找 apicat-test-gen，文档找 apicat-doc-gen。」
 
 **禁止**：为「方便实施」把计划写进任何 Bridge 端点；落文档仅当用户明确要求（写到用户指定路径，不是 Bridge）。

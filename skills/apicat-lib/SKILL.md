@@ -24,6 +24,8 @@ ApiCat 是桌面 API 调试工具（Tauri 2 + SQLite）。1.0.5 起内置 localh
 cat "$APPDATA/com.apicat.app/bridge.json"
 # macOS
 cat ~/Library/Application\ Support/com.apicat.app/bridge.json
+# Linux
+cat ~/.local/share/com.apicat.app/bridge.json
 ```
 
 ```json
