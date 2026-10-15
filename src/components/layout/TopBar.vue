@@ -47,7 +47,7 @@
           placement="bottom-end"
           @select="handleSettingsMenu"
         >
-          <n-button size="small" quaternary circle title="更多操作">⚙️</n-button>
+          <n-button id="topbar-more-btn" size="small" quaternary circle title="更多操作">⚙️</n-button>
         </n-dropdown>
       </div>
     </div>
@@ -212,6 +212,7 @@ import { useEnvironmentStore } from '../../stores/environment'
 import { useThemeStore, type ThemeMode } from '../../stores/theme'
 import { readSetting, writeSetting } from '../../stores/_persistedSettings'
 import { useGuideStore } from '../../stores/guide'
+import { useTourStore } from '../../stores/tour'
 import EnvManager from '../env/EnvManager.vue'
 import CookieManager from '../cookie/CookieManager.vue'
 import ImportDialog from '../io/ImportDialog.vue'
@@ -316,7 +317,9 @@ async function handleSettingsMenu(key: string) {
   else if (key === 'toggleSettings') showToggleSettings.value = true
   else if (key === 'guideReset') {
     guideStore.resetAll()
-    message.success('新手引导已重置，进入各功能时会重新出现')
+    // 1.0.9：重看引导同时重开功能导览（tour 记 seen 在 guide.tour，resetAll 已一并重置）
+    useTourStore().requestStart()
+    message.success('新手引导已重置，正在重新开始导览')
   }
   else if (key.startsWith('theme:')) {
     const mode = key.slice('theme:'.length) as ThemeMode

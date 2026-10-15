@@ -8,10 +8,10 @@ import { readSetting, writeSetting, deleteSetting } from './_persistedSettings'
 
 export type GuideId =
   | 'dictionary' | 'stress' | 'cookie' | 'skills'
-  | 'import' | 'env' | 'stats' | 'firstRequest'
+  | 'import' | 'env' | 'stats' | 'firstRequest' | 'tour'
 
 export const GUIDE_IDS: readonly GuideId[] = [
-  'dictionary', 'stress', 'cookie', 'skills', 'import', 'env', 'stats', 'firstRequest',
+  'dictionary', 'stress', 'cookie', 'skills', 'import', 'env', 'stats', 'firstRequest', 'tour',
 ]
 
 const keyOf = (id: GuideId) => `guide.${id}`
@@ -19,7 +19,7 @@ const keyOf = (id: GuideId) => `guide.${id}`
 export const useGuideStore = defineStore('guide', () => {
   const seen = reactive<Record<GuideId, boolean>>({
     dictionary: false, stress: false, cookie: false, skills: false,
-    import: false, env: false, stats: false, firstRequest: false,
+    import: false, env: false, stats: false, firstRequest: false, tour: false,
   })
 
   /** 启动时从 app-settings.json 载入各 seen 标记。读失败视为未看过（try/catch 在 readSetting 内）。 */

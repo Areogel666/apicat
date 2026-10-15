@@ -39,4 +39,37 @@ export const GUIDE_CONTENT: Record<GuideId, GuideContent> = {
     title: '发出第一个请求',
     body: '左侧已备好「示例：」接口，选中后直接点发送即可看到真实响应；也可以从顶部 ⚙️ 菜单导入你的 Postman Collection。',
   },
+  // tour 的分步文案在下方 TOUR_STEPS；此处条目仅为满足 Record 全覆盖，不被 GuideTip/GuideBar 消费
+  tour: { title: '功能导览', body: '' },
 }
+
+/** 首启 tour（driver.js 聚光灯）分步文案。panel = 进入该步前切换的左侧面板；null = 不切换 */
+export interface TourStep {
+  panel: 'interface' | 'dictionary' | 'docs' | 'stats' | null
+  element: string
+  title: string
+  body: string
+}
+
+export const TOUR_STEPS: readonly TourStep[] = [
+  {
+    panel: 'interface', element: '.sidebar', title: '🔗 接口树',
+    body: '所有接口与目录都在这里管理，选中接口即可发起调试。点文件夹名可折叠/展开，支持搜索与拖拽排序。',
+  },
+  {
+    panel: 'dictionary', element: '.dict-sidebar', title: '📖 数据字典',
+    body: '把 code/msg/data 这类反复出现的字段定义成字典并绑定字段名，参数的描述与枚举会自动带入，一处修改处处生效。',
+  },
+  {
+    panel: 'docs', element: '.docs-sidebar', title: '📄 接口文档',
+    body: '根据接口定义与用例一键生成 Markdown 文档，也可以直接浏览项目的文档输出目录。',
+  },
+  {
+    panel: 'stats', element: '.stats-panel', title: '📊 使用统计',
+    body: '请求趋势、成功率、方法分布一目了然，支持按项目/接口级联筛选。全部数据仅保存在本机。',
+  },
+  {
+    panel: null, element: '#topbar-more-btn', title: '⚙️ 更多能力',
+    body: '环境变量、AI 技能、导入导出、压测、主题等入口都收在这个菜单里——第一次上手建议从「导入接口」开始。',
+  },
+]

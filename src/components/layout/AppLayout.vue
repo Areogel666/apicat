@@ -99,6 +99,8 @@ import MainPanel from './MainPanel.vue'
 import DocsSidebar from '../docs/DocsSidebar.vue'
 import DocsPanel from '../docs/DocsPanel.vue'
 import ResizableSplitter from '../common/ResizableSplitter.vue'
+import { useAppTour } from '../../composables/useAppTour'
+import { useTourStore } from '../../stores/tour'
 
 interface DocFile {
   relative_path: string
@@ -139,6 +141,14 @@ const handleLeft = computed(() => {
 
 // 左侧内容面板切换（接口树 / 字典树 / 文档）
 const leftPanel = ref<'interface' | 'dictionary' | 'docs' | 'stats'>('interface')
+
+// 1.0.9：首启功能导览（driver.js）。tour 每步要切 leftPanel，故实例挂在 AppLayout；
+// StartupChecks / TopBar 经 tour store 的 pendingStart 信号触发
+const tourStore = useTourStore()
+const { startTour } = useAppTour(leftPanel)
+watch(() => tourStore.pendingStart, (v) => {
+  if (v) startTour()
+})
 
 const selectedDocFile = ref<DocFile | null>(null)
 

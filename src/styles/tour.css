@@ -1,0 +1,48 @@
+/* 首启 tour 的 driver.js popover 主题适配：色板走项目 token，随浅/深主题联动。
+   popover 由 driver 挂在 body 下，AppLayout 的 scoped 样式够不到，故独立成全局文件。 */
+.apicat-tour-popover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-strong);
+  max-width: 320px;
+}
+.apicat-tour-popover .driver-popover-title {
+  color: var(--text-primary);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+.apicat-tour-popover .driver-popover-description {
+  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+}
+.apicat-tour-popover .driver-popover-progress-text {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+}
+.apicat-tour-popover .driver-popover-close-btn {
+  color: var(--text-tertiary);
+}
+.apicat-tour-popover .driver-popover-footer button {
+  background: var(--color-primary);
+  color: var(--text-inverse);
+  border: none;
+  border-radius: var(--radius-sm);
+  text-shadow: none;
+}
+.apicat-tour-popover .driver-popover-footer button:hover {
+  background: var(--color-primary-hover);
+}
+.apicat-tour-popover .driver-popover-arrow-side-bottom.driver-popover-arrow {
+  border-bottom-color: var(--bg-elevated);
+}
+.apicat-tour-popover .driver-popover-arrow-side-top.driver-popover-arrow {
+  border-top-color: var(--bg-elevated);
+}
+.apicat-tour-popover .driver-popover-arrow-side-left.driver-popover-arrow {
+  border-left-color: var(--bg-elevated);
+}
+.apicat-tour-popover .driver-popover-arrow-side-right.driver-popover-arrow {
+  border-right-color: var(--bg-elevated);
+}
