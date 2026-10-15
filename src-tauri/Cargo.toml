@@ -19,6 +19,7 @@ tauri-plugin-shell = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"   # 更新完成后重启应用
 tauri-plugin-window-state = "2"   # 窗口尺寸 / 最大化状态记忆
+tauri-plugin-clipboard-manager = "2"   # 剪贴板写入（Linux WebKitGTK 下 navigator.clipboard 不可靠）
 
 # 序列化
 serde = { version = "1", features = ["derive"] }

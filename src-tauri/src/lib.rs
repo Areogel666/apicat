@@ -53,6 +53,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_clipboard_manager::init())
         // 窗口状态记忆：只记尺寸与最大化，刻意不记 POSITION ——
         // 不还原位置就不会出现「外接屏拔掉后窗口落在可见区域外」的问题，省掉一段越界兜底逻辑。
         .plugin(
