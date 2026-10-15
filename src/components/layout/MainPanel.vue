@@ -28,7 +28,14 @@
           </n-dropdown>
           <n-tooltip v-if="envStore.activeEnv" trigger="hover">
             <template #trigger>
-              <n-tag size="small" type="success" :bordered="false" style="margin: 0 4px; cursor: default">
+              <!-- 双击环境标识 → 打开环境管理（编辑/切换） -->
+              <n-tag
+                size="small"
+                type="success"
+                :bordered="false"
+                style="margin: 0 4px; cursor: context-menu"
+                @dblclick="envStore.requestOpenManager()"
+              >
                 {{ envTagText }}
               </n-tag>
             </template>
@@ -1331,7 +1338,8 @@ const envTagText = computed(() => {
 const envTooltipText = computed(() => {
   const env = envStore.activeEnv
   if (!env) return ''
-  return env.base_url ? `【Base URL】${env.base_url}` : '未配置 Base URL'
+  const base = env.base_url ? `【Base URL】${env.base_url}` : '未配置 Base URL'
+  return `${base}（双击可打开环境管理）`
 })
 
 // ── 接口修改 dirty 标记 ────────────────────────────────────────────
