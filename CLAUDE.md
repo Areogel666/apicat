@@ -16,6 +16,12 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 
 ## 核心语义（改动前先读）
 
+### 侧栏树折叠（1.0.9）
+
+- 三棵树（接口/字典/文档）统一受控展开，持久化真源是 `useTreeExpanded`（`src/composables/useTreeExpanded.ts`）：watch 实时写 localStorage `tree.expanded.{name}:{projectId}`，按「树×项目」记忆；恢复走 `restore()`（严格语义：过滤已删节点，新建默认收起）
+- 接口树搜索期间 `setPaused(true)` 暂停写盘（搜索自动全展开是瞬时态），清空搜索恢复快照；切项目时恢复写盘
+- ⊞/⊟（全部展开/折叠）按钮直接赋值 expandedKeys，与手动收展共用同一条持久化链路
+
 ### 数据字典 / 参数 / 草稿
 
 - **数据字典 = 「字段名绑定」**：项目级 `field_dictionary_rules`（字段名↔字典，一对一）+ 接口级 `field_dictionary_overrides`（例外，优先）。描述列未绑定 → 直接 `n-input`；已绑定 → `FieldDictDesc.vue`（命中项 + Tooltip 全枚举 + 手写描述尾部）+ ✎ 手写编辑 popover + ✕ 解绑；绑定入口 📖 弹窗支持「项目规则 / 仅当前接口」双作用域（再点已绑定字典 = 取消）。Tooltip 枚举内容块自带 `--bg-elevated` 背景防对比问题。
@@ -29,6 +35,7 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 
 - `127.0.0.1:17320`（占用顺延）起 REST 服务，token 在 `$APPDATA/com.apicat.app/bridge.json`（macOS 在 `~/Library/Application Support/com.apicat.app/`）；路径对齐 IPC command 名，GET=只读 / POST=写。AI 技能读写数据一律走 Bridge，**禁止直连 SQLite**。
 - **新端点取值一律用 `get_str/get_i64`（camel+snake 双键）**：手写单键会把另一命名风格的参数静默丢弃（不报错，字段直接丢失）。
+- `GET /list_requests` 双参二选一（1.0.9）：`collection_id`（单目录）或 `project_id`（项目全量扁平）；都缺省 400。**400 文案与参数是 snake_case**——serde 无 camelCase 映射，照 `collectionId` 拼永远 400
 - 写操作后广播 `bridge-data-changed`，前端 store 自行 reload——**新增写端点漏广播 → 技能改完数据桌面端看不见**。
 
 ### 写操作真源
@@ -62,20 +69,26 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 
 - **引擎不做 `{{var}}` 替换**（与正常发送的 Rust 侧 `replace_variables` 不同）；UI 从用例发起压测时预替换 `{{base_url}}`，最终 URL 仍含 `{{...}}` 或无激活环境 → `message.warning` 提示，不静默发压测。
 - **报告真源是 Rust `build_stress_report_markdown`**（App 预览/导出与 Bridge 共用），改报告只改这一处。
+- **压测 tab 完成自动弹报告的协调在 MainPanel**（`tabStressPending` 区分两个入口，modal 入口发起不叠加）；done 事件先 emit 后落库，前端延迟 300ms 再拉历史
+- 压测历史时间 `formatTime` 必须经 `utcStringToTs` 显式 UTC 解析——`new Date('YYYY-MM-DD HH:MM:SS')` 在 WebKit 按本地时区解读，整体偏移时区差（实测踩坑）
+- 曲线区高度可拖（`layout.stressChartHeight`，ResizableSplitter 120–600px），历史/对比内容在历史区内部滚动
 - **参考线阈值**：项目级默认（`projects.p95/p99_threshold_ms`，500/1000）+ 接口级覆盖（`api_requests`，null=继承）。压测启动时生效值快照写入 `stress_runs.config_json`；报告只读 config_json → 常量默认，不回查项目/接口表（旧记录无字段 → 用默认值，改阈值不影响历史报告）。
 
 ### 新手指引（guide）
 
 - 状态 = `app-settings.json` 的 `guide.*`（`src/stores/guide.ts` 唯一读写点）；文案集中 `src/config/guideContent.ts`——**加一条引导 = GuideId + 文案 + 挂点三处联动**，键不存在 = 未看过（老用户升级自然触发）
-- **两种形态语义刻意不同，别混用**：`GuideBar`（弹窗内提示条）= **显示即记 seen**（本地 show 与 seen 解耦，弹窗关了也算了）；`GuideTip`（popover）= 点「知道了」才记 seen。弹窗是从菜单点开的、菜单项点击即消失，**锚点不存在，弹窗内不能用 popover**
+- **形态 = tour + GuideBar 两种**（1.0.9 起面板级 GuideTip 已移除——与首启 tour 重复）：`GuideBar`（弹窗内提示条）= **显示即记 seen**（本地 show 与 seen 解耦，弹窗关了也算了）；面板/全局导览统一由首启 tour 承担（`useAppTour`，driver.js highlight 单步模式自驱——每步先切面板、等 DOM 就绪再高亮；X/Esc/遮罩三条关闭路径统一走 `onDestroyStarted`，`finish()` 有防重入标志）
+- **tour 一次性语义**：`guide.tour` seen = 应用生涯一次，不随版本重弹；启动串行 tour 先行（StartupChecks，等播种完成信号或 800ms 兜底）且 await 结束，技能引导/更新检查在其后——中断也不吞；⚙️ guideReset 会重开 tour
 - 播种仅走 `loadProjects()` 空项目分支（`seedSampleData`，后台跑、失败仅 warn）；**`update_request` IPC 参数全必填**（缺一被 Tauri reject 且被 catch 吞），**`update_test_case` 的 method/url 会被覆写必须回传**——两个坑都踩过，seed 调用别精简参数
 - 播种完成 `sidebarReloadTick.value++` 强刷接口树（同 ImportDialog 模式），否则首启树是空的
-- 重放 = ⚙️ 菜单 `guideReset` → `resetAll()`；popover 靠响应式自动补弹，无需额外代码
+- 重放 = ⚙️ 菜单 `guideReset` → `resetAll()`；弹窗内 GuideBar 靠响应式自动补弹，无需额外代码
 
 ### 使用统计（stats）
 
 - 唯一真源 `collect_usage_stats`（`src-tauri/src/commands/stats.rs`，无 Bridge 端点）：请求类指标**恒带 `test_case_id IS NULL`**（用例行有每用例 10 条触发器裁剪，混入必失真）；成功率 = 2xx/3xx，NULL/≥400 失败；状态桶 CASE 顺序 `IS NULL→网络失败 / <400 / <500 / else`；方法分布 `json_extract(request_snapshot,'$.method')`（快照是 ApiRequest serde 串，method 单词键大小写免疫）
-- 档位 `30d/180d/365d/all`：KPI（请求数/成功率/压测）与分布跟档；**接口总数/字典/文档恒存量全量**。趋势粒度 ≤90 天按日、更久按周；固定窗前端补零、`all` 不补零
+- **级联筛选（1.0.9）**：签名 `get_usage_stats(range, projectId?, requestId?)`；范围过滤统一抽在 `scope_filter_sql`（接口级 `request_id` 有索引直查，项目级经 api_requests→collections 两跳）；**请求类指标全跟筛选走**（含压测次数，stress_runs 同 scope 片段）；接口总数项目级=该项目存量、接口级=1；字典/文档存量跟随项目口径（项目自有+全局共享，与字典树一致），接口级时直接零值并跳过磁盘扫描（前端该 scope 隐藏区块，别做无效功）
+- 接口下拉数据走 IPC `list_project_requests`（项目扁平一次查），seq 守卫防快速连切竞态
+- 档位 `30d/180d/365d/all`：KPI（请求数/成功率/压测）与分布跟档；**接口总数/字典/文档恒存量全量**（筛选态除外，见上）；趋势粒度 ≤90 天按日、更久按周；固定窗前端补零、`all` 不补零
 - **周分组 SQL 必须 `date(created_at,'-6 days','weekday 1')`，修饰符顺序不可反**——`weekday 1` 遇当天已是周一会原地不动，反序会把周一错归上一周（实测踩坑；测试断言周桶 `%w=1` 锁住）
 - 字段名两侧镜像：`UsageStats`（stats.rs ↔ src/types/index.ts），`requestsCount/successRate` 不带 30d 字样；空库哨兵 `successRate=-1` → 前端显示「—」
 - 文档指标只扫已配 `docs_output_dir` 的项目（Rust 侧无默认路径回退，别臆造 `~/.apicat` 回退），区块有说明文案
@@ -98,6 +111,8 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 ## 主题系统(themeStore)
 
 - `src/stores/theme.ts`:setup store。`customTokens` 增量覆盖 + `density`/`radiusScale`/`fontSize` → `resolvedTokens` computed → `applyTheme()` 写 `<html data-theme/data-density/data-font-size>` + inline style。
+- **圆角联动（1.0.9）**：`naiveOverrides` 必须带 `borderRadius`/`borderRadiusSmall`（= 6/4 × radiusScale）——漏了的话 NaiveUI 控件永远内置 3px 直角，圆角预设形同虚设（1.0.9 之前一直如此）
+- **玻璃质感（1.0.9）**：`glass`/`glassBlur`/`glassAlpha` 三状态；半透明表面色由 `glassSurfaceTokens(mode, alphaLevel)` 按「深浅模式 + 档位」动态注入 inline style，**绝不放 customTokens**（跨主题持久，深色 rgba 切浅色会不可读）；blur 走 `--glass-blur` 变量由 glass.css 消费；alpha 档位换整串 rgba（CSS Color 4 的 `rgb(/a)` 旧 WebKit 不支持）；冰晶预设只负责「打开」glass，非玻璃预设不强制关（手动开关独立，深蓝+玻璃也行）
 - `src/styles/tokens.css`:风格变量 `--row-height`/`--input-height`/`--spacing-*`/`--font-size-*`/`--radius-*`,按 `[data-density]`/`[data-font-size]` 选择器作用到 html。
 - **组件样式一律走项目主题 token，禁止硬编码 px / 色值**。间距用 `--spacing-xs|sm|md|lg`、字号用 `--font-size-sm|base|lg`、行高用 `--row-height`/`--input-height`、圆角用 `--radius-*`、颜色边框用 `--bg-*`/`--text-*`/`--border-*`/`--color-*`。这些变量随密度/字号档位变，写死 px 的后果是用户改了风格档位那一块不跟着变。**唯一例外**：列宽、`min-width`、控件宽度这类布局尺寸可以写 px——它们不是密度语义。自定义组件参照 `src/components/cookie/` 三个文件的写法。
 - **Gotcha**:Pinia setup store 顶层解构 computed 是一次性快照非响应式,需用 `computed(() => store.xxx)`。
@@ -106,7 +121,7 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 
 ## AI 技能（skills/）
 
-- 4 个内置技能：`apicat-lib`（Bridge 访问底座，其余技能的前置）、`apicat-edit`（增删改接口/字典/字段绑定、从 Markdown 文档批量导入）、`apicat-test-gen`（7 种类型用例生成 + 压测）、`apicat-doc-gen`（接口文档生成）。安装器名单见 `skill_installer.rs` 的 `SKILL_NAMES`。
+- 5 个内置技能：`apicat-lib`（Bridge 访问底座，其余技能的前置）、`apicat-edit`（增删改接口/字典/字段绑定、从 Markdown 文档批量导入）、`apicat-test-gen`（7 种类型用例生成 + 压测）、`apicat-doc-gen`（接口文档生成）、`apicat-doctor`（应用问诊：只读扫描出分级发现清单与整理计划，问答定稿，**绝不实施**——SKILL 写死仅允许 GET）。安装器名单见 `skill_installer.rs` 的 `SKILL_NAMES`。
 - 技能经 HTTP Bridge 读写数据，**禁止直连 SQLite**；安装用 Windows junction（`mklink /J`，无需管理员权限）挂到各 Agent 的 skills 目录。
 - App 启动时自动检测并修复失效的技能安装（链接悬空 / 链接指向旧版 App 残留目录 / 副本版本标记过期）。
 - **技能版本 ≡ App 版本**（技能随 App 打包，无独立版本号）；判定唯一真源是 `skill_installer::skill_state`（UI 展示与启动静默修复共用，别写成两套）。链接的判据是「**指向当前 App 的内置技能目录**」而非「没悬空」——旧 App 残留目录还在磁盘时链接并不悬空，只判悬空会漏掉「技能内容已过期」。
@@ -123,8 +138,10 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 
 ## Gotchas
 
+- **历史时间显示必须显式 UTC 解析**：DB 落库 UTC 串（无时区标记），`new Date(串)` 在 WebKit 按本地时区解读整体偏移（压测历史实测踩坑）——用 `utcStringToTs`（utils/time.ts）或 `Date.parse(s+'Z')`（HistoryTab 同款）
 - **dragDropEnabled 必须 true（1.0.7）**：实测 Linux webkitGTK 在 false 时不把外部文件拖拽派发为 DOM 事件（dragenter/over/drop 全不触发），且会把文件内容按 Latin-1 读出插进输入框（乱码根源）；true 后 drop 在 GTK 层被 Tauri 接管。代价是 NTree 原生 draggable 全平台失效——侧边栏排序已换成 pointer 自研引擎 `useTreePointerDnd`（复刻 NTree 三段落点语义，产出等价 drop 信息调 `useCollectionTreeDnd.onDrop`，业务逻辑零改动）。**别把 NTree 的 draggable 加回去**，也别把 conf 改回 false
 - **调试前端事件别用 `document.title` 取证**：Tauri 窗口上 webview 的 title 变化**不会同步到 GTK/系统窗口标题**，探针永远读到旧值（1.0.7 拖拽调试因此绕了多轮）。可靠通道：自定义 Rust command 写文件（如追加写 /tmp 日志，无 capability 限制）
 - 代码/JSON 编辑区字号(monospace)不随主题缩放,属刻意排除
 - `.url-highlight-layer` 需与 n-input medium 内边距同步,改动会错位
+- **URL 框双击 `{{var}}` 打开环境管理（1.0.9）**：判定「双击选中词范围中点落在任一 `{{...}}` 区间内」（高亮层 pointer-events:none，事件来自原生 input 的 selection）；打开走 envStore `requestOpenManager()` tick 信号 → TopBar watch——弹窗 show 留在 TopBar 本地，跨组件只传信号（同 sidebarReloadTick 模式）
 - dev 进程后台跑时 apicat.exe 存活,vite HMR 实时生效

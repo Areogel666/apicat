@@ -86,11 +86,20 @@ export const useEnvironmentStore = defineStore('environment', () => {
     variables.value = variables.value.filter(v => v.id !== id)
   }
 
+  /** 请求打开环境管理弹窗（1.0.9：双击 URL 中的 {{var}} 标识触发）。TopBar watch 该信号。
+   *  tick 模式同 projectStore.sidebarReloadTick——弹窗 show 状态留在 TopBar 本地，跨组件只传信号 */
+  const openManagerTick = ref(0)
+  function requestOpenManager() {
+    openManagerTick.value++
+  }
+
   return {
     environments,
     variables,
     activeEnv,
     activeEnvId,
+    openManagerTick,
+    requestOpenManager,
     loadEnvironments,
     createEnvironment,
     updateEnvironment,

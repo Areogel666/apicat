@@ -229,6 +229,11 @@ const message = useMessage()
 const guideStore = useGuideStore()
 
 const showEnvManager = ref(false)
+
+// 1.0.9：双击 URL 中的 {{var}} 环境标识 → 打开环境管理（编辑/切换）
+watch(() => envStore.openManagerTick, (tick) => {
+  if (tick > 0) showEnvManager.value = true
+})
 const showCookieManager = ref(false)
 const showImportDialog = ref(false)
 const showExportDialog = ref(false)

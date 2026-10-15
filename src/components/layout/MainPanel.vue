@@ -38,7 +38,7 @@
           <div class="url-input-wrap">
             <!-- 高亮覆盖层：仅当 URL 含 {{var}} 时渲染，否则直接显示文字避免重影 -->
             <div v-if="urlHasVars && !urlPreview" class="url-highlight-layer" aria-hidden="true" v-html="urlHighlighted" />
-            <!-- 编辑模式：正常输入原始 URL（含占位符） -->
+            <!-- 编辑模式：正常输入原始 URL（含占位符）；双击 {{var}} 标识打开环境管理 -->
             <n-input
               v-if="!urlPreview"
               v-model:value="url"
@@ -49,6 +49,7 @@
               style="background: transparent"
               @keyup.enter="handleSend"
               @change="onUrlEdit"
+              @dblclick="onUrlDblclick"
             />
             <!-- 预览模式：只读显示真实发送 URL（占位符已替换 + base_url 已拼接） -->
             <n-input
@@ -2744,6 +2745,26 @@ onMounted(() => document.addEventListener('keydown', onKeyDown))
 onUnmounted(() => {
   document.removeEventListener('keydown', onKeyDown)
 })
+
+/** 双击 URL 中的 {{var}} 环境标识 → 打开环境管理（编辑/切换）。
+ *  判定：双击选中词的范围中点落在任一 {{...}} 区间内。高亮层 pointer-events:none，
+ *  事件来自原生 input；预览模式显示替换后 URL（无占位符），不绑。 */
+function onUrlDblclick(e: MouseEvent) {
+  const target = e.target as HTMLElement
+  const el = target.tagName === 'INPUT' ? target as HTMLInputElement : target.querySelector?.('input')
+  if (!el) return
+  const pos = el.selectionStart ?? 0
+  const end = el.selectionEnd ?? pos
+  const mid = (pos + end) / 2
+  const re = /\{\{[^{}]*\}\}/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(url.value)) !== null) {
+    if (mid >= m.index && mid <= m.index + m[0].length) {
+      envStore.requestOpenManager()
+      return
+    }
+  }
+}
 
 // ── 压测 ──────────────────────────────────────────────────────
 const stressStore = useStressStore()
