@@ -1,6 +1,7 @@
 // 压测面板公共工具：统计格式化 / 报告生成 / Canvas 绘制
 // 由 StressResultPanel（弹窗）与 StressTab（编辑区内嵌 tab）共用，避免两份实现漂移。
 import type { StressStats, StressChartPoint } from '../../types'
+import { utcStringToTs } from '../../utils/time'
 
 // 1.0.4：耗时直方图桶标签（与 Rust LATENCY_BUCKETS 一致：10 桶）
 export const LATENCY_LABELS = ['<1', '1-2', '2-5', '5-10', '10-20', '20-50', '50-100', '100-200', '200-500', '>500']
@@ -60,12 +61,15 @@ export function pct(cnt: number, status_counts?: Array<[number, number]>): numbe
   return Math.round(cnt / total * 100)
 }
 
+/**
+ * created_at（UTC 串 `YYYY-MM-DD HH:MM:SS`）→ 本地时间显示。
+ * 必须经 utcStringToTs 显式按 UTC 解析：直接 new Date(s) 对无时区标记的串
+ * 在 WebKit 里按本地时区解读，会整体偏移时区差（实测少 8 小时）。
+ */
 export function formatTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString()
-  } catch {
-    return iso
-  }
+  const ts = utcStringToTs(iso)
+  if (ts == null) return iso
+  return new Date(ts).toLocaleString()
 }
 
 // 报告生成已下沉到 Rust（commands::stress::build_stress_report_markdown），

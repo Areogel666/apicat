@@ -281,6 +281,8 @@ function onExportReport(run: StressRun) {
   reportRun.value = run
   showReport.value = true
 }
+// 完成后自动出报告的时机由 MainPanel 协调（只有它区分两个入口，
+// 避免 modal 入口压测时 tab 的报告弹窗与结果弹窗叠加）
 </script>
 
 <style scoped>

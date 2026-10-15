@@ -603,6 +603,9 @@
     <!-- 压测结果弹窗 -->
     <StressResultPanel v-model:show="showStressResult" />
 
+    <!-- 压测报告弹窗（压测 tab 发起时完成后自动弹出） -->
+    <StressReportModal v-model:show="showStressReport" :run="stressReportRun" />
+
     <!-- 文件拖入提示浮层（Form Data 模式）：pointer-events:none 纯视觉，
          不挡 elementFromPoint 的行定位 -->
     <div v-if="fileDragOverlay" class="file-drag-overlay">
@@ -647,11 +650,12 @@ import ResponsePanel from '../response/ResponsePanel.vue'
 import TestCaseBar from '../testcase/TestCaseBar.vue'
 import TestCaseManager from '../testcase/TestCaseManager.vue'
 import StressConfigModal from '../stress/StressConfigModal.vue'
+import StressReportModal from '../stress/StressReportModal.vue'
 import StressResultPanel from '../stress/StressResultPanel.vue'
 import StressTab from '../stress/StressTab.vue'
 import ResizableSplitter from '../common/ResizableSplitter.vue'
 import ParamRow from '../io/ParamRow.vue'
-import type { ApiRequest, ParamItem, ParsedUrl, StressConfig } from '../../types'
+import type { ApiRequest, ParamItem, ParsedUrl, StressConfig, StressRun } from '../../types'
 
 type ParamMode = 'table' | 'kv' | 'json'
 
@@ -2746,14 +2750,36 @@ const stressStore = useStressStore()
 const showStressConfig = ref(false)
 const showStressResult = ref(false)
 
+// 压测 tab 发起（openResultModal=false）时，完成后自动弹报告（与 modal 入口的结果弹窗行为对齐）。
+// 协调放这里而不是 StressTab：只有这里区分两个入口，避免 modal 入口压测时报告/结果弹窗叠加。
+const showStressReport = ref(false)
+const stressReportRun = ref<StressRun | null>(null)
+let tabStressPending = false
+
+watch(() => stressStore.isDone, async (done) => {
+  if (!done || !tabStressPending) return
+  tabStressPending = false
+  const requestId = requestStore.activeRequest?.id
+  if (requestId == null) return
+  // done 事件在落库前 emit（Rust 侧先 emit 再 INSERT），稍等再拉历史；
+  // list_stress_runs 按 created_at DESC 排序，history[0] 即本次 run
+  await new Promise(r => setTimeout(r, 300))
+  await stressStore.loadHistory(requestId)
+  if (stressStore.history.length > 0) {
+    stressReportRun.value = stressStore.history[0]
+    showStressReport.value = true
+  }
+})
+
 async function handleStartStress(config: StressConfig, testCaseId: number | null, openResultModal = true) {
   // 先同步 kv/json 模式内容到 source of truth
   syncKvJsonToParams()
   if (bodyType.value === 'form_data' || bodyType.value === 'json_table') syncFormData()
   if (bodyType.value === 'form_urlencoded') syncUrlencodedData()
 
-  // 压测 tab 内启动时不弹结果弹窗，直接在当前 tab 看实时进度
+  // 压测 tab 内启动时不弹结果弹窗，直接在当前 tab 看实时进度；完成后由 isDone watch 自动弹报告
   if (openResultModal) showStressResult.value = true
+  else tabStressPending = true
 
   // 若选择了用例，使用用例的参数覆盖当前参数
   let stressMethod = method.value

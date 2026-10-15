@@ -7,10 +7,6 @@ export interface GuideContent {
 }
 
 export const GUIDE_CONTENT: Record<GuideId, GuideContent> = {
-  dictionary: {
-    title: '数据字典',
-    body: '把接口文档里反复出现的字段（如 code/msg/data）绑定为统一字典，描述与枚举自动带入参数表。点左侧 📖 按钮管理你的字典。',
-  },
   stress: {
     title: '压测',
     body: '对任意接口发起并发压测，实时查看 QPS、P95/P99 延迟与错误率，报告可导出 Markdown。',
@@ -31,15 +27,11 @@ export const GUIDE_CONTENT: Record<GuideId, GuideContent> = {
     title: '环境变量',
     body: '为不同环境（开发/测试/生产）维护变量集，URL 与参数里写 {{base_url}} 即可切换环境一键生效。',
   },
-  stats: {
-    title: '使用统计',
-    body: '这里汇总你的调试工作量：请求趋势、成功率、方法分布、字典与文档建设情况。全部数据仅保存在本机。',
-  },
   firstRequest: {
     title: '发出第一个请求',
     body: '左侧已备好「示例：」接口，选中后直接点发送即可看到真实响应；也可以从顶部 ⚙️ 菜单导入你的 Postman Collection。',
   },
-  // tour 的分步文案在下方 TOUR_STEPS；此处条目仅为满足 Record 全覆盖，不被 GuideTip/GuideBar 消费
+  // tour 的分步文案在下方 TOUR_STEPS；此处条目仅为满足 Record 全覆盖，不被 GuideBar 消费
   tour: { title: '功能导览', body: '' },
 }
 

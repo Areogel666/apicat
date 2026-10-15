@@ -11,14 +11,12 @@
           title="接口树"
           @click="leftPanel = 'interface'"
         >🔗</button>
-        <GuideTip guide-id="dictionary" :active="leftPanel === 'dictionary'">
-          <button
-            class="activity-item"
-            :class="{ active: leftPanel === 'dictionary' }"
-            title="数据字典"
-            @click="leftPanel = 'dictionary'"
-          >📖</button>
-        </GuideTip>
+        <button
+          class="activity-item"
+          :class="{ active: leftPanel === 'dictionary' }"
+          title="数据字典"
+          @click="leftPanel = 'dictionary'"
+        >📖</button>
         <button
           class="activity-item"
           :class="{ active: leftPanel === 'docs' }"
@@ -26,14 +24,12 @@
           @click="leftPanel = 'docs'"
         >📄</button>
 
-        <GuideTip guide-id="stats" :active="leftPanel === 'stats'">
-          <button
-            class="activity-item"
-            :class="{ active: leftPanel === 'stats' }"
-            title="使用统计"
-            @click="leftPanel = 'stats'"
-          >📊</button>
-        </GuideTip>
+        <button
+          class="activity-item"
+          :class="{ active: leftPanel === 'stats' }"
+          title="使用统计"
+          @click="leftPanel = 'stats'"
+        >📊</button>
       </div>
       <!-- 左右面板均常驻(v-show)，切换时保留全部浏览状态；折叠时整栏收起 -->
       <!-- hoverOpen 为临时预览：仅显示当前 leftPanel 对应栏，不改变 collapsed/不持久化 -->
@@ -92,7 +88,6 @@ import { ref, watch, computed } from 'vue'
 import TopBar from './TopBar.vue'
 import Sidebar from './Sidebar.vue'
 import DictionarySidebar from './DictionarySidebar.vue'
-import GuideTip from '../guide/GuideTip.vue'
 import StatsPanel from '../stats/StatsPanel.vue'
 import DictionaryJsonPanel from './DictionaryJsonPanel.vue'
 import MainPanel from './MainPanel.vue'

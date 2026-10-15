@@ -1,25 +1,27 @@
 /**
  * 新手指引状态：每个引导一个 seen 标记，持久化到 app-settings.json 的 guide.* 命名空间。
  * 口径：键不存在 = 未看过（老用户升级后各引导触发一次）。
+ *
+ * 1.0.9：面板级 GuideTip（dictionary/stats）已由首启 tour 承担并移除，
+ * 保留的都是 tour 覆盖不到的功能内上下文提示（GuideBar × 5 + firstRequest）。
  */
 import { reactive } from 'vue'
 import { defineStore } from 'pinia'
 import { readSetting, writeSetting, deleteSetting } from './_persistedSettings'
 
 export type GuideId =
-  | 'dictionary' | 'stress' | 'cookie' | 'skills'
-  | 'import' | 'env' | 'stats' | 'firstRequest' | 'tour'
+  | 'stress' | 'cookie' | 'skills' | 'import' | 'env' | 'firstRequest' | 'tour'
 
 export const GUIDE_IDS: readonly GuideId[] = [
-  'dictionary', 'stress', 'cookie', 'skills', 'import', 'env', 'stats', 'firstRequest', 'tour',
+  'stress', 'cookie', 'skills', 'import', 'env', 'firstRequest', 'tour',
 ]
 
 const keyOf = (id: GuideId) => `guide.${id}`
 
 export const useGuideStore = defineStore('guide', () => {
   const seen = reactive<Record<GuideId, boolean>>({
-    dictionary: false, stress: false, cookie: false, skills: false,
-    import: false, env: false, stats: false, firstRequest: false, tour: false,
+    stress: false, cookie: false, skills: false,
+    import: false, env: false, firstRequest: false, tour: false,
   })
 
   /** 启动时从 app-settings.json 载入各 seen 标记。读失败视为未看过（try/catch 在 readSetting 内）。 */
