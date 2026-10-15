@@ -91,6 +91,7 @@ import {
 } from 'naive-ui'
 import { useDictionaryStore } from '../../stores/dictionary'
 import { useProjectStore } from '../../stores/project'
+import { useTreeExpanded } from '../../composables/useTreeExpanded'
 import type { DictionaryItem, DataDictionary } from '../../types'
 
 const store = useDictionaryStore()
@@ -153,13 +154,18 @@ const treeData = computed<DictNode[]>(() =>
 // 1.0.5：默认只展开字典层（字典项收起）。
 // 必须用「受控展开」而非 default-expanded-keys：本组件 v-show 常驻，n-tree 在启动即挂载，
 // default-* 只在挂载那一刻读一次；dict 是异步加载的，之后新增节点不在初始集合里，naive 视为
-// 展开 → 字典项全开。受控后字典数据到达即把展开集合设为只含字典层。
-const expandedKeys = ref<string[]>([])
+// 展开 → 字典项全开。受控后字典数据到达即恢复持久化展开状态（1.0.9：不再强制重置为全展开）。
+const { expandedKeys, restore: restoreExpanded } = useTreeExpanded('dictionary')
 watch(
   () => store.dictionaries,
   (dicts) => {
     if (dicts && dicts.length) {
-      expandedKeys.value = dicts.map(d => `dict-${d.id}`)
+      const allKeys = dicts.map(d => `dict-${d.id}`)
+      const persisted = restoreExpanded()
+      expandedKeys.value = persisted
+        // 持久化值过滤掉已删除的字典；persisted 中不存在的新字典默认展开
+        ? [...new Set([...persisted.filter(k => allKeys.includes(k)), ...allKeys])]
+        : allKeys
     }
   },
   { immediate: true },

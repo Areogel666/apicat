@@ -24,6 +24,8 @@
       v-else
       :data="treeData"
       :selected-keys="selectedKey ? [selectedKey] : []"
+      v-model:expanded-keys="expandedKeys"
+      expand-on-click
       :render-label="renderLabel"
       :node-props="nodeProps"
       block-line
@@ -38,6 +40,7 @@ import { ref, computed, onMounted, watch, h } from 'vue'
 import { NInput, NButton, NTree, useMessage } from 'naive-ui'
 import { invoke } from '@tauri-apps/api/core'
 import { useProjectStore } from '../../stores/project'
+import { useTreeExpanded } from '../../composables/useTreeExpanded'
 
 interface DocFile {
   relative_path: string
@@ -60,6 +63,8 @@ const loading = ref(false)
 const files = ref<DocFile[]>([])
 const selectedKey = ref<string | null>(null)
 const selectedFile = ref<DocFile | null>(null)
+// 展开状态受控 + 按项目持久化（localStorage tree.expanded.docs:{pid}）；无记录时默认全收起
+const { expandedKeys, restore: restoreExpanded } = useTreeExpanded('docs')
 
 /** 文档根目录：优先 docs_output_dir，空则回落默认路径 */
 const resolvedDir = ref<string | null>(null)
@@ -176,6 +181,8 @@ async function refresh() {
   loading.value = true
   try {
     files.value = await invoke<DocFile[]>('scan_docs_dir', { dir })
+    // 目录结构可能变化，展开状态恢复到该项目的持久化值（失效 key 会被 NTree 忽略）
+    expandedKeys.value = restoreExpanded() ?? []
   } catch (e) {
     message.error(`扫描文档目录失败：${e}`)
     files.value = []

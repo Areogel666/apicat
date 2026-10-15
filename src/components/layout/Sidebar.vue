@@ -28,7 +28,7 @@
         :render-label="renderLabel"
         block-line
         expand-on-click
-        :default-expanded-keys="expandedKeys"
+        v-model:expanded-keys="expandedKeys"
         @update:selected-keys="onSelectNode"
       />
     </div>
@@ -141,6 +141,7 @@ import { parseCurl } from '../../utils/curlParser'
 import { copyText } from '../../utils/clipboard'
 import { useCollectionTreeDnd } from '../../composables/useCollectionTreeDnd'
 import { useTreePointerDnd } from '../../composables/useTreePointerDnd'
+import { useTreeExpanded } from '../../composables/useTreeExpanded'
 import type { ApiRequest, Collection, ParamItem } from '../../types'
 
 const projectStore = useProjectStore()
@@ -193,15 +194,24 @@ const NodeStatusDot = defineComponent({
 const searchText = ref('')
 const loading = ref(false)
 const creating = ref(false)
-const expandedKeys = ref<string[]>([])
+// 展开状态受控 + 按项目持久化（localStorage tree.expanded.interface:{pid}）
+const { expandedKeys, restore: restoreExpanded } = useTreeExpanded('interface')
 
-// 搜索时自动展开所有文件夹，以便显示匹配的接口
+// 搜索时自动展开所有文件夹以便显示匹配；清空搜索恢复搜索前的展开快照。
+// 快照还原会覆盖持久化值（watch 自动写盘），最终状态与用户搜索前一致。
+let expandedBeforeSearch: string[] | null = null
 watch(searchText, (keyword) => {
-  if (!keyword.trim()) return
-  const pid = currentProjectId.value
-  if (!pid) return
-  const cols = collectionStore.getCollections(pid)
-  expandedKeys.value = cols.map(c => `col-${c.id}`)
+  const hasKeyword = keyword.trim().length > 0
+  if (hasKeyword && expandedBeforeSearch === null) {
+    expandedBeforeSearch = [...expandedKeys.value]
+    const pid = currentProjectId.value
+    if (pid) {
+      expandedKeys.value = collectionStore.getCollections(pid).map(c => `col-${c.id}`)
+    }
+  } else if (!hasKeyword && expandedBeforeSearch !== null) {
+    expandedKeys.value = expandedBeforeSearch
+    expandedBeforeSearch = null
+  }
 })
 
 // 对话框状态
@@ -639,7 +649,10 @@ watch(currentProjectId, async (pid, oldPid) => {
     // 再次检查，只有最新的回调才更新 UI 状态
     if (seq !== loadSeq) return
     const cols = collectionStore.getCollections(pid)
-    expandedKeys.value = cols.slice(0, 3).map(c => `col-${c.id}`)
+    // 展开状态：优先恢复该项目持久化的值，无记录时默认展开前 3 个集合
+    expandedKeys.value = restoreExpanded(pid) ?? cols.slice(0, 3).map(c => `col-${c.id}`)
+    // 搜索快照随项目切换失效
+    expandedBeforeSearch = null
 
     // 恢复新项目的 Tab 状态，失败不阻断 UI 渲染
     try {
@@ -666,9 +679,7 @@ async function reloadCurrentProject() {
   try {
     await collectionStore.loadCollections(pid)
     await Promise.all(collectionStore.getCollections(pid).map(c => requestStore.loadRequests(c.id)))
-    if (seq !== loadSeq) return
-    const cols = collectionStore.getCollections(pid)
-    expandedKeys.value = cols.slice(0, 3).map(c => `col-${c.id}`)
+    // 刷新只重载数据，展开状态保持不变（受控 expandedKeys 已持久化，随用户操作实时更新）
   } finally {
     if (seq === loadSeq) {
       loading.value = false
