@@ -7,13 +7,17 @@
 
     <n-empty v-if="!currentProjectId" description="请先选择或创建项目" size="small" style="margin-top: 40px" />
     <div v-else class="dict-sidebar__body">
-      <n-input
-        v-model:value="dictSearch"
-        size="small"
-        clearable
-        placeholder="搜索字典 / 字典项"
-        class="dict-sidebar__search"
-      />
+      <div class="dict-sidebar__search-row">
+        <n-input
+          v-model:value="dictSearch"
+          size="small"
+          clearable
+          placeholder="搜索字典 / 字典项"
+          class="dict-sidebar__search"
+        />
+        <n-button size="small" quaternary title="全部展开" @click="expandAllDicts">⊞</n-button>
+        <n-button size="small" quaternary title="全部折叠" @click="collapseAllDicts">⊟</n-button>
+      </div>
       <div class="dict-sidebar__tree">
         <n-tree
           :data="filteredTree"
@@ -171,6 +175,14 @@ watch(
   },
   { immediate: true },
 )
+
+// ── 批量展开/折叠（⊞/⊟）：受控 expandedKeys 直接改，watch 自动写盘持久化 ──
+function expandAllDicts() {
+  expandedKeys.value = store.dictionaries.map(d => `dict-${d.id}`)
+}
+function collapseAllDicts() {
+  expandedKeys.value = []
+}
 
 // 1.0.4 fix：字典树搜索（按字典 code/name 或字典项 value/label 过滤）
 const dictSearch = ref('')
@@ -479,9 +491,17 @@ watch(currentProjectId, (pid) => {
   min-height: 0;
   overflow: hidden;
 }
-.dict-sidebar__search {
+.dict-sidebar__search-row {
   padding: var(--spacing-xs) var(--spacing-sm) 0;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.dict-sidebar__search-row .dict-sidebar__search {
+  padding: 0;
+  flex: 1;
+  min-width: 0;
 }
 .dict-sidebar__tree {
   flex: 1;

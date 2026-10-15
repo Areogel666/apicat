@@ -8,6 +8,22 @@
       <n-button
         size="small"
         quaternary
+        :disabled="!currentProjectId"
+        title="全部展开"
+        style="flex-shrink: 0"
+        @click="expandAll"
+      >⊞</n-button>
+      <n-button
+        size="small"
+        quaternary
+        :disabled="!currentProjectId"
+        title="全部折叠"
+        style="flex-shrink: 0"
+        @click="collapseAll"
+      >⊟</n-button>
+      <n-button
+        size="small"
+        quaternary
         :loading="loading"
         :disabled="!currentProjectId"
         title="刷新目录"
@@ -670,6 +686,17 @@ watch(currentProjectId, async (pid, oldPid) => {
     }
   }
 }, { immediate: true })
+
+// ── 批量展开/折叠（⊞/⊟）：受控 expandedKeys 直接改，watch 自动写盘持久化 ──
+function expandAll() {
+  const pid = currentProjectId.value
+  if (!pid) return
+  // getCollections 返回该项目全部集合（含嵌套子集合），正好是树里所有 col-* 节点
+  expandedKeys.value = collectionStore.getCollections(pid).map(c => `col-${c.id}`)
+}
+function collapseAll() {
+  expandedKeys.value = []
+}
 
 // ── 导入后强制刷新当前项目数据 ───────────────────────────────
 // 场景：导入到"当前项目"时 currentProjectId 值不变，watch 不会触发，

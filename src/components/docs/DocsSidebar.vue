@@ -8,6 +8,8 @@
         clearable
         class="search-input"
       />
+      <n-button size="small" quaternary title="全部展开" @click="expandAllDirs">⊞</n-button>
+      <n-button size="small" quaternary title="全部折叠" @click="expandedKeys = []">⊟</n-button>
       <n-button size="small" quaternary title="刷新" @click="refresh">↻</n-button>
     </div>
 
@@ -189,6 +191,22 @@ async function refresh() {
   } finally {
     loading.value = false
   }
+}
+
+/** 收集树中所有目录节点 key（有 children 的），供「全部展开」 */
+function collectDirKeys(nodes: TreeNode[], acc: string[] = []): string[] {
+  for (const n of nodes) {
+    if (n.children?.length) {
+      acc.push(n.key)
+      collectDirKeys(n.children as TreeNode[], acc)
+    }
+  }
+  return acc
+}
+
+// 批量展开/折叠（⊞/⊟）：受控 expandedKeys 直接改，watch 自动写盘持久化
+function expandAllDirs() {
+  expandedKeys.value = collectDirKeys(treeData.value)
 }
 
 function onSelect(keys: string[]) {
