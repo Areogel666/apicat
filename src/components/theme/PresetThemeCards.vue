@@ -40,6 +40,8 @@ function selectPreset(preset: ThemePreset) {
   themeStore.density = preset.density
   themeStore.radiusScale = preset.radiusScale
   themeStore.fontSize = preset.fontSize
+  // 1.0.9 玻璃质感随预设走（非玻璃预设必须显式关闭，否则从冰晶切走会残留）
+  themeStore.glass = preset.glass === true
   themeStore.applyTheme()
 }
 </script>

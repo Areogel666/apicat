@@ -40,6 +40,8 @@ export const useThemeStore = defineStore('theme', () => {
   const radiusScale = ref<0.5 | 1.0 | 1.5>(1.0)
   /** 基础字号 */
   const fontSize = ref<'s' | 'm' | 'l'>('m')
+  /** 1.0.9 玻璃质感：卡片/弹窗半透明 + backdrop blur（由带 glass 标记的预设开启，无手动开关） */
+  const glass = ref(false)
 
   /** 实际生效的两态：light 或 dark */
   const effectiveMode = computed<'light' | 'dark'>(() => {
@@ -60,19 +62,35 @@ export const useThemeStore = defineStore('theme', () => {
 
   /**
    * NaiveUI overrides：从 resolvedTokens 读取主色，确保 NaiveUI 组件主色与自定义组件一致。
+   * 1.0.9 补两块：
+   * - 圆角联动：radiusScale 一直只作用于自定义组件（--radius-*），n-button 等 NaiveUI
+   *   控件始终是内置 3px——按项目三档换算注入 common.borderRadius(Small)。
+   * - 玻璃态：glass 开启时 NaiveUI 表面色（card/modal/popover）同步半透明，
+   *   backdrop blur 由 CSS 侧 data-glass 规则负责（styles/glass.css）。
    */
   const naiveOverrides = computed<GlobalThemeOverrides>(() => {
     void themeTick.value
     const t = resolvedTokens.value
     const primary = t['--color-primary']
     if (!primary) return {}
-    return {
-      common: {
-        primaryColor:        primary,
-        primaryColorHover:   t['--color-primary-hover'] || primary,
-        primaryColorPressed: t['--color-primary-press'] || primary,
-      },
+    const scale = radiusScale.value
+    const common: NonNullable<GlobalThemeOverrides['common']> = {
+      primaryColor:        primary,
+      primaryColorHover:   t['--color-primary-hover'] || primary,
+      primaryColorPressed: t['--color-primary-press'] || primary,
+      borderRadius: `${6 * scale}px`,
+      borderRadiusSmall: `${4 * scale}px`,
     }
+    if (glass.value) {
+      const surface = t['--bg-surface']
+      const elevated = t['--bg-elevated']
+      if (surface) common.cardColor = surface
+      if (elevated) {
+        common.modalColor = elevated
+        common.popoverColor = elevated
+      }
+    }
+    return { common }
   })
 
   /** 写 <html data-theme> + 自定义 token + 风格预设 */
@@ -95,6 +113,9 @@ export const useThemeStore = defineStore('theme', () => {
     // 3. 风格预设
     el.setAttribute('data-density', density.value)
     el.setAttribute('data-font-size', fontSize.value)
+    // 1.0.9 玻璃质感开关：glass.css 的 backdrop-filter 规则由此属性驱动
+    if (glass.value) el.setAttribute('data-glass', '1')
+    else el.removeAttribute('data-glass')
 
     // 4. 圆角缩放（JS 计算，避免 CSS calc() 兼容问题）
     const scale = radiusScale.value
@@ -130,6 +151,7 @@ export const useThemeStore = defineStore('theme', () => {
     await writeSetting('theme.density', density.value)
     await writeSetting('theme.radiusScale', radiusScale.value)
     await writeSetting('theme.fontSize', fontSize.value)
+    await writeSetting('theme.glass', glass.value)
     applyTheme()
   }
 
@@ -141,6 +163,7 @@ export const useThemeStore = defineStore('theme', () => {
     density: 'compact' | 'default' | 'spacious'
     radiusScale: 0.5 | 1.0 | 1.5
     fontSize: 's' | 'm' | 'l'
+    glass: boolean
   }
   let themeSnapshot: ThemeSnapshot | null = null
 
@@ -152,6 +175,7 @@ export const useThemeStore = defineStore('theme', () => {
       density: density.value,
       radiusScale: radiusScale.value,
       fontSize: fontSize.value,
+      glass: glass.value,
     }
   }
 
@@ -163,6 +187,7 @@ export const useThemeStore = defineStore('theme', () => {
     density.value = themeSnapshot.density
     radiusScale.value = themeSnapshot.radiusScale
     fontSize.value = themeSnapshot.fontSize
+    glass.value = themeSnapshot.glass
     themeSnapshot = null
     applyTheme()
   }
@@ -180,10 +205,12 @@ export const useThemeStore = defineStore('theme', () => {
     density.value = 'default'
     radiusScale.value = 1.0
     fontSize.value = 'm'
+    glass.value = false
     await deleteSetting('theme.customTokens')
     await deleteSetting('theme.density')
     await deleteSetting('theme.radiusScale')
     await deleteSetting('theme.fontSize')
+    await deleteSetting('theme.glass')
     applyTheme()
   }
 
@@ -210,6 +237,10 @@ export const useThemeStore = defineStore('theme', () => {
     const fs = await readSetting<string>('theme.fontSize')
     if (fs === 's' || fs === 'm' || fs === 'l') fontSize.value = fs
 
+    // 1.0.9 玻璃质感
+    const g = await readSetting<boolean>('theme.glass')
+    glass.value = g === true
+
     applyTheme()
   }
 
@@ -227,6 +258,7 @@ export const useThemeStore = defineStore('theme', () => {
     density,
     radiusScale,
     fontSize,
+    glass,
     resolvedTokens,
     applyTheme,
     applyCustomTheme,

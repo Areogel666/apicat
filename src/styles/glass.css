@@ -1,0 +1,28 @@
+/* 1.0.9 玻璃质感：data-glass 属性（themeStore.glass，由冰晶预设开启）下，
+   高频表面启用 backdrop blur。半透明底色由预设 token（--bg-surface/--bg-elevated）
+   + themeOverrides（cardColor/modalColor/popoverColor）提供，本文件只负责模糊。
+   旧 webkitGTK 不支持 backdrop-filter 时规则被忽略，仅剩半透明——天然降级。 */
+
+html[data-glass='1'] .n-modal,
+html[data-glass='1'] .n-card,
+html[data-glass='1'] .n-popover,
+html[data-glass='1'] .n-dropdown-menu,
+html[data-glass='1'] .n-drawer,
+html[data-glass='1'] .stats-section,
+html[data-glass='1'] .theme-studio {
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  html[data-glass='1'] .n-modal,
+  html[data-glass='1'] .n-card,
+  html[data-glass='1'] .n-popover,
+  html[data-glass='1'] .n-dropdown-menu,
+  html[data-glass='1'] .n-drawer,
+  html[data-glass='1'] .stats-section,
+  html[data-glass='1'] .theme-studio {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
