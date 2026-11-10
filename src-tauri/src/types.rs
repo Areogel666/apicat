@@ -152,6 +152,8 @@ pub struct TestCase {
     pub last_response: Option<String>,
     pub enabled: i64, // 0 | 1
     pub sort_order: i64,
+    /// 1.0.10：下方用例条是否隐藏（管理面板仍可见，非禁用）
+    pub hidden: i64, // 0 | 1
     pub created_at: String,
     pub updated_at: String,
 }

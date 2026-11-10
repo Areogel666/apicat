@@ -2264,6 +2264,10 @@ async function handleSend() {
   const activeReq = requestStore.activeRequest
   if (!activeReq) return
 
+  // 发送前把响应视图切到本次要写入的桶：运行过别的用例后视图可能停在那个用例桶，
+  // 此时网络失败（resp=null）错误会写进不可见桶，界面看起来毫无反应。
+  responseStore.setCurrent(activeReq.id, testCaseStore.activeTestCaseId)
+
   const pathParamList: ParamItem[] = parsedUrl.value?.pathParams.map(p => ({
     key: p.key,
     value: pathParamValues.value[p.key] ?? p.value,
@@ -2358,15 +2362,12 @@ async function handleSend() {
     checkParamsDirty()
   }
 
-  // 刷新用例历史（数据已在 send_request 时写入 request_history）
-  const activeTestCaseId = testCaseStore.activeTestCaseId
-  if (activeTestCaseId !== null) {
+  // 口径乙：后端已更新该用例 last_run_at，重拉列表让「最近使用」排序反映本次发送
+  if (testCaseStore.activeTestCaseId !== null) {
     try {
-      await testCaseStore.loadHistory(activeTestCaseId)
-      // 口径乙：后端已更新该用例 last_run_at，重拉列表让「最近使用」排序反映本次发送
       await testCaseStore.loadTestCases(activeReq.id)
     } catch (e) {
-      console.warn('[testCase] loadHistory failed:', e)
+      console.warn('[testCase] loadTestCases failed:', e)
     }
   }
 }

@@ -31,7 +31,7 @@ use commands::{
     send_request::{get_history_record, list_history, send_request, open_response_file, export_response_file, cleanup_history, file_meta},
     test_case::{
         create_test_case, delete_test_case, list_test_cases, update_test_case,
-        list_test_case_history, delete_test_cases,
+        list_test_case_history, delete_test_cases, set_test_cases_hidden,
     },
     test_case_run::run_test_case,
     stress::{start_stress, list_stress_runs, delete_stress_run, get_stress_report},
@@ -101,7 +101,7 @@ pub fn run() {
             list_env_variables, create_env_variable, update_env_variable, delete_env_variable,
             list_cookies, create_cookie, update_cookie, delete_cookie, get_cookies_for_domain,
             list_test_cases, create_test_case, update_test_case, delete_test_case,
-            list_test_case_history, delete_test_cases,
+            list_test_case_history, delete_test_cases, set_test_cases_hidden,
             run_test_case,
             list_dictionaries, create_dictionary, update_dictionary, delete_dictionary,
             list_dictionary_items, create_dictionary_item, update_dictionary_item, delete_dictionary_item,

@@ -147,7 +147,7 @@ pub async fn send(client: &reqwest::Client, params: &SendRequestParams) -> Resul
         "form_urlencoded" => {
             builder = builder
                 .header("Content-Type", "application/x-www-form-urlencoded")
-                .body(params.body.clone());
+                .body(encode_form_urlencoded(&params.body));
         }
         "form_data" => {
             // body 为 JSON 数组 [{key, value, enabled, type}]；type="file" 的字段
@@ -234,6 +234,33 @@ pub async fn send(client: &reqwest::Client, params: &SendRequestParams) -> Resul
         // 同理：cookie 注入发生在 command 层，跳过数也由那里回填
         cookie_skipped: 0,
     })
+}
+
+/// URL-Encoded body 的「线上形态」是 `k=v&...`，但 1.0.4 起 UI 的「存储形态」
+/// 是结构化 ParamItem[]，普通发送由前端 `syncUrlencodedData()` 预先编码。
+/// 用例执行 / Bridge 等入口不经过前端，若把 JSON 数组原文当表单发出去，
+/// 服务端解析不到任何字段（实测 420「参数不能为空 sdk」的根因）。
+///
+/// 在发送边界做幂等兜底：能解析为 ParamItem[] 就按表单编码（只取 enabled），
+/// 旧 k=v 文本或坏数据原样发送，不影响已有调用方。
+fn encode_form_urlencoded(body: &str) -> String {
+    let trimmed = body.trim_start();
+    if !trimmed.starts_with('[') {
+        return body.to_string();
+    }
+    let Ok(fields) = serde_json::from_str::<Vec<ParamItem>>(trimmed) else {
+        return body.to_string();
+    };
+    // 复用 reqwest::Url 的 query 序列化器，与 query 参数共用同一套
+    // application/x-www-form-urlencoded 编码规则（空格 -> +、UTF-8 百分号编码）
+    let mut url = reqwest::Url::parse("http://apicat.local/").expect("dummy url 恒定合法");
+    {
+        let mut pairs = url.query_pairs_mut();
+        for f in fields.iter().filter(|f| f.enabled && !f.key.is_empty()) {
+            pairs.append_pair(&f.key, &f.value);
+        }
+    }
+    url.query().unwrap_or("").to_string()
 }
 
 /// 从路径提取文件名（multipart part 的 filename，服务器多靠它识别文件类型）
@@ -345,6 +372,73 @@ mod tests {
                 "[{{\"key\":\"file\",\"value\":\"{}\",\"enabled\":true,\"type\":\"file\"}}]",
                 fpath.display()
             ),
+            path_params: vec![],
+            auth_type: String::new(),
+            auth_config: String::new(),
+        };
+        let client = reqwest::Client::new();
+        let resp = send(&client, &params).await.unwrap();
+        assert_eq!(resp.status_code, 200);
+    }
+
+    /// 端到端：结构化 ParamItem[] body（UI 的存储形态）在发送边界必须编码成 k=v。
+    /// 用例执行 / Bridge 等入口没有前端 syncUrlencodedData() 那一步，漏编码会把
+    /// JSON 数组原文当表单发出，服务端收不到任何字段（实测 420「参数不能为空 sdk」）。
+    #[tokio::test]
+    async fn form_urlencoded_structured_body_is_sent_as_kv() {
+        let app = axum::Router::new().route(
+            "/form",
+            axum::routing::post(|headers: axum::http::HeaderMap, body: String| async move {
+                let ct = headers.get("content-type").unwrap().to_str().unwrap();
+                assert!(ct.starts_with("application/x-www-form-urlencoded"));
+                assert!(body.contains("sdk=37"), "表单里缺 sdk=37，实际 body: {body}");
+                assert!(body.contains("resolution=1600"), "表单里缺 resolution，实际 body: {body}");
+                assert!(!body.contains("disabled="), "disabled 字段不应发送，实际 body: {body}");
+                assert!(!body.starts_with('['), "不得把结构化 JSON 数组原文当表单发送");
+                axum::http::StatusCode::OK
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let params = SendRequestParams {
+            method: "POST".into(),
+            url: format!("http://{addr}/form"),
+            query_params: vec![],
+            headers: vec![],
+            body_type: "form_urlencoded".into(),
+            body: r#"[{"key":"sdk","value":"37","enabled":true},{"key":"resolution","value":"1600*2560","enabled":true},{"key":"disabled","value":"x","enabled":false}]"#.into(),
+            path_params: vec![],
+            auth_type: String::new(),
+            auth_config: String::new(),
+        };
+        let client = reqwest::Client::new();
+        let resp = send(&client, &params).await.unwrap();
+        assert_eq!(resp.status_code, 200);
+    }
+
+    /// 旧格式（已是 k=v 文本）必须原样透传，不能被二次编码
+    #[tokio::test]
+    async fn form_urlencoded_legacy_kv_body_passes_through() {
+        let app = axum::Router::new().route(
+            "/form",
+            axum::routing::post(|body: String| async move {
+                assert_eq!(body, "a=1&b=2");
+                axum::http::StatusCode::OK
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let params = SendRequestParams {
+            method: "POST".into(),
+            url: format!("http://{addr}/form"),
+            query_params: vec![],
+            headers: vec![],
+            body_type: "form_urlencoded".into(),
+            body: "a=1&b=2".into(),
             path_params: vec![],
             auth_type: String::new(),
             auth_config: String::new(),

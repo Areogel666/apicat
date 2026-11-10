@@ -219,3 +219,32 @@ pub async fn delete_test_cases(
     let result = q.execute(&db.0).await?;
     Ok(result.rows_affected())
 }
+
+/// 批量设置用例是否在下方用例条隐藏（1.0.10）。只影响 TestCaseBar 的展示，
+/// 不改变 enabled/可执行性，管理面板始终可见。IPC 与 Bridge 共用此实现。
+pub async fn set_test_cases_hidden_impl(
+    pool: &sqlx::SqlitePool,
+    ids: &[i64],
+    hidden: bool,
+) -> Result<u64, crate::error::AppError> {
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    let placeholders = std::iter::repeat("?").take(ids.len()).collect::<Vec<_>>().join(",");
+    let sql = format!("UPDATE test_cases SET hidden=? WHERE id IN ({placeholders})");
+    let mut q = sqlx::query(&sql).bind(if hidden { 1i64 } else { 0i64 });
+    for id in ids {
+        q = q.bind(id);
+    }
+    let result = q.execute(pool).await?;
+    Ok(result.rows_affected())
+}
+
+#[tauri::command]
+pub async fn set_test_cases_hidden(
+    db: State<'_, AppDb>,
+    ids: Vec<i64>,
+    hidden: bool,
+) -> CmdResult<u64> {
+    Ok(set_test_cases_hidden_impl(&db.0, &ids, hidden).await?)
+}

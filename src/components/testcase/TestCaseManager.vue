@@ -1,70 +1,40 @@
 <template>
   <div class="testcase-manager">
-    <!-- 左右分栏主体 -->
+    <!-- 单列表面板：左右分栏已移除，历史统一去下方 Response → History 区 -->
     <div class="manager-body">
-      <!-- 左：用例列表（NDataTable） -->
-      <div class="case-list" :style="{ flex: `0 0 ${caseListWidth}px`, minWidth: '200px' }">
-        <div v-if="cases.length === 0" class="empty">
-          当前接口暂无用例。<br>
-          <span class="hint">发起一次请求会自动生成用例。</span>
-        </div>
-        <template v-else>
-          <div class="list-toolbar">
-            <n-select
-              v-model:value="typeFilter"
-              :options="typeFilterOptions"
-              size="tiny"
-              placeholder="全部类型"
-              clearable
-              class="type-filter"
-            />
-          </div>
-          <n-data-table
-            :columns="columns"
-            :data="filteredCases"
-            :row-key="rowKey"
-            v-model:checked-row-keys="checkedIds"
-            :pagination="false"
-            :flex-height="true"
-            :row-class-name="rowClassName"
-            :row-props="rowProps"
-            size="small"
-            class="case-table"
-          />
-        </template>
+      <div v-if="cases.length === 0" class="empty">
+        当前接口暂无用例。<br>
+        <span class="hint">发起一次请求会自动生成用例。</span>
       </div>
-
-      <ResizableSplitter
-        direction="horizontal"
-        :default-size="caseListWidth"
-        :min-size="200"
-        :max-size="600"
-        storage-key="layout.testcaseLeftWidth"
-        @resize="(w: number) => caseListWidth = w"
-      />
-
-      <!-- 右：历史详情 -->
-      <div class="history-pane" style="flex: 1; min-width: 280px">
-        <template v-if="!focusedCase">
-          <div class="empty">从左侧选择一个用例查看历史</div>
-        </template>
-        <template v-else>
-          <header class="history-header">
-            <div class="history-title">
-              <span class="case-name">{{ focusedCase.name }}</span>
-            </div>
-            <n-button size="tiny" quaternary :loading="loadingHistory" @click="reloadHistory">
-              ↻ 刷新
-            </n-button>
-          </header>
-          <div v-if="historyList.length === 0" class="empty">
-            暂无历史调用。<br>
-            <span class="hint">激活此用例后发起请求会记录到这里（最多保留最近 10 次）。</span>
-          </div>
-          <div v-else class="history-list">
-            <HistoryItem v-for="h in historyList" :key="h.id" :record="h" />
-          </div>
-        </template>
+      <div v-else class="case-list">
+        <div class="list-toolbar">
+          <n-select
+            v-model:value="typeFilter"
+            :options="typeFilterOptions"
+            size="tiny"
+            placeholder="全部类型"
+            clearable
+            class="type-filter"
+          />
+          <n-select
+            v-model:value="viewFilter"
+            :options="viewFilterOptions"
+            size="tiny"
+            class="view-filter"
+          />
+        </div>
+        <n-data-table
+          :columns="columns"
+          :data="filteredCases"
+          :row-key="rowKey"
+          v-model:checked-row-keys="checkedIds"
+          :pagination="false"
+          :flex-height="true"
+          :row-class-name="rowClassName"
+          :row-props="rowProps"
+          size="small"
+          class="case-table"
+        />
       </div>
     </div>
 
@@ -72,31 +42,39 @@
     <footer class="manager-footer">
       <span class="footer-info">
         <template v-if="checkedIds.length > 0">
-          已选 {{ checkedIds.length }} / {{ cases.length }}
+          已选 {{ checkedIds.length }} / {{ filteredCases.length }}
         </template>
         <template v-else>
           共 {{ cases.length }} 个用例
         </template>
       </span>
-      <n-popconfirm
-        :show-icon="false"
-        :positive-button-props="{ type: 'error' }"
-        @positive-click="onBatchDelete"
-      >
-        <template #trigger>
-          <n-button
-            type="error"
-            size="small"
-            :disabled="checkedIds.length === 0"
-          >
-            批量删除（{{ checkedIds.length }}）
-          </n-button>
-        </template>
-        确定删除选中的 {{ checkedIds.length }} 个用例？此操作不可恢复。
-      </n-popconfirm>
+      <div class="footer-actions">
+        <n-button size="small" :disabled="checkedIds.length === 0" @click="onBatchHide(true)">
+          隐藏
+        </n-button>
+        <n-button size="small" :disabled="checkedIds.length === 0" @click="onBatchHide(false)">
+          取消隐藏
+        </n-button>
+        <n-popconfirm
+          :show-icon="false"
+          :positive-button-props="{ type: 'error' }"
+          @positive-click="onBatchDelete"
+        >
+          <template #trigger>
+            <n-button
+              type="error"
+              size="small"
+              :disabled="checkedIds.length === 0"
+            >
+              批量删除（{{ checkedIds.length }}）
+            </n-button>
+          </template>
+          确定删除选中的 {{ checkedIds.length }} 个用例？此操作不可恢复。
+        </n-popconfirm>
+      </div>
     </footer>
 
-    <!-- 重命名弹窗（右键菜单触发） -->
+    <!-- 重命名弹窗（双击行 / 右键菜单 / 行内 ✎ 触发） -->
     <n-modal v-model:show="showRenameModal" preset="dialog" title="重命名用例" :show-icon="false">
       <n-input
         ref="renameInputRef"
@@ -144,8 +122,6 @@ import {
 } from 'naive-ui'
 import { useTestCaseStore } from '../../stores/testCase'
 import { CASE_TYPE_LABELS, type CaseType, type RunCaseResult, type TestCase } from '../../types'
-import HistoryItem from './HistoryItem.vue'
-import ResizableSplitter from '../common/ResizableSplitter.vue'
 import AssertionEditor from './AssertionEditor.vue'
 import RunResultPanel from './RunResultPanel.vue'
 
@@ -164,18 +140,34 @@ const cases = computed<TestCase[]>(() => {
   return testCaseStore.getByRequestId(props.requestId)
 })
 
-// ── 类型筛选（1.0.5）────────────────────────────────────────
+// ── 筛选（1.0.5 类型；1.0.10 显示状态）────────────────────────
 const typeFilter = ref<CaseType | null>(null)
 
 const typeFilterOptions = Object.entries(CASE_TYPE_LABELS).map(([value, label]) => ({
   value, label,
 }))
 
-const filteredCases = computed<TestCase[]>(() =>
-  typeFilter.value == null
-    ? cases.value
-    : cases.value.filter(c => c.case_type === typeFilter.value),
-)
+type ViewFilter = 'all' | 'visible' | 'hidden'
+const viewFilter = ref<ViewFilter>('all')
+
+const viewFilterOptions: Array<{ value: ViewFilter; label: string }> = [
+  { value: 'all', label: '全部' },
+  { value: 'visible', label: '仅显示' },
+  { value: 'hidden', label: '仅隐藏' },
+]
+
+const filteredCases = computed<TestCase[]>(() => {
+  let list = cases.value
+  if (typeFilter.value != null) {
+    list = list.filter(c => c.case_type === typeFilter.value)
+  }
+  if (viewFilter.value === 'visible') {
+    list = list.filter(c => c.hidden !== 1)
+  } else if (viewFilter.value === 'hidden') {
+    list = list.filter(c => c.hidden === 1)
+  }
+  return list
+})
 
 // ── 1.0.5：跑用例 + 断言编辑 ───────────────────────────────
 const showAssertionEditor = ref(false)
@@ -206,6 +198,7 @@ async function runCase(row: TestCase) {
   if (runningCaseId.value != null) return
   runningCaseId.value = row.id
   try {
+    // 1.0.10：store 内部会把本次响应写入下方响应区并刷新 History
     const result = await testCaseStore.runTestCase(row.id)
     runResult.value = result
     showRunResult.value = true
@@ -216,26 +209,8 @@ async function runCase(row: TestCase) {
   }
 }
 
-// 多选（批量删除目标）
+// 多选（批量删除 / 批量隐藏）
 const checkedIds = ref<DataTableRowKey[]>([])
-
-// 高亮（右栏要展示哪个用例的历史）—— 与 checkedIds 完全正交
-const focusedId = ref<number | null>(null)
-const focusedCase = computed<TestCase | null>(() =>
-  cases.value.find(c => c.id === focusedId.value) ?? null
-)
-
-const historyList = computed(() => {
-  if (focusedId.value === null) return []
-  return testCaseStore.historyMap[focusedId.value] ?? []
-})
-
-const loadingHistory = ref(false)
-
-// 分栏拖拽：用例列表宽度
-const caseListWidth = ref(
-  Number(localStorage.getItem('layout.testcaseLeftWidth') ?? 320)
-)
 
 // ── 行配置 ────────────────────────────────────────────────────
 
@@ -244,16 +219,13 @@ function rowKey(row: TestCase): number {
 }
 
 function rowClassName(row: TestCase): string {
-  return row.id === focusedId.value ? 'focused-row' : ''
+  return row.hidden === 1 ? 'hidden-row' : ''
 }
 
 function rowProps(row: TestCase) {
   return {
-    style: 'cursor: pointer',
-    onClick: () => focusCase(row.id),
     onContextmenu: (e: MouseEvent) => openContextMenu(e, row),
     onDblclick: (e: MouseEvent) => {
-      // 双击行 → 进入重命名（避免触发 focusCase 切换）
       e.stopPropagation()
       startRename(row)
     },
@@ -277,6 +249,9 @@ const columns: DataTableColumns<TestCase> = [
     render: (row) => h('span', { class: 'cell-name' }, [
       h('span', { class: `type-badge type-${row.case_type}` }, CASE_TYPE_LABELS[row.case_type] ?? row.case_type),
       row.name,
+      row.hidden === 1
+        ? h('span', { class: 'hidden-badge', title: '不在下方用例条展示' }, '隐藏')
+        : null,
       (() => {
         const n = assertionCount(row)
         return n > 0
@@ -308,7 +283,7 @@ const columns: DataTableColumns<TestCase> = [
   {
     title: '',
     key: 'actions',
-    width: 64,
+    width: 84,
     render: (row) => h('span', { class: 'action-btns' }, [
       h('button', {
         class: 'run-btn',
@@ -321,6 +296,11 @@ const columns: DataTableColumns<TestCase> = [
         title: '编辑断言',
         onClick: (e: MouseEvent) => { e.stopPropagation(); openAssertionEditor(row) },
       }, '⚖'),
+      h('button', {
+        class: 'run-btn',
+        title: '重命名',
+        onClick: (e: MouseEvent) => { e.stopPropagation(); startRename(row) },
+      }, '✎'),
     ]),
   },
   {
@@ -347,35 +327,6 @@ function formatRelative(s: string): string {
 
 // ── 行为 ──────────────────────────────────────────────────────
 
-async function focusCase(id: number) {
-  // 防止重复点击触发不必要的重新渲染
-  if (focusedId.value === id) return
-  focusedId.value = id
-  // 懒加载历史（首次或切换时）
-  if (!testCaseStore.historyMap[id]) {
-    loadingHistory.value = true
-    try {
-      await testCaseStore.loadHistory(id)
-    } catch (e) {
-      message.error(`加载历史失败：${e}`)
-    } finally {
-      loadingHistory.value = false
-    }
-  }
-}
-
-async function reloadHistory() {
-  if (focusedId.value === null) return
-  loadingHistory.value = true
-  try {
-    await testCaseStore.loadHistory(focusedId.value)
-  } catch (e) {
-    message.error(`刷新失败：${e}`)
-  } finally {
-    loadingHistory.value = false
-  }
-}
-
 async function onBatchDelete() {
   const ids = checkedIds.value.map(Number)
   if (ids.length === 0) return
@@ -383,11 +334,21 @@ async function onBatchDelete() {
     const affected = await testCaseStore.deleteTestCases(ids)
     message.success(`已删除 ${affected} 个用例`)
     checkedIds.value = []
-    if (focusedId.value !== null && ids.includes(focusedId.value)) {
-      focusedId.value = null
-    }
   } catch (e) {
     message.error(`删除失败：${e}`)
+  }
+}
+
+/** 批量隐藏/取消隐藏：只影响下方用例条，管理面板始终可见 */
+async function onBatchHide(hidden: boolean) {
+  const ids = checkedIds.value.map(Number)
+  if (ids.length === 0) return
+  try {
+    const affected = await testCaseStore.setTestCasesHidden(ids, hidden)
+    message.success(hidden ? `已隐藏 ${affected} 个用例` : `已取消隐藏 ${affected} 个用例`)
+    checkedIds.value = []
+  } catch (e) {
+    message.error(`${hidden ? '隐藏' : '取消隐藏'}失败：${e}`)
   }
 }
 
@@ -467,24 +428,23 @@ async function handleContextMenuSelect(key: string) {
     try {
       await testCaseStore.deleteTestCase(id)
       message.success('已删除')
-      if (focusedId.value === id) focusedId.value = null
     } catch (e) {
       message.error(`删除失败：${e}`)
     }
   }
 }
 
-// ── 跨接口切换：重置选中、高亮、类型筛选 ──────────────────────
+// ── 跨接口切换：重置选中与筛选 ────────────────────────────────
 
 watch(() => props.requestId, () => {
-  focusedId.value = null
   checkedIds.value = []
   typeFilter.value = null
+  viewFilter.value = 'all'
 })
 
-// 筛选变化时，清掉已隐藏行的勾选（防止批量删除误删不可见行）
-watch(typeFilter, () => {
-  const visible = new Set(filteredCases.value.map(c => c.id))
+// 列表数据或筛选变化时，清掉已不可见行的勾选（批量操作只作用于可见行）
+watch(() => filteredCases.value.map(c => c.id), (ids) => {
+  const visible = new Set(ids)
   checkedIds.value = checkedIds.value.filter(id => visible.has(Number(id)))
 })
 </script>
@@ -500,14 +460,14 @@ watch(typeFilter, () => {
 .manager-body {
   flex: 1;
   display: flex;
-  gap: 8px;
   overflow: hidden;
   padding: 8px 4px 4px;
   min-height: 0;
 }
 
-/* 左列：用例列表（宽度由分栏拖拽控制） */
+/* 单列表面板（原左右分栏已移除） */
 .case-list {
+  flex: 1;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -516,18 +476,22 @@ watch(typeFilter, () => {
   background: var(--bg-elevated);
 }
 
-/* 类型筛选工具条 */
+/* 筛选工具条 */
 .list-toolbar {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
   border-bottom: 1px solid var(--border-base);
   flex-shrink: 0;
 }
 
 .list-toolbar .type-filter {
   flex: 1;
+}
+
+.list-toolbar .view-filter {
+  width: 88px;
 }
 
 /* NDataTable 在 flex-height 模式下需要显式高度才能正确计算 tbody 滚动容器
@@ -550,53 +514,6 @@ watch(typeFilter, () => {
   height: 100%;
 }
 
-/* 右列：历史详情（宽度自适应剩余空间） */
-.history-pane {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--border-base);
-  border-radius: var(--radius-md);
-  background: var(--bg-elevated);
-}
-
-.history-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border-base);
-  flex-shrink: 0;
-}
-
-.history-title {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.history-title .star {
-  font-size: 12px;
-  flex-shrink: 0;
-}
-
-.history-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
 .empty {
   padding: 24px 16px;
   text-align: center;
@@ -615,8 +532,8 @@ watch(typeFilter, () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 6px 8px;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
   border-top: 1px solid var(--border-base);
   background: var(--bg-surface);
   flex-shrink: 0;
@@ -626,20 +543,21 @@ watch(typeFilter, () => {
   font-size: 12px;
   color: var(--text-secondary);
 }
+
+.footer-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
 </style>
 
-<!-- 全局样式：用例列表选中行高亮 + 类型 badge（NDataTable render 函数产物拿不到 scoped 属性） -->
+<!-- 全局样式：隐藏行置灰 + 类型 badge（NDataTable render 函数产物拿不到 scoped 属性） -->
 <style>
-.testcase-manager .case-list .n-data-table-tr.focused-row > td {
-  background-color: var(--bg-selected) !important;
+.testcase-manager .case-list .n-data-table-tr.hidden-row > td {
+  opacity: 0.55;
 }
 
-.testcase-manager .case-list .cell-name .star {
-  font-size: 12px;
-  margin-right: 2px;
-}
-
-.testcase-manager .case-list .type-badge {
+.testcase-manager .case-list .cell-name .type-badge {
   display: inline-block;
   font-size: 10px;
   line-height: 1;
@@ -680,6 +598,21 @@ watch(typeFilter, () => {
   border-color: color-mix(in srgb, var(--color-info, #2080f0) 30%, transparent);
 }
 
+/* 1.0.10：隐藏标识 */
+.testcase-manager .case-list .hidden-badge {
+  display: inline-block;
+  font-size: var(--font-size-sm);
+  line-height: 1;
+  padding: 0 var(--spacing-xs);
+  border-radius: var(--radius-sm);
+  margin-left: var(--spacing-xs);
+  vertical-align: 1px;
+  white-space: nowrap;
+  background: var(--bg-hover);
+  color: var(--text-tertiary);
+  border: 1px dashed var(--border-base);
+}
+
 /* 1.0.5：执行状态点 */
 .testcase-manager .case-list .status-dot {
   display: inline-block;
@@ -693,7 +626,7 @@ watch(typeFilter, () => {
 .testcase-manager .case-list .st-error  { color: var(--color-warning, #f0a020); }
 .testcase-manager .case-list .st-pending { color: var(--text-disabled); }
 
-/* 1.0.5：运行按钮 */
+/* 1.0.5：运行/断言/重命名按钮 */
 .testcase-manager .case-list .run-btn {
   border: none;
   background: transparent;

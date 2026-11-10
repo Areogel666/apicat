@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import type { HttpResponse, SendRequestParams } from '../types'
+import type { HttpResponse, RunCaseResult, SendRequestParams } from '../types'
 import type { ResponseFormat, ViewMode } from '../components/response/useResponseFormat'
 
 /**
@@ -128,6 +128,35 @@ export const useResponseStore = defineStore('response', () => {
   }
 
   /**
+   * 用例执行结果写入对应用例桶（run_test_case 不经过 sendRequest）。
+   * 由 testCaseStore.runTestCase 在 invoke 成功后调用，调用方需先 setCurrent
+   * 把视图切到该用例，否则用户看到的仍是旧桶。
+   */
+  function applyRunResult(requestId: number, testCaseId: number, result: RunCaseResult): void {
+    const b = getBucket(requestId, testCaseId)
+    b.loading = false
+    if (result.status_code == null) {
+      // 网络层失败：没有可展示的响应，错误信息走 error 通道
+      b.response = null
+      b.error = result.error_message ?? '请求失败'
+    } else {
+      b.response = {
+        status_code: result.status_code,
+        status_text: result.status_text,
+        headers: result.response_headers,
+        body: result.response_body,
+        body_size: result.body_size,
+        elapsed_ms: result.elapsed_ms,
+        is_truncated: result.is_truncated,
+        history_id: result.history_id,
+        cookie_skipped: 0,
+      }
+      b.error = null
+    }
+    touch()
+  }
+
+  /**
    * 清理指定请求+用例的响应桶。
    * 不传参：清理当前激活桶（兼容原有 `clear()` 语义）。
    * 传入 requestId/testCaseId：清理指定桶（关闭 Tab、删除接口/用例时调用）。
@@ -203,6 +232,7 @@ export const useResponseStore = defineStore('response', () => {
     error,
     // actions
     sendRequest,
+    applyRunResult,
     setCurrent,
     moveResponse,
     clear,

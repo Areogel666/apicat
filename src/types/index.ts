@@ -291,6 +291,7 @@ export interface TestCase {
   last_response: string | null
   enabled: number           // 0 | 1
   sort_order: number
+  hidden: number            // 1.0.10：1 = 不在下方用例条展示
   created_at: string
   updated_at: string
 }
@@ -337,8 +338,14 @@ export interface RunCaseResult {
   test_case_id: number
   status: 'passed' | 'failed' | 'error'
   status_code: number | null
+  status_text: string
   elapsed_ms: number
   response_body: string
+  /** 1.0.10：用例执行也回传响应头/大小/历史 id，供下方响应区展示 */
+  response_headers: [string, string][]
+  body_size: number
+  is_truncated: boolean
+  history_id: number
   assertions: AssertionResult[]
   passed_count: number
   total_count: number

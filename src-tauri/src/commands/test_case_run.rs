@@ -22,8 +22,15 @@ pub struct RunCaseResult {
     /// "passed" | "failed" | "error"（error = 网络层失败，断言无法判定）
     pub status: String,
     pub status_code: Option<u16>,
+    pub status_text: String,
     pub elapsed_ms: u64,
     pub response_body: String,
+    /// 响应头（1.0.10：此前漏写，用例执行后响应区 Headers tab 恒为空）
+    pub response_headers: Vec<(String, String)>,
+    pub body_size: usize,
+    pub is_truncated: bool,
+    /// 本次执行写入 request_history 的 id（大响应文件取回需要）
+    pub history_id: i64,
     pub assertions: Vec<AssertionResult>,
     /// 通过的断言数 / 总断言数
     pub passed_count: usize,
@@ -57,6 +64,16 @@ pub async fn run_test_case_impl(
     let request_id = tc.request_id.ok_or_else(|| {
         crate::error::AppError::Custom("用例未关联接口，无法执行".to_string())
     })?;
+
+    // 1.5 认证配置继承接口定义：test_cases 没有 auth 列，用例快照无法保存认证。
+    // 此前这里硬编码空串 → Bearer/Basic/api_key（尤其 in=query）的接口跑用例必失败。
+    let (auth_type, auth_config) = sqlx::query_as::<_, (String, String)>(
+        "SELECT COALESCE(auth_type, 'none'), COALESCE(auth_config, '{}') \
+         FROM api_requests WHERE id=?",
+    )
+    .bind(request_id)
+    .fetch_one(pool)
+    .await?;
 
     // 2. 组装 SendRequestParams（用例自身快照优先；method/url 为空时回落到接口定义）
     let (method, url, headers, params, body_type, body) = if tc.method.as_deref().unwrap_or("").is_empty()
@@ -95,8 +112,8 @@ pub async fn run_test_case_impl(
         body_type,
         body,
         path_params: Vec::new(),
-        auth_type: String::new(),
-        auth_config: String::new(),
+        auth_type,
+        auth_config,
     };
 
     // 3. 环境变量替换（env_id=None 时回落到该项目 is_active=1 的环境）
@@ -177,25 +194,44 @@ pub async fn run_test_case_impl(
     // 4. 发请求
     let send_result = send(http, &send_params).await;
 
-    let (status_code, elapsed_ms, response_body, error_message) = match send_result {
-        Ok(resp) => {
-            // Set-Cookie 回存（Q5-B）：与调试 Send 同语义，登录类用例才有下次可用的 token。
-            // 回存失败不得中止用例执行——响应和断言结果比 cookie 落库重要。
-            if let Err(e) = crate::cookies::persist_set_cookies(
-                pool,
-                &resp.headers,
-                &send_params.url,
-                case_project_id,
-                effective_env_id,
-            )
-            .await
-            {
-                eprintln!("[cookies] Set-Cookie 回存失败（不影响本次用例执行）: {e}");
+    let (status_code, status_text, elapsed_ms, response_body, response_headers, body_size, is_truncated, error_message) =
+        match send_result {
+            Ok(resp) => {
+                // Set-Cookie 回存（Q5-B）：与调试 Send 同语义，登录类用例才有下次可用的 token。
+                // 回存失败不得中止用例执行——响应和断言结果比 cookie 落库重要。
+                if let Err(e) = crate::cookies::persist_set_cookies(
+                    pool,
+                    &resp.headers,
+                    &send_params.url,
+                    case_project_id,
+                    effective_env_id,
+                )
+                .await
+                {
+                    eprintln!("[cookies] Set-Cookie 回存失败（不影响本次用例执行）: {e}");
+                }
+                (
+                    Some(resp.status_code),
+                    resp.status_text,
+                    resp.elapsed_ms,
+                    resp.body,
+                    resp.headers,
+                    resp.body_size,
+                    resp.is_truncated,
+                    None,
+                )
             }
-            (Some(resp.status_code), resp.elapsed_ms, resp.body, None)
-        }
-        Err(e) => (None, 0, String::new(), Some(e)),
-    };
+            Err(e) => (
+                None,
+                String::new(),
+                0,
+                String::new(),
+                Vec::new(),
+                0,
+                false,
+                Some(e),
+            ),
+        };
 
     // 5. 断言求值（网络失败 → status=error）
     let assertions = parse_assertions(&tc.assertions);
@@ -234,11 +270,13 @@ pub async fn run_test_case_impl(
     // 存实际发送的参数快照（变量替换后），与 send_request_impl 同款，供历史回填复用
     let history_snapshot = serde_json::to_string(&send_params)
         .unwrap_or_else(|_| "{}".to_string());
+    let resp_headers_json =
+        serde_json::to_string(&response_headers).unwrap_or_else(|_| "[]".to_string());
     let history_id: i64 = sqlx::query_scalar(
         "INSERT INTO request_history \
          (request_id, test_case_id, status_code, response_time_ms, \
-          request_snapshot, response_body, is_truncated, error_message) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?) \
+          request_snapshot, response_body, is_truncated, response_headers, error_message) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) \
          RETURNING id",
     )
     .bind(request_id)
@@ -247,20 +285,21 @@ pub async fn run_test_case_impl(
     .bind(elapsed_ms as i64)
     .bind(&history_snapshot)
     .bind("")  // 占位，稍后更新
-    .bind(0i64)
+    .bind(if is_truncated { 1i64 } else { 0i64 })
+    .bind(&resp_headers_json)
     .bind(&error_message)
     .fetch_one(pool)
     .await?;
 
-    // 保存响应体（超过阈值时存文件）
+    // 保存响应体（超过阈值时存文件）；is_truncated 只表示 32MB 截断，
+    // 「存文件」由 body 的 @file: 标记表达（与 send_request_impl 口径一致）
     let (stored_body, is_file) = crate::commands::send_request::save_response_body_if_large(
         history_id,
         status_code.map(|c| c as u16).unwrap_or(0),
         &response_body,
     )?;
-    sqlx::query("UPDATE request_history SET response_body = ?, is_truncated = ? WHERE id = ?")
+    sqlx::query("UPDATE request_history SET response_body = ? WHERE id = ?")
         .bind(&stored_body)
-        .bind(if is_file { 1i64 } else { 0i64 })
         .bind(history_id)
         .execute(pool)
         .await?;
@@ -269,8 +308,14 @@ pub async fn run_test_case_impl(
         test_case_id,
         status: case_status,
         status_code,
+        status_text,
         elapsed_ms,
-        response_body,
+        // 大响应存文件后返回 @file: 标记，前端才能渲染「打开文件」占位
+        response_body: if is_file { stored_body } else { response_body },
+        response_headers,
+        body_size,
+        is_truncated,
+        history_id,
         assertions: assertion_results,
         passed_count,
         total_count,

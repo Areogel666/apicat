@@ -86,7 +86,6 @@ import { invoke } from '@tauri-apps/api/core'
 import { useResponseStore } from '../../stores/response'
 import { useHistoryStore } from '../../stores/history'
 import { useRequestStore } from '../../stores/request'
-import { useTestCaseStore } from '../../stores/testCase'
 // JSON 树/高亮/Markdown/YAML 解析（markdown-it、highlight.js、js-yaml、vue-json-pretty）
 // 只在收到响应体时才需要：JsonViewer 本就有 v-else-if="resp"，异步化后这些依赖
 // 彻底移出首屏包。HistoryTab 同理（NTabPane 懒渲染，切到历史 tab 才加载）。
@@ -100,7 +99,6 @@ const emit = defineEmits<{
 const responseStore = useResponseStore()
 const historyStore = useHistoryStore()
 const requestStore = useRequestStore()
-const testCaseStore = useTestCaseStore()
 
 const resp = computed(() => responseStore.response)
 const message = useMessage()
@@ -145,7 +143,7 @@ async function saveResponseFile() {
 
 // 空态文案：激活了用例但该用例未发送过请求时提示更具体
 const emptyDescription = computed(() => {
-  if (testCaseStore.activeTestCaseId != null && !resp.value) {
+  if (responseStore.activeTestCaseId != null && !resp.value) {
     return '该用例尚未发送过请求，发送后响应将在这里显示'
   }
   return '发送请求后，响应内容将在这里显示'
@@ -158,11 +156,12 @@ const responseContentType = computed(() => {
   return ct ? ct[1] : ''
 })
 
-// 当前激活接口 + 用例的历史记录（1.0.4：按用例分桶，切换用例时 History 跟随刷新）
+// 当前激活接口 + 用例的历史记录（按响应视图的桶走：运行用例会切 responseStore
+// 的 activeTestCaseId 但不切编辑区激活态，History 必须与正在展示的响应对应）
 const historyRecords = computed(() => {
   const id = requestStore.activeRequestId
   if (id == null) return []
-  return historyStore.getHistory(id, testCaseStore.activeTestCaseId)
+  return historyStore.getHistory(id, responseStore.activeTestCaseId)
 })
 
 const historyCount = computed(() => historyRecords.value.length)

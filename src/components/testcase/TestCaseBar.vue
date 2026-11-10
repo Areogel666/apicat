@@ -1,5 +1,5 @@
 <template>
-  <div class="test-case-bar" v-if="testCases.length > 0 || alwaysShow">
+  <div class="test-case-bar" v-if="sortedCases.length > 0 || alwaysShow">
     <!-- 参数变更提示条（非阻塞，响应返回后出现）-->
     <div v-if="paramsDirty" class="dirty-bar">
       <span class="dirty-label">📋 当前参数与「{{ activeTestCase?.name }}」不同</span>
@@ -93,8 +93,12 @@ const emit = defineEmits<{
 
 const activeTestCase = computed(() => props.testCases.find(t => t.id === props.activeId) ?? null)
 
+// 1.0.10：隐藏用例不出现在用例条；但当前激活的那条例外——否则激活中的用例
+// 会从条上消失，用户无法再点它退出用例上下文。
 // 1.0.5：按最近使用（跑过）排序，未跑过的排最后（共识 Q11-A）
-const sortedCases = computed(() => sortCasesByLastRun(props.testCases))
+const sortedCases = computed(() =>
+  sortCasesByLastRun(props.testCases.filter(tc => !tc.hidden || tc.id === props.activeId))
+)
 
 // ── 新建输入 ───────────────────────────────────────────────
 const showNewInput = ref(false)

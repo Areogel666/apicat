@@ -115,6 +115,13 @@ pub(crate) async fn run_migrations(pool: &SqlitePool) -> Result<(), Box<dyn std:
         .await?;
     }
 
+    // 1.0.10：test_cases.hidden 幂等加列（下方用例条隐藏/显示）
+    if !tc_cols.iter().any(|c| c == "hidden") {
+        sqlx::query("ALTER TABLE test_cases ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0")
+            .execute(pool)
+            .await?;
+    }
+
     // 1.0.5：projects.docs_output_dir 幂等加列（doc-gen 技能的文档输出目录）
     let proj_cols: Vec<String> =
         sqlx::query_scalar("SELECT name FROM pragma_table_info('projects')")

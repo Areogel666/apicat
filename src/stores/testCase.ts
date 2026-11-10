@@ -1,10 +1,12 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import type { CaseType, RunCaseResult, TestCase, TestCaseHistory } from '../types'
+import type { CaseType, RunCaseResult, TestCase } from '../types'
 import { useCookieStore } from './cookie'
 import { useProjectStore } from './project'
 import { useEnvironmentStore } from './environment'
+import { useResponseStore } from './response'
+import { useHistoryStore } from './history'
 
 /**
  * 按最近使用降序排列用例。
@@ -40,9 +42,6 @@ export const useTestCaseStore = defineStore('testCase', () => {
 
   // 当前激活的用例 id（null = 无激活，使用原始参数）
   const activeTestCaseId = ref<number | null>(null)
-
-  // testCaseId → TestCaseHistory[]（按时间倒序，至多 10 条；M3-C 新增）
-  const historyMap = ref<Record<number, TestCaseHistory[]>>({})
 
   function getByRequestId(requestId: number): TestCase[] {
     return testCaseMap.value[requestId] ?? []
@@ -127,35 +126,18 @@ export const useTestCaseStore = defineStore('testCase', () => {
         break
       }
     }
-    // 同步清理本地历史镜像（DB 的 history 行已由 FK CASCADE 自动删除）
-    delete historyMap.value[id]
+    // DB 的 history 行已由 FK CASCADE 自动删除
     if (activeTestCaseId.value === id) activeTestCaseId.value = null
   }
 
   function clearForRequest(requestId: number) {
-    const cases = testCaseMap.value[requestId] ?? []
     delete testCaseMap.value[requestId]
-    // 同步清理这些用例的历史镜像
-    for (const c of cases) delete historyMap.value[c.id]
     activeTestCaseId.value = null
-  }
-
-  // ── M3-C：用例执行历史 ─────────────────────────────────────────
-
-  function getHistory(testCaseId: number): TestCaseHistory[] {
-    return historyMap.value[testCaseId] ?? []
-  }
-
-  /** 拉取某用例的历史（最多 10 条，按时间倒序） */
-  async function loadHistory(testCaseId: number): Promise<TestCaseHistory[]> {
-    const list = await invoke<TestCaseHistory[]>('list_test_case_history', { testCaseId })
-    historyMap.value[testCaseId] = list
-    return list
   }
 
   /**
    * 批量删除用例（M3-C）。
-   * 后端 FK CASCADE 自动清理 request_history；前端同步清理 testCaseMap + historyMap。
+   * 后端 FK CASCADE 自动清理 request_history；前端同步清理 testCaseMap。
    */
   async function deleteTestCases(ids: number[]): Promise<number> {
     if (ids.length === 0) return 0
@@ -169,8 +151,6 @@ export const useTestCaseStore = defineStore('testCase', () => {
         testCaseMap.value[r] = filtered
       }
     }
-    // 清理历史镜像
-    for (const id of ids) delete historyMap.value[id]
     if (activeTestCaseId.value !== null && ids.includes(activeTestCaseId.value)) {
       activeTestCaseId.value = null
     }
@@ -195,10 +175,12 @@ export const useTestCaseStore = defineStore('testCase', () => {
       projectId: useProjectStore().currentProjectId,
       envId: useEnvironmentStore().activeEnvId,
     }).catch(() => {})
-    // 同步本地镜像：用例的执行状态字段
-    for (const list of Object.values(testCaseMap.value)) {
+    // 同步本地镜像：用例的执行状态字段，并记下所属接口 id
+    let requestId: number | null = null
+    for (const [rid, list] of Object.entries(testCaseMap.value)) {
       const idx = list.findIndex(c => c.id === testCaseId)
       if (idx !== -1) {
+        requestId = Number(rid)
         list[idx] = {
           ...list[idx],
           last_status: result.status,
@@ -209,24 +191,41 @@ export const useTestCaseStore = defineStore('testCase', () => {
         break
       }
     }
-    // 刷新历史镜像（后端已插入一条）
-    await loadHistory(testCaseId)
+
+    // 1.0.10：联动下方响应区 —— 切到该用例桶、写入本次结果、刷新 History 列表。
+    // 只切响应视图，不动编辑区的用例激活态（避免覆盖用户未保存的原始参数编辑）。
+    if (requestId !== null) {
+      const responseStore = useResponseStore()
+      responseStore.setCurrent(requestId, testCaseId)
+      responseStore.applyRunResult(requestId, testCaseId, result)
+      useHistoryStore().loadHistory(requestId, testCaseId).catch(() => {})
+    }
     return result
+  }
+
+  /** 1.0.10：批量隐藏/取消隐藏在下方用例条的展示（管理面板始终可见） */
+  async function setTestCasesHidden(ids: number[], hidden: boolean): Promise<number> {
+    if (ids.length === 0) return 0
+    const affected = await invoke<number>('set_test_cases_hidden', { ids, hidden })
+    for (const list of Object.values(testCaseMap.value)) {
+      for (const c of list) {
+        if (ids.includes(c.id)) c.hidden = hidden ? 1 : 0
+      }
+    }
+    return affected
   }
 
   return {
     testCaseMap,
     activeTestCaseId,
-    historyMap,
     getByRequestId,
     loadTestCases,
     createTestCase,
     updateTestCase,
     deleteTestCase,
     deleteTestCases,
+    setTestCasesHidden,
     clearForRequest,
-    getHistory,
-    loadHistory,
     runTestCase,
   }
 })
