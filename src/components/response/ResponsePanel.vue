@@ -80,15 +80,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, defineAsyncComponent } from 'vue'
 import { NTabs, NTabPane, NEmpty, NSpin, NTag, NButton, useMessage } from 'naive-ui'
 import { invoke } from '@tauri-apps/api/core'
 import { useResponseStore } from '../../stores/response'
 import { useHistoryStore } from '../../stores/history'
 import { useRequestStore } from '../../stores/request'
 import { useTestCaseStore } from '../../stores/testCase'
-import JsonViewer from './JsonViewer.vue'
-import HistoryTab from './HistoryTab.vue'
+// JSON 树/高亮/Markdown/YAML 解析（markdown-it、highlight.js、js-yaml、vue-json-pretty）
+// 只在收到响应体时才需要：JsonViewer 本就有 v-else-if="resp"，异步化后这些依赖
+// 彻底移出首屏包。HistoryTab 同理（NTabPane 懒渲染，切到历史 tab 才加载）。
+const JsonViewer = defineAsyncComponent(() => import('./JsonViewer.vue'))
+const HistoryTab = defineAsyncComponent(() => import('./HistoryTab.vue'))
 
 const emit = defineEmits<{
   refill: [snapshot: string]

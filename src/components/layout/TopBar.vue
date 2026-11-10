@@ -93,6 +93,21 @@
         </div>
         <n-switch v-model:value="persistSetCookie" @update:value="persistSetCookieSetting" />
       </div>
+      <div v-if="isLinux" class="toggle-row">
+        <div class="toggle-row__text">
+          <div class="toggle-row__title">Linux 兼容渲染</div>
+          <div class="toggle-row__desc">
+            WebKit 的 GPU 渲染在部分 Intel 驱动上会导致整机卡死。兼容模式牺牲少量流畅度换取稳定，改完需重启应用生效。
+          </div>
+        </div>
+        <n-select
+          v-model:value="webkitRenderer"
+          :options="webkitRendererOptions"
+          size="small"
+          style="width: 140px"
+          @update:value="persistWebkitRenderer"
+        />
+      </div>
     </div>
     <template #footer>
       <n-button @click="showToggleSettings = false">关闭</n-button>
@@ -256,11 +271,30 @@ async function persistSetCookieSetting(v: boolean) {
 const bridgeEnabled = ref(true)
 // 1.0.7：Set-Cookie 自动回存开关（Q15-A，默认开）
 const persistSetCookie = ref(true)
+
+// Linux 兼容渲染：WebKit GPU 渲染在部分 Intel i915 上会触发整机卡死。
+// auto=GPU 加速 / shm=禁用 DMABUF（默认）/ software=完全软件合成。
+// Rust 侧 main() 在 WebKit 初始化前读同一 key，改动需重启生效。
+const isLinux = navigator.userAgent.includes('Linux')
+type WebkitRenderer = 'auto' | 'shm' | 'software'
+const webkitRenderer = ref<WebkitRenderer>('shm')
+const webkitRendererOptions = [
+  { label: '兼容（推荐）', value: 'shm' },
+  { label: 'GPU 加速', value: 'auto' },
+  { label: '软件合成', value: 'software' },
+]
+async function persistWebkitRenderer(v: WebkitRenderer) {
+  await writeSetting('linux.webkitRenderer', v)
+  message.warning('渲染模式已保存，重启 ApiCat 后生效')
+}
+
 onMounted(async () => {
   const v = await readSetting<boolean>('bridgeEnabled')
   bridgeEnabled.value = v ?? true
   const p = await readSetting<boolean>('persistSetCookie')
   persistSetCookie.value = p ?? true
+  const wr = await readSetting<string>('linux.webkitRenderer')
+  if (wr === 'auto' || wr === 'shm' || wr === 'software') webkitRenderer.value = wr
 })
 const themeStudioModalRef = ref<InstanceType<typeof ThemeStudioModal> | null>(null)
 

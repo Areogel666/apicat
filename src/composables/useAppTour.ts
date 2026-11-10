@@ -10,7 +10,7 @@
  * - highlight 前的 await 期间 tour 可能已被关闭，恢复执行后必须重新判空。
  */
 import { nextTick, type Ref } from 'vue'
-import { driver, type Driver, type DriveStep } from 'driver.js'
+import type { Driver, DriveStep } from 'driver.js'
 import 'driver.js/dist/driver.css'
 import '../styles/tour.css'
 import { TOUR_STEPS } from '../config/guideContent'
@@ -64,10 +64,17 @@ export function useAppTour(leftPanel: Ref<LeftPanel>) {
     tourStore.notifyFinished()
   }
 
-  function startTour() {
+  async function startTour() {
     tourStore.consumePending()
     if (driverObj) {
       // 已在跑（如 tour 进行中点「重看新手引导」）：跳回第一步从头再来
+      void showStep(0)
+      return
+    }
+    // driver.js 只在首启/重看导览时用，动态加载——不占首屏包体
+    const { driver } = await import('driver.js')
+    // await 期间可能被再次触发：已有实例就直接跳步
+    if (driverObj) {
       void showStep(0)
       return
     }

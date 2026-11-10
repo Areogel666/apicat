@@ -54,13 +54,20 @@
         >{{ themeStore.glass ? '开启中' : '关闭' }}</button>
         <div class="tab-group glass-group" :class="{ disabled: !themeStore.glass }">
           <button
+            class="tab-btn"
+            :class="{ active: !themeStore.glassBlurEnabled }"
+            :disabled="!themeStore.glass"
+            title="关闭背景模糊（保留半透明玻璃质感）"
+            @click="themeStore.glassBlurEnabled = false; themeStore.applyTheme()"
+          >关</button>
+          <button
             v-for="opt in blurOptions"
             :key="opt.value"
             class="tab-btn"
-            :class="{ active: themeStore.glassBlur === opt.value }"
+            :class="{ active: themeStore.glassBlurEnabled && themeStore.glassBlur === opt.value }"
             :disabled="!themeStore.glass"
             :title="`背景模糊 ${opt.px}px`"
-            @click="themeStore.glassBlur = opt.value; themeStore.applyTheme()"
+            @click="themeStore.glassBlurEnabled = true; themeStore.glassBlur = opt.value; themeStore.applyTheme()"
           >{{ opt.label }}</button>
         </div>
         <div class="tab-group glass-group" :class="{ disabled: !themeStore.glass }">

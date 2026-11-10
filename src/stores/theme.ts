@@ -66,6 +66,9 @@ export const useThemeStore = defineStore('theme', () => {
   /** 1.0.9 玻璃质感：卡片/弹窗半透明 + backdrop blur。可由冰晶预设开启，
    *  也可在主题工作室手动开关；模糊强度与透明度独立三档 */
   const glass = ref(false)
+  /** 背景模糊独立开关：关闭后保留半透明玻璃质感，只撤掉 backdrop-filter。
+   *  Linux/Intel i915 上持续背景模糊会推高 GPU 合成负载并触发 GPU HANG。 */
+  const glassBlurEnabled = ref(true)
   const glassBlur = ref<GlassLevel>('medium')
   const glassAlpha = ref<GlassLevel>('medium')
 
@@ -144,9 +147,12 @@ export const useThemeStore = defineStore('theme', () => {
     // 3. 风格预设
     el.setAttribute('data-density', density.value)
     el.setAttribute('data-font-size', fontSize.value)
-    // 1.0.9 玻璃质感开关：glass.css 的 backdrop-filter 规则由此属性驱动
+    // 1.0.9 玻璃质感：data-glass 控制半透明三件套；data-glass-blur 单独控制
+    // backdrop-filter（主题工作室可关掉模糊、保留玻璃质感）
     if (glass.value) el.setAttribute('data-glass', '1')
     else el.removeAttribute('data-glass')
+    if (glass.value && glassBlurEnabled.value) el.setAttribute('data-glass-blur', '1')
+    else el.removeAttribute('data-glass-blur')
 
     // 4. 圆角缩放（JS 计算，避免 CSS calc() 兼容问题）
     const scale = radiusScale.value
@@ -183,6 +189,7 @@ export const useThemeStore = defineStore('theme', () => {
     await writeSetting('theme.radiusScale', radiusScale.value)
     await writeSetting('theme.fontSize', fontSize.value)
     await writeSetting('theme.glass', glass.value)
+    await writeSetting('theme.glassBlurEnabled', glassBlurEnabled.value)
     await writeSetting('theme.glassBlur', glassBlur.value)
     await writeSetting('theme.glassAlpha', glassAlpha.value)
     applyTheme()
@@ -197,6 +204,7 @@ export const useThemeStore = defineStore('theme', () => {
     radiusScale: 0.5 | 1.0 | 1.5
     fontSize: 's' | 'm' | 'l'
     glass: boolean
+    glassBlurEnabled: boolean
     glassBlur: GlassLevel
     glassAlpha: GlassLevel
   }
@@ -211,6 +219,7 @@ export const useThemeStore = defineStore('theme', () => {
       radiusScale: radiusScale.value,
       fontSize: fontSize.value,
       glass: glass.value,
+      glassBlurEnabled: glassBlurEnabled.value,
       glassBlur: glassBlur.value,
       glassAlpha: glassAlpha.value,
     }
@@ -225,6 +234,7 @@ export const useThemeStore = defineStore('theme', () => {
     radiusScale.value = themeSnapshot.radiusScale
     fontSize.value = themeSnapshot.fontSize
     glass.value = themeSnapshot.glass
+    glassBlurEnabled.value = themeSnapshot.glassBlurEnabled
     glassBlur.value = themeSnapshot.glassBlur
     glassAlpha.value = themeSnapshot.glassAlpha
     themeSnapshot = null
@@ -245,6 +255,7 @@ export const useThemeStore = defineStore('theme', () => {
     radiusScale.value = 1.0
     fontSize.value = 'm'
     glass.value = false
+    glassBlurEnabled.value = true
     glassBlur.value = 'medium'
     glassAlpha.value = 'medium'
     await deleteSetting('theme.customTokens')
@@ -252,6 +263,7 @@ export const useThemeStore = defineStore('theme', () => {
     await deleteSetting('theme.radiusScale')
     await deleteSetting('theme.fontSize')
     await deleteSetting('theme.glass')
+    await deleteSetting('theme.glassBlurEnabled')
     await deleteSetting('theme.glassBlur')
     await deleteSetting('theme.glassAlpha')
     applyTheme()
@@ -283,6 +295,8 @@ export const useThemeStore = defineStore('theme', () => {
     // 1.0.9 玻璃质感
     const g = await readSetting<boolean>('theme.glass')
     glass.value = g === true
+    const gbe = await readSetting<boolean>('theme.glassBlurEnabled')
+    glassBlurEnabled.value = gbe !== false
     const gb = await readSetting<GlassLevel>('theme.glassBlur')
     if (gb === 'light' || gb === 'medium' || gb === 'heavy') glassBlur.value = gb
     const ga = await readSetting<GlassLevel>('theme.glassAlpha')
@@ -306,6 +320,7 @@ export const useThemeStore = defineStore('theme', () => {
     radiusScale,
     fontSize,
     glass,
+    glassBlurEnabled,
     glassBlur,
     glassAlpha,
     resolvedTokens,

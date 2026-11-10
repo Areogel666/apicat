@@ -78,17 +78,19 @@
       <MainPanel v-show="leftPanel === 'interface'" style="flex: 1; min-width: 0" />
       <DictionaryJsonPanel v-show="leftPanel === 'dictionary'" style="flex: 1; min-width: 0" />
       <DocsPanel v-show="leftPanel === 'docs'" :file="selectedDocFile" style="flex: 1; min-width: 0" />
-      <StatsPanel v-show="leftPanel === 'stats'" style="flex: 1; min-width: 0" />
+      <StatsPanel v-if="statsEverOpened" v-show="leftPanel === 'stats'" style="flex: 1; min-width: 0" />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, defineAsyncComponent } from 'vue'
 import TopBar from './TopBar.vue'
 import Sidebar from './Sidebar.vue'
 import DictionarySidebar from './DictionarySidebar.vue'
-import StatsPanel from '../stats/StatsPanel.vue'
+// 统计面板依赖 echarts（首屏最大的一笔非必需 JS）：首次切到统计时才加载，
+// 加载后 v-show 常驻，保留筛选/档位等浏览状态（不卸载重挂）。
+const StatsPanel = defineAsyncComponent(() => import('../stats/StatsPanel.vue'))
 import DictionaryJsonPanel from './DictionaryJsonPanel.vue'
 import MainPanel from './MainPanel.vue'
 import DocsSidebar from '../docs/DocsSidebar.vue'
@@ -137,12 +139,18 @@ const handleLeft = computed(() => {
 // 左侧内容面板切换（接口树 / 字典树 / 文档）
 const leftPanel = ref<'interface' | 'dictionary' | 'docs' | 'stats'>('interface')
 
+// 统计面板首次打开前不加载（echarts 较大）；打开过一次后保持挂载
+const statsEverOpened = ref(false)
+watch(leftPanel, v => {
+  if (v === 'stats') statsEverOpened.value = true
+})
+
 // 1.0.9：首启功能导览（driver.js）。tour 每步要切 leftPanel，故实例挂在 AppLayout；
 // StartupChecks / TopBar 经 tour store 的 pendingStart 信号触发
 const tourStore = useTourStore()
 const { startTour } = useAppTour(leftPanel)
 watch(() => tourStore.pendingStart, (v) => {
-  if (v) startTour()
+  if (v) void startTour()
 })
 
 const selectedDocFile = ref<DocFile | null>(null)

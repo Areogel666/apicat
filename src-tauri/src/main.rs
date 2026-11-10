@@ -22,9 +22,56 @@ fn setup_linux_font_rendering() {
     }
 }
 
+// 仅 Linux：WebKitGTK 的 GPU 渲染路径在部分 Intel i915 驱动上会触发 GPU HANG
+// （2026-11-10 实测：玻璃已关、无拖拽操作仍整机卡死，只有 ApiCat 运行时复现）。
+// 启动时读 app-settings.json 的 linux.webkitRenderer，在 WebKit 初始化前设置环境变量：
+//   auto     —— 保持 GPU 加速
+//   shm      —— 禁用 DMABUF 渲染器（默认；回退共享内存传输，规避 hang）
+//   software —— 再禁用加速合成（最稳，但整页 CPU 渲染）
+// 外部显式设置的环境变量优先，方便临时覆盖排查。
+#[cfg(target_os = "linux")]
+fn read_linux_webkit_renderer() -> String {
+    let base = std::env::var_os("XDG_DATA_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(|h| std::path::PathBuf::from(h).join(".local").join("share"))
+        });
+    let Some(base) = base else { return "shm".into() };
+    let path = base.join("com.apicat.app").join("app-settings.json");
+    let Ok(text) = std::fs::read_to_string(path) else { return "shm".into() };
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else { return "shm".into() };
+    json.get("linux.webkitRenderer")
+        .and_then(|v| v.as_str())
+        .unwrap_or("shm")
+        .to_string()
+}
+
+#[cfg(target_os = "linux")]
+fn setup_linux_webview() {
+    // 外部显式设置优先（临时排查用），不被用户配置覆盖
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_some()
+        || std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_some()
+    {
+        return;
+    }
+    match read_linux_webkit_renderer().as_str() {
+        "auto" => {}
+        "software" => {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+            std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+        }
+        _ => {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
+    }
+}
+
 fn main() {
     #[cfg(target_os = "linux")]
     setup_linux_font_rendering();
+    #[cfg(target_os = "linux")]
+    setup_linux_webview();
 
     apicat_lib::run()
 }
