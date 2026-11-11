@@ -84,6 +84,23 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      # ── 读取版本对应的 release notes，作为 GitHub Release 正文 ──
+      - name: Read release notes
+        id: release_notes
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          file="docs/release/${version}.md"
+          if [ -f "$file" ]; then
+            {
+              echo 'body<<RELEASE_NOTES_EOF'
+              cat "$file"
+              echo 'RELEASE_NOTES_EOF'
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "body=See [CHANGELOG](https://github.com/${GITHUB_REPOSITORY}/blob/master/docs/release/) for details." >> "$GITHUB_OUTPUT"
+          fi
+
       # ── Tauri 构建 ───────────────────────────────────────────
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
@@ -97,8 +114,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'ApiCat ${{ github.ref_name }}'
-          releaseBody: |
-            See [CHANGELOG](https://github.com/${{ github.repository }}/blob/master/docs/release/) for details.
+          releaseBody: ${{ steps.release_notes.outputs.body }}
           releaseDraft: true      # 先创建草稿，手动检查后再发布
           prerelease: false
           target: ${{ matrix.target }}
