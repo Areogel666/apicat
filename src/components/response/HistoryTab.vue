@@ -124,7 +124,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { NEmpty, NCheckbox, NTag, NButton, NModal, NSpin, NTabs, NTabPane, NDrawer, NDrawerContent, useMessage } from 'naive-ui'
 import { invoke } from '@tauri-apps/api/core'
 import type { HistoryRecord } from '../../types'
@@ -132,7 +132,7 @@ import JsonViewer from './JsonViewer.vue'
 
 const message = useMessage()
 
-defineProps<{
+const props = defineProps<{
   records: HistoryRecord[]
 }>()
 
@@ -146,6 +146,16 @@ const diffLoading = ref(false)
 // list_history 不带 response_body / request_snapshot（避免每次切 Tab 传 20 条完整响应体），
 // diff 与回填时按 id 单条补拉并缓存
 const fullRecords = ref<Map<number, HistoryRecord>>(new Map())
+
+// 切换接口/用例后清掉全量缓存；同一作用域内最多保留最近 20 条，避免大响应体无限堆积。
+const historyScopeKey = computed(() => {
+  const r = props.records[0]
+  return r ? `${r.request_id}:${r.test_case_id ?? 'raw'}` : ''
+})
+watch(historyScopeKey, () => {
+  fullRecords.value = new Map()
+  selectedIds.value = new Set()
+})
 
 const diffPair = computed<(HistoryRecord | undefined)[]>(() => {
   const ids = Array.from(selectedIds.value)
@@ -161,6 +171,10 @@ async function ensureFullRecord(id: number): Promise<HistoryRecord> {
   const full = await invoke<HistoryRecord>('get_history_record', { id })
   const m = new Map(fullRecords.value)
   m.set(id, full)
+  if (m.size > 20) {
+    const oldest = m.keys().next().value
+    if (oldest !== undefined) m.delete(oldest)
+  }
   fullRecords.value = m
   return full
 }

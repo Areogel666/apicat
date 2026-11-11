@@ -2,6 +2,7 @@
 import { reactive, h, defineComponent, watch } from 'vue'
 import type { VNode } from 'vue'
 import type { DictMarker } from './jsonTreeUtils'
+import { unixTimestampTooltip } from '../../../utils/unixTimestamp'
 
 /**
  * 自研 JSON 树渲染（替换 vue-json-pretty）
@@ -91,8 +92,14 @@ const JsonTree = defineComponent({
       )
 
       if (!isObj(value) && !isArr(value)) {
-        // 标量叶子：值 + 可选字典命中微标签
-        const segs: (string | VNode)[] = [prefix(), h('span', { class: ['jt-val', scalarClass(value)] }, scalarText(value))]
+        // 标量叶子：值 + 可选字典命中微标签 / Unix 时间戳悬停提示
+        const tsTitle = unixTimestampTooltip(key, value)
+        const valueClass = ['jt-val', scalarClass(value)]
+        if (tsTitle) valueClass.push('jt-ts')
+        const segs: (string | VNode)[] = [
+          prefix(),
+          h('span', { class: valueClass, title: tsTitle ?? undefined }, scalarText(value)),
+        ]
         const marker = key != null && props.decorate ? (props.decorate as (k: string, v: unknown) => DictMarker | null)(key, value) : null
         if (marker) {
           segs.push(h('span', { class: 'jt-mark', title: marker.tooltip }, ` ▸ ${marker.label}`))
@@ -203,6 +210,12 @@ const JsonTree = defineComponent({
 }
 .jt-val {
   user-select: text;
+}
+/* Unix 时间戳：虚线下划线提示可悬停 */
+.jt-ts {
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: help;
 }
 .jt-string { color: var(--json-string); }
 .jt-number { color: var(--json-number); }

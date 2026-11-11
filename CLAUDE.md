@@ -57,6 +57,8 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 - **默认 UA**：两个 HTTP client（调试 `lib.rs` / 压测 `stress.rs`）统一 `.user_agent("ApiCat/<CARGO_PKG_VERSION>")`；用户手动 `User-Agent` 行优先覆盖。
 - **响应解压默认关**：`app-settings.json` 的 `network.decompressEnabled`（bool）+ `network.decompressAlgorithms`（数组，默认 `gzip/deflate/br`，zstd 需手动勾）。开关变化走 IPC `apply_network_settings(enabled, algorithms)` 即时重建主 client——**直接传值，别让 Rust 回读文件**（plugin-store 落盘有防抖，回读会拿到旧值）。压测 client 每次运行读同一份设置，并把 `accept_encoding` 写进 `stress_runs.config_json`。
 - **Headers 只读区**展示 App 真正注入的头：User-Agent / Content-Type / Authorization / Accept-Encoding，以及经 `get_cookies_for_domain` 拿到的命中 Cookie（真源仍是 `cookies::collect_cookies_for_url`）。只读、不进签名/落库；手动写 AE 且解压关闭时给乱码提示。
+- **URL 域名来源**：URL 自带 `http(s)://` 时环境 `base_url` 完全不参与拼接；URL 栏用「URL 域名 / 环境域名」徽标常驻提示，两边 host 不一致时发送前再 `message.info` 一次。预览框只显示 base+path，**不含 Query 参数**（文案是「请求地址预览」），实际发送由 Rust 追加 `query_params`。
+- **响应时间戳悬停**：`JsonTree` 对「字段名像时间（timestamp/_at/_ts/_time 等）+ 值 10/13 位且落在 2000–2100 年」的标量挂原生 `title`，显示本地时间 + UTC；只覆盖 JSON 美化视图，raw/文本/代码视图不处理。规则唯一实现在 `src/utils/unixTimestamp.ts`（带 `.check.ts` 自检）。
 
 ### 用例与断言
 
@@ -105,7 +107,9 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 
 - **结构级 undo/redo**：`MainPanel.vue` 的 `pushUndo()` 在 add/remove/splice/排序/URL/method 生效前调用，按 requestId 分栈、栈深 20。文本输入不 pushUndo（走原生撤销）——新增结构操作必须前置 pushUndo，否则 ctrl+z 撤销会跳过它。执行 undo/redo 包 `isInitializing`，防 watcher 连锁。
 - **回到上次保存**：Ctrl+S 成功后深拷贝存 `savedSnapshots[req.id]`；编辑区「⚠ 未保存」时点「回到上次保存版」应用快照，`isInitializing` 包住，不推入 undo 栈。
-- **黄点即时性**：`formDataParams` / `urlencodedParams` 有 deep watcher；撤销/重做/↺/切换接口恢复后在 `nextTick` 补一次 `markRequestDirty()`。切走静默落库后 `persistParams` 同步更新 store 基准，仅 method/url 改动仍保留黄点；Auth 保存后也重算而非无条件清脏。
+- **黄点即时性**：`formDataParams` / `urlencodedParams` 有 deep watcher；撤销/重做/↺/切换接口/退出用例/历史回填后在 `nextTick` 补一次 `markRequestDirty()`。切走静默落库后 `persistParams` 同步更新 store 基准，仅 method/url 改动仍保留黄点；Auth 保存后也重算而非无条件清脏。
+- **黄点签名归一化**：URL 只比较 base（query 由 `queryParams` 单独管，实际发送时 Rust 也剥掉 URL query 再拼 params）；ParamItem 固定字段顺序并统一 `null/undefined/""`；body 按类型归一（表单数组走 `paramSignature`、raw_json 忽略格式空白、form_urlencoded 兼容旧 k=v）。
+- **切接口 watcher 必须同 id 短路**：`updateRequest` 会替换 `requestMap` 元素，`persistParams` 必须**原地改字段**而不是替换元素；否则 `watch(activeRequest)` 把同 id 替换误当切接口，触发「存草稿 → 落库 → 再替换」循环，并清掉用例上下文。
 
 ## Rust 侧加字段清单
 

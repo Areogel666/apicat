@@ -178,6 +178,20 @@ export const useResponseStore = defineStore('response', () => {
   }
 
   /**
+   * 清理某个接口的**全部**响应桶（raw + 各个用例）。
+   * 关闭 Tab 时调用；旧实现只清 raw 桶，用例桶里的响应体会一直留在 Map 里。
+   */
+  function clearRequest(requestId: number): void {
+    const prefix = `${requestId}:`
+    for (const key of Array.from(buckets.value.keys())) {
+      if (key.startsWith(prefix)) buckets.value.delete(key)
+    }
+    delete formatOverrideMap.value[requestId]
+    delete viewModeMap.value[requestId]
+    touch()
+  }
+
+  /**
    * 清空所有响应桶（切换项目等场景） */
   function clearAll(): void {
     buckets.value.clear()
@@ -236,6 +250,7 @@ export const useResponseStore = defineStore('response', () => {
     setCurrent,
     moveResponse,
     clear,
+    clearRequest,
     clearAll,
     // format/view state
     getFormatOverride,

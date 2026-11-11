@@ -171,9 +171,12 @@ export const useRequestStore = defineStore('request', () => {
     })
     // Q4-A：静默落库后同步 store 基准。否则切回该接口时 storedSignature 仍是旧值，
     // 已经入库的内容会被误判成「未保存」。
-    const list = requestMap.value[req.collection_id] ?? []
-    const idx = list.findIndex(r => r.id === id)
-    if (idx !== -1) list[idx] = updated
+    // 原地改字段而不是替换数组元素：替换会让 activeRequest 引用变化，触发 MainPanel
+    // 的切接口 watcher（保存草稿 → 再次 persistParams → 循环）。
+    req.params = updated.params
+    req.headers = updated.headers
+    req.body_type = updated.body_type
+    req.body = updated.body
   }
 
   async function deleteRequest(id: number, collectionId: number) {

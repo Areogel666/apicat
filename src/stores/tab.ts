@@ -56,7 +56,8 @@ export const useTabStore = defineStore('tab', () => {
     if (ids.length === 0) return
     const responseStore = useResponseStore()
     for (const id of ids) {
-      responseStore.clear(id)
+      // 清 raw + 全部用例桶：只清 raw 会泄漏用例运行过的大响应体
+      responseStore.clearRequest(id)
     }
   }
 

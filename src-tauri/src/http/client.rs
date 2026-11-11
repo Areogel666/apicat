@@ -42,13 +42,27 @@ pub struct ParamItem {
     pub value: String,
     pub enabled: bool,
     /// 字段类型标记（前端 ParamItem.type，自由文本；"file" = 文件字段，value 存本地路径）。
-    /// 旧 body JSON 无此字段，serde default 兜底为空串
-    #[serde(rename = "type", default)]
+    /// 旧 body JSON 无此字段，serde default 兜底为空串；导入数据里也可能是显式 null。
+    #[serde(rename = "type", default, deserialize_with = "null_as_empty_string")]
     pub field_type: String,
     /// 参数描述（前端 ParamItem.description）。旧数据无此字段时为空串。
     /// 随发送快照落库，历史回填才能恢复描述。
-    #[serde(default, skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        skip_serializing_if = "String::is_empty",
+        deserialize_with = "null_as_empty_string"
+    )]
     pub description: String,
+}
+
+/// 把 JSON null 反序列化成空串；字段缺失仍由 `default` 兜底。
+/// 导入/旧数据里存在 `"type": null`、`"description": null`，直接按 String
+/// 反序列化会报 `invalid type: null, expected a string`，导致整个 send_request 失败。
+fn null_as_empty_string<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 /// 构建并发送 HTTP 请求，返回 HttpResponse（不含 history_id，由上层写库后填入）
@@ -314,6 +328,25 @@ fn mime_for_path(path: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 导入数据里可能出现 `"type": null` / `"description": null`，不能因此让整次发送失败
+    #[test]
+    fn param_item_tolerates_null_metadata() {
+        let p: ParamItem = serde_json::from_str(
+            r#"{"key":"ram_total","value":"4294967296","enabled":true,"type":null,"description":null}"#,
+        )
+        .expect("null type/description should deserialize");
+        assert_eq!(p.field_type, "");
+        assert_eq!(p.description, "");
+
+        // 字段缺失同样兜底
+        let p: ParamItem = serde_json::from_str(
+            r#"{"key":"a","value":"1","enabled":true}"#,
+        )
+        .expect("missing type/description should deserialize");
+        assert_eq!(p.field_type, "");
+        assert_eq!(p.description, "");
+    }
 
     #[test]
     fn mime_for_path_covers_common_types() {

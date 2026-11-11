@@ -41,6 +41,20 @@
             </template>
             {{ envTooltipText }}
           </n-tooltip>
+          <!-- 域名来源：URL 自带 http(s):// 时环境 Base URL 不参与拼接，常驻提示避免误判 -->
+          <n-tooltip v-if="urlDomainSource" trigger="hover">
+            <template #trigger>
+              <n-tag
+                size="small"
+                :type="urlDomainSource.conflict ? 'warning' : 'info'"
+                :bordered="false"
+                style="margin: 0 4px; cursor: help"
+              >
+                {{ urlDomainSource.source === 'url' ? 'URL 域名' : '环境域名' }}
+              </n-tag>
+            </template>
+            <span style="white-space: pre-line">{{ urlDomainTooltip }}</span>
+          </n-tooltip>
           <!-- URL 输入框 + {{var}} 高亮层（仅有变量时才渲染高亮覆盖层） -->
           <div class="url-input-wrap">
             <!-- 高亮覆盖层：仅当 URL 含 {{var}} 时渲染，否则直接显示文字避免重影 -->
@@ -58,7 +72,7 @@
               @change="onUrlEdit"
               @dblclick="onUrlDblclick"
             />
-            <!-- 预览模式：只读显示真实发送 URL（占位符已替换 + base_url 已拼接） -->
+            <!-- 预览模式：只读显示请求地址（占位符已替换 + base_url 已拼接，不含 Query 参数） -->
             <n-input
               v-else
               :value="effectiveUrl"
@@ -67,15 +81,15 @@
               :bordered="false"
               style="background: transparent; color: var(--text-secondary); font-style: italic"
               placeholder="(无 URL)"
-              :title="'真实发送 URL（只读预览，点眼睛图标切回编辑）'"
+              :title="'请求地址预览（不含 Query 参数，点眼睛图标切回编辑）'"
             />
           </div>
-          <!-- 眼睛切换按钮：在原始 URL 与真实发送 URL 间切换显示 -->
+          <!-- 眼睛切换按钮：在原始 URL 与请求地址预览之间切换 -->
           <n-button
             text
             size="small"
             style="margin: 0 4px; flex-shrink: 0"
-            :title="urlPreview ? '切换回编辑模式' : '预览真实发送 URL（占位符替换 + base_url 拼接）'"
+            :title="urlPreview ? '切换回编辑模式' : '预览请求地址（占位符替换 + base_url 拼接，不含 Query 参数）'"
             @click="urlPreview = !urlPreview"
           >
             {{ urlPreview ? '✏️' : '👁' }}
@@ -1420,24 +1434,93 @@ const requestDirty = ref(false)
 // 真正的 checkParamsDirty 函数定义仍保留在文件后半部 (就近 TestCase 相关代码)。
 const paramsDirty = ref(false)
 
-/** 归一化 JSON 字符串（parse→stringify），消除空白/键序差异后比较 */
-function normJson(s: string | null | undefined): string {
-  try { return JSON.stringify(JSON.parse(s || '[]')) } catch { return s || '' }
+/**
+ * ParamItem 的稳定签名：固定字段顺序，null/undefined 统一为空串。
+ * 目的：忽略对象属性插入顺序、null vs undefined vs "" 等「值相同、序列化不同」的差异；
+ * 已废弃的 descriptionDictRef 不参与比较。
+ */
+function paramSignature(arr: ParamItem[] | null | undefined): string {
+  return JSON.stringify((arr ?? []).map(p => ({
+    key: p.key ?? '',
+    value: p.value ?? '',
+    enabled: !!p.enabled,
+    type: p.type ?? '',
+    description: p.description ?? '',
+  })))
+}
+
+/** 库里的 JSON 数组字段；解析失败/非数组一律视为空 */
+function parseParamArray(json: string | null | undefined): ParamItem[] {
+  try {
+    const v = JSON.parse(json ?? '[]')
+    return Array.isArray(v) ? v as ParamItem[] : []
+  } catch {
+    return []
+  }
+}
+
+/** URL 只比较 base：query 由 queryParams 单独管理，实际发送时 Rust 也会把 query 拼在 params 上 */
+function urlBaseOnly(raw: string | null | undefined): string {
+  const s = raw ?? ''
+  const i = s.indexOf('?')
+  return i < 0 ? s : s.slice(0, i)
+}
+
+/** query 写在 URL 里、params 为空的旧数据：比较基准要把 URL 里的 query 解析出来 */
+function paramsFromUrlQuery(raw: string | null | undefined): ParamItem[] {
+  const s = raw ?? ''
+  const i = s.indexOf('?')
+  if (i < 0 || i === s.length - 1) return []
+  const sp = new URLSearchParams(s.slice(i + 1))
+  const out: ParamItem[] = []
+  sp.forEach((value, key) => out.push({ key, value, enabled: true }))
+  return out
+}
+
+/** raw_json 比较忽略格式空白；非法 JSON 退回原文 */
+function normJsonOrRaw(raw: string | null | undefined): string {
+  const s = raw ?? ''
+  try { return JSON.stringify(JSON.parse(s)) } catch { return s }
+}
+
+/**
+ * 库中 URL 按「当前环境 + 当前 path 参数值」解析成实际地址。
+ * 历史快照里存的是发送时的绝对 URL，而接口定义可能存相对路径/模板；
+ * 直接比字符串会把「同一地址的不同表示」误判为修改。
+ */
+function storedEffectiveUrl(req: ApiRequest): string {
+  let raw = req.url || ''
+  const parsed = parseUrl(raw, req.method)
+  if (parsed) {
+    raw = buildUrl(
+      parsed.pathTemplate,
+      parsed.pathParams.map(p => ({
+        key: p.key,
+        value: pathParamValues.value[p.key] ?? p.value,
+      })),
+    )
+  }
+  const base = envStore.activeEnv?.base_url
+  if (base && /\{\{\s*base_url\s*\}\}/.test(raw)) {
+    raw = raw.replace(/\{\{\s*base_url\s*\}\}/g, base)
+  }
+  return resolveEffectiveUrl(raw, base)
 }
 
 /** 当前编辑区落库字段的签名（与 update_request 的内容字段对齐） */
 function editorSignature(): string {
-  // form_data / json_table 的落库形态是 formDataParams 的 JSON 序列化（与 syncFormData 输出一致）
   const bodySig = bodyType.value === 'form_data' || bodyType.value === 'json_table'
-    ? JSON.stringify(formDataParams.value)
+    ? paramSignature(formDataParams.value)
     : bodyType.value === 'form_urlencoded'
-      ? urlencodedStorageBody()
-      : bodyContent.value
+      ? paramSignature(urlencodedParams.value)
+      : bodyType.value === 'raw_json'
+        ? normJsonOrRaw(bodyContent.value)
+        : bodyContent.value
   return JSON.stringify([
     method.value,
-    url.value,
-    JSON.stringify(queryParams.value),
-    JSON.stringify(requestHeaders.value),
+    effectiveUrl.value,
+    paramSignature(queryParams.value),
+    paramSignature(requestHeaders.value),
     bodyType.value,
     bodySig,
   ])
@@ -1445,15 +1528,24 @@ function editorSignature(): string {
 
 /** 接口落库状态的签名（比较基准 = store 里的 api_requests 值） */
 function storedSignature(req: ApiRequest): string {
-  const bodySig = (req.body_type === 'form_data' || req.body_type === 'form_urlencoded' || req.body_type === 'json_table')
-    ? normJson(req.body)
-    : (req.body || '')
+  const bt = req.body_type || 'none'
+  const bodySig = bt === 'form_data' || bt === 'json_table'
+    ? paramSignature(parseParamArray(req.body))
+    : bt === 'form_urlencoded'
+      ? paramSignature(parseUrlencodedBody(req.body))
+      : bt === 'raw_json'
+        ? normJsonOrRaw(req.body)
+        : (req.body || '')
+  // 兼容「query 只写在 URL、params 为空」的旧数据：方向 A 加载时前端会把 URL query
+  // 解析进 queryParams，若基准仍用空 params 会一打开就误判为脏。
+  const storedParams = parseParamArray(req.params)
+  const params = storedParams.length > 0 ? storedParams : paramsFromUrlQuery(req.url)
   return JSON.stringify([
     req.method,
-    req.url,
-    normJson(req.params),
-    normJson(req.headers),
-    req.body_type || 'none',
+    storedEffectiveUrl(req),
+    paramSignature(params),
+    paramSignature(parseParamArray(req.headers)),
+    bt,
     bodySig,
   ])
 }
@@ -1651,6 +1743,20 @@ function selectMethod(k: string | number) { pushUndo(); method.value = String(k)
 // 用户认定的「保存」语义。按接口存，切接口保留。
 const savedSnapshots = ref<Record<number, RequestDraft>>({})
 
+// 关闭 Tab 后释放该接口的撤销栈与 Ctrl+S 快照：每个快照都深拷贝了 body/参数，
+// 长时间多 Tab 使用会累积成可观的内存。
+watch(() => tabStore.openTabs.map(t => t.requestId), (ids) => {
+  const open = new Set(ids)
+  for (const key of Object.keys(editorHistories.value)) {
+    const id = Number(key)
+    if (!open.has(id)) delete editorHistories.value[id]
+  }
+  for (const key of Object.keys(savedSnapshots.value)) {
+    const id = Number(key)
+    if (!open.has(id)) delete savedSnapshots.value[id]
+  }
+})
+
 function restoreToSaved() {
   const req = requestStore.activeRequest
   if (!req) return
@@ -1688,6 +1794,10 @@ function removeFormDataField(f: ParamItem) {
   if (i >= 0) formDataParams.value.splice(i, 1)
 }
 watch(() => requestStore.activeRequest, async (req, oldReq) => {
+  // 同一个接口对象被 updateRequest / persistParams 替换（例如保存 Auth、静默落库）时，
+  // activeRequest 引用会变化，但这不是「切换接口」。没有这个短路会误走切走/切回流程：
+  // 存草稿 → flushPersist → 再次替换对象 → 无限循环，并会意外清掉用例上下文。
+  if (req && oldReq && req.id === oldReq.id) return
   // 1. 保存旧接口的草稿
   //    注意：无条件保存，不依赖 requestDirty —— 因为 pathParamValues 等
   //    "临时调试字段" 变动不触发 dirty，但仍需跨 Tab 保留。
@@ -2046,6 +2156,50 @@ watch(
 // Cookie 管理里新增/修改/删除后同步刷新只读区（Set-Cookie 回存也会走这里）
 watch(() => cookieStore.cookies, () => { void refreshPreviewCookies() }, { deep: true })
 
+// ── 域名来源提示（Q2-A）────────────────────────────────────────
+// resolveEffectiveUrl：URL 自带 http(s):// 时环境 Base URL 完全忽略；只有相对路径才拼。
+// 这里把「本次到底用了哪边的域名」做成常驻徽标，冲突时发送前再提示一次。
+function safeHost(raw: string | null | undefined): string {
+  const s = (raw ?? '').trim()
+  if (!s) return ''
+  try { return new URL(s).host } catch { /* 继续尝试补协议 */ }
+  try { return new URL(`https://${s}`).host } catch { return '' }
+}
+
+const urlDomainSource = computed(() => {
+  if (!envStore.activeEnv) return null
+  const raw = resolvedUrl.value
+  if (!raw) return null
+  const envBase = envStore.activeEnv.base_url ?? ''
+  if (/^https?:\/\//i.test(raw)) {
+    const host = safeHost(raw)
+    const envHost = safeHost(envBase)
+    return {
+      source: 'url' as const,
+      host,
+      envHost,
+      conflict: !!host && !!envHost && host !== envHost,
+    }
+  }
+  return {
+    source: 'env' as const,
+    host: safeHost(envBase),
+    envHost: safeHost(envBase),
+    conflict: false,
+  }
+})
+
+const urlDomainTooltip = computed(() => {
+  const info = urlDomainSource.value
+  if (!info) return ''
+  if (info.source === 'url') {
+    return info.conflict
+      ? `本次使用 URL 中的域名：${info.host}\n环境 Base URL：${info.envHost}（不参与拼接）`
+      : `本次使用 URL 中的域名：${info.host}`
+  }
+  return `本次使用环境 Base URL 的域名：${info.host || '（未配置 Base URL）'}`
+})
+
 /** URL 中是否包含 {{var}} 变量，用于控制输入框文字是否透明（有变量才透明以展示高亮层） */
 const urlHasVars = computed(() => /\{\{[^{}]*\}\}/.test(url.value))
 
@@ -2109,8 +2263,6 @@ let syncingFromParams = false
 
 watch(url, () => {
   if (isInitializing || syncingFromParams) return
-  // 用户修改 URL，标记接口为 dirty
-  markRequestDirty()
   syncingFromUrl = true
 
   const qsIndex = url.value.indexOf('?')
@@ -2138,12 +2290,12 @@ watch(url, () => {
   queryKvText.value = toKvText(queryParams.value)
   queryJsonText.value = toJsonText(queryParams.value)
 
-  nextTick(() => { syncingFromUrl = false })
+  // 等另一半同步完再判脏，避免拿「新 URL + 旧 params」的混合状态误判
+  nextTick(() => { syncingFromUrl = false; markRequestDirty() })
 })
 
 watch(queryParams, () => {
   if (isInitializing || syncingFromUrl) return
-  markRequestDirty()
   syncingFromParams = true
 
   const enabledParams = queryParams.value.filter(p => p.enabled && p.key)
@@ -2158,7 +2310,7 @@ watch(queryParams, () => {
     url.value = basePath
   }
 
-  nextTick(() => { syncingFromParams = false })
+  nextTick(() => { syncingFromParams = false; markRequestDirty() })
 }, { deep: true })
 
 // 1.0.3 Bug Fix：Body 5 种格式互相转换
@@ -2402,6 +2554,12 @@ async function handleSend() {
   const activeReq = requestStore.activeRequest
   if (!activeReq) return
 
+  // Q2-A：URL 自带域名与环境 Base URL 域不一致时，发送前明确告知实际使用哪边
+  const domainInfo = urlDomainSource.value
+  if (domainInfo?.conflict) {
+    message.info(`本次使用 URL 中的域名 ${domainInfo.host}；环境 Base URL（${domainInfo.envHost}）未参与拼接`)
+  }
+
   // 发送前把响应视图切到本次要写入的桶：运行过别的用例后视图可能停在那个用例桶，
   // 此时网络失败（resp=null）错误会写进不可见桶，界面看起来毫无反应。
   responseStore.setCurrent(activeReq.id, testCaseStore.activeTestCaseId)
@@ -2639,6 +2797,9 @@ async function handleActivateTestCase(id: number) {
   // Bug4 修复：先清除初始化标志，再防止 watch(queryParams) 反向覆写 URL
   nextTick(() => {
     isInitializing = false
+    // Q4-A 语义：黄点 = 编辑区与接口落库值是否一致。用例参数若与接口不同，
+    // 激活后编辑区已经偏离接口定义，必须点亮；否则 Ctrl+S 会把用例值静默写回接口。
+    markRequestDirty()
     // queryParams 已从 tc.params 加载完毕，防止 watcher 反向重写 URL
     syncingFromParams = true
     nextTick(() => { syncingFromParams = false })
@@ -2647,6 +2808,13 @@ async function handleActivateTestCase(id: number) {
 
 // ── 1.0.5：退出用例上下文（A+A2：再次点击已激活用例）────────────
 function handleDeactivateTestCase() {
+  // 文本/表格模式先把当前内容同步到 source of truth，避免 checkParamsDirty 读旧数组
+  syncKvJsonToParams()
+  if (bodyType.value === 'form_data' || bodyType.value === 'json_table') syncFormData()
+  if (bodyType.value === 'form_urlencoded') syncUrlencodedData()
+  // paramsDirty 此前只在发送后重算，退出用例前必须按当前编辑区重新判一次，
+  // 否则「改了参数再点用例退出」会直接丢弃修改且不弹确认。
+  checkParamsDirty()
   // A2：有未保存修改 → 三选一（保存到用例 / 丢弃 / 取消）
   if (paramsDirty.value) {
     showDeactivateModal.value = true
@@ -2695,9 +2863,11 @@ function deactivateToRaw() {
   responseStore.setCurrent(reqId, null)
   historyStore.loadHistory(reqId, null).catch(() => {})
   paramsDirty.value = false
-  // 与 handleActivateTestCase 同款收尾：等 URL/参数同步完再放开 watcher
+  // 与 handleActivateTestCase 同款收尾：等 URL/参数同步完再放开 watcher，
+  // 然后按恢复后的编辑区重算接口黄点（用例上下文里被置真的黄点要能清掉）。
   nextTick(() => {
     isInitializing = false
+    markRequestDirty()
   })
 }
 
@@ -2802,7 +2972,43 @@ function handleRefill(snapshot: string) {
       : new Map<string, ParamItem>()
 
     if (s.method) method.value = s.method
-    if (s.url) url.value = s.url
+    if (s.url) {
+      const reqUrl = activeReq?.url ?? ''
+      if (reqUrl) {
+        // 历史快照存的是「解析后的绝对地址」（base_url + path 参数已替换），
+        // 接口定义可能是相对路径/模板。若两者指向同一地址，保留接口定义形态，
+        // 避免回填后仅因 URL 表示不同而亮黄点；真正换了 endpoint 时才用快照 URL。
+        const snapPathPairs: Array<{ key: string; value: string }> = Array.isArray(s.path_params)
+          ? s.path_params.map((p: ParamItem) => ({ key: String(p.key ?? ''), value: String(p.value ?? '') }))
+          : Object.entries(pathParamValues.value).map(([key, value]) => ({ key, value }))
+        let built = reqUrl
+        const parsedReq = parseUrl(reqUrl, s.method || method.value)
+        if (parsedReq) {
+          built = buildUrl(
+            parsedReq.pathTemplate,
+            parsedReq.pathParams.map(p => ({
+              key: p.key,
+              value: snapPathPairs.find(x => x.key === p.key)?.value ?? p.value,
+            })),
+          )
+        }
+        const base = envStore.activeEnv?.base_url
+        if (base && /\{\{\s*base_url\s*\}\}/.test(built)) {
+          built = built.replace(/\{\{\s*base_url\s*\}\}/g, base)
+        }
+        const resolvedReq = resolveEffectiveUrl(built, base)
+        url.value = urlBaseOnly(resolvedReq) === urlBaseOnly(s.url) ? reqUrl : s.url
+      } else {
+        url.value = s.url
+      }
+    }
+    if (Array.isArray(s.path_params)) {
+      const values: Record<string, string> = {}
+      for (const p of s.path_params) {
+        if (p?.key) values[String(p.key)] = String(p.value ?? '')
+      }
+      pathParamValues.value = values
+    }
     if (s.query_params) queryParams.value = mergeParamMeta(s.query_params, metaParamSrc)
     if (s.headers) requestHeaders.value = mergeParamMeta(s.headers, metaHeaderSrc)
     if (s.body_type) bodyType.value = s.body_type
@@ -2830,7 +3036,12 @@ function handleRefill(snapshot: string) {
     headerJsonText.value = ''
     urlencodedKvText.value = ''
 
-    nextTick(() => { isInitializing = false })
+    // 回填是「把历史值写进编辑区」，与当前接口落库值不一致时应立刻点亮黄点，
+    // 让用户知道这些内容还没保存（与切换用例的初始化语义区分开）。
+    nextTick(() => {
+      isInitializing = false
+      markRequestDirty()
+    })
   } catch {
     // snapshot 解析失败时静默忽略
   }
