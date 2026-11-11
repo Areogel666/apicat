@@ -64,6 +64,7 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 
 - 断言 JSON 形状：`{status_code, json_path}`，运行结果给出通过/失败判定。
 - Bridge `create_test_case` 的 `case_type` **必填**（缺省返回 400，防止 7 种用例类型被静默全标成 happy_path）；UI 侧默认 happy_path。
+- **用例执行默认继承接口认证**（`test_cases` 没有 auth 列，1.0.10 起从 `api_requests` 读 `auth_type/auth_config`），并注入存储 cookie；**唯一例外是 `case_type='unauthorized'`**——豁免认证与 cookie 注入，否则接口认证/登录态会被自动补上，401 断言恒挂。删用例 headers 挡不住注入（认证优先级高于手动 headers，cookie 是「手动; 存储」合并）。
 - ~~收藏用例~~ 概念已随 1.0.5 移除（DB 迁移 DROP COLUMN starred）；用例无收藏/置顶，仅按最近使用排序。
 
 ### 历史列表契约

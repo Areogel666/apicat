@@ -428,5 +428,5 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/get_cookies_for_domain?domain=h
 - **`POST /send_request` 会注入 cookie**：按 URL host 从 cookie 存储取（子域/path/过期/优先级过滤后）注入 `Cookie` 头；手动 `Cookie` 行在前、存储在后，合并成一条头，不产生第二个 `Cookie` 头。
 - **`projectId` 参数已保留但被忽略**：项目归属一律按 `requestId` 反查 `api_requests → collections → projects` 自推；不传 `requestId` 时才退化为不注入项目级 cookie。
 - `persistSetCookies`（或 `persist_set_cookies`，布尔，默认 `true`）：是否把响应的 `Set-Cookie` 回存进 cookie 存储。回存层级 = 有项目+环境则存 `env` 层，只有项目存 `project` 层，都没有存 `global` 层。
-- **`POST /run_test_case` 也会注入 cookie 并回存 `Set-Cookie`**。
+- **`POST /run_test_case` 会继承接口认证并注入 cookie**，随后回存 `Set-Cookie`；**`case_type='unauthorized'` 用例自动豁免认证与 cookie 注入**（否则 401 断言必挂）。
 - **压测（`POST /start_stress`）不逐请求注入**：启动时一次性把命中 cookie 拼进请求并快照进 `stress_runs.config_json` 的 `cookie_snapshot` 字段。

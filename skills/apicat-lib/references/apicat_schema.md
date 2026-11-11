@@ -81,8 +81,8 @@
 | last_status | TEXT | pending/passed/failed/error |
 | last_duration_ms | INTEGER | |
 | last_response | TEXT | ≤1KB 摘要 |
-| starred | INTEGER 0/1 | 首个用例自动 starred=1 |
 | enabled | INTEGER 0/1 | |
+| hidden | INTEGER 0/1 | 1.0.10：1 = 不在下方用例条展示（管理面板仍可见，非禁用） |
 
 ### data_dictionaries
 | 列 | 类型 | 说明 |

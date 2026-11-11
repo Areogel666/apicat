@@ -67,13 +67,20 @@ pub async fn run_test_case_impl(
 
     // 1.5 认证配置继承接口定义：test_cases 没有 auth 列，用例快照无法保存认证。
     // 此前这里硬编码空串 → Bearer/Basic/api_key（尤其 in=query）的接口跑用例必失败。
-    let (auth_type, auth_config) = sqlx::query_as::<_, (String, String)>(
-        "SELECT COALESCE(auth_type, 'none'), COALESCE(auth_config, '{}') \
-         FROM api_requests WHERE id=?",
-    )
-    .bind(request_id)
-    .fetch_one(pool)
-    .await?;
+    // 例外：unauthorized 用例的语义就是「不带认证」，必须豁免继承——否则接口的
+    // auth 会把 Authorization / query key 重新注入（注入优先级高于手动 headers），401 必挂。
+    let is_unauthorized = tc.case_type == "unauthorized";
+    let (auth_type, auth_config) = if is_unauthorized {
+        ("none".to_string(), "{}".to_string())
+    } else {
+        sqlx::query_as::<_, (String, String)>(
+            "SELECT COALESCE(auth_type, 'none'), COALESCE(auth_config, '{}') \
+             FROM api_requests WHERE id=?",
+        )
+        .bind(request_id)
+        .fetch_one(pool)
+        .await?
+    };
 
     // 2. 组装 SendRequestParams（用例自身快照优先；method/url 为空时回落到接口定义）
     let (method, url, headers, params, body_type, body) = if tc.method.as_deref().unwrap_or("").is_empty()
@@ -182,14 +189,18 @@ pub async fn run_test_case_impl(
     }
 
     // 3.5 注入 Cookie（1.0.7：用例执行此前绕过注入，根因 #3）
-    let jar = crate::cookies::collect_cookies_for_url(
-        pool,
-        &send_params.url,
-        case_project_id,
-        effective_env_id,
-    )
-    .await?;
-    crate::cookies::inject_cookies(&mut send_params, &jar);
+    // unauthorized 用例同样豁免：注入的是「手动; 存储」合并值，删手动 Cookie 头挡不住
+    // 存储里的登录态，401 断言会被自动补上的 cookie 打挂。
+    if !is_unauthorized {
+        let jar = crate::cookies::collect_cookies_for_url(
+            pool,
+            &send_params.url,
+            case_project_id,
+            effective_env_id,
+        )
+        .await?;
+        crate::cookies::inject_cookies(&mut send_params, &jar);
+    }
 
     // 4. 发请求
     let send_result = send(http, &send_params).await;

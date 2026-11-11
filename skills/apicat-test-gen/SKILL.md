@@ -45,7 +45,7 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE/list_requests?collection_id=$CI
 
 `auth_type='none'` 的接口自动跳过 `unauthorized`。
 
-**⚠️ 用例执行会注入 cookie**（按 URL host 从 cookie 存储取）：`unauthorized` 类型要**显式去掉 `Cookie` header** 才能测出「未登录」，否则存储里的登录态会被自动补上，401 断言必挂。
+**⚠️ 用例执行会继承接口认证与 cookie**（按接口 `auth_type`/`auth_config` 注入，按 URL host 从 cookie 存储取）。**但 `case_type='unauthorized'` 自动豁免两者**：用例里保持 headers/params 全量、不要带 `Authorization`/`Cookie` 即可测出 401；其他类型无法靠删 header 绕过注入。若某接口的 401 依赖无效 token 而非缺认证，请在 `unauthorized` 用例中显式放一个无效的 `Authorization` 头。
 
 **依赖链用例不支持**（用例间无编排概念），不要生成。
 
