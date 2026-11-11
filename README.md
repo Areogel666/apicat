@@ -5,7 +5,7 @@
     一款基于 Tauri、Rust 和 Vue 3 构建的轻量、高性能 API 调试与测试工具。
   </p>
   <p>
-    <img src="https://img.shields.io/badge/version-1.0.9-orange" alt="version"/>
+    <img src="https://img.shields.io/badge/version-1.0.10-orange" alt="version"/>
     <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="platform"/>
     <img src="https://img.shields.io/badge/license-MIT-green" alt="license"/>
   </p>
@@ -43,6 +43,11 @@ ApiCat is a modern desktop application for API debugging and testing, powered by
 - **AI Skills Installer**: One-click install/uninstall of five bundled skills — `apicat-lib` (Bridge access base), `apicat-edit` (edit requests/dictionaries, batch-import from Markdown docs), `apicat-test-gen` (generate test cases / stress runs), `apicat-doc-gen` (generate API docs), `apicat-doctor` (read-only library audit that produces a normalization plan — naming, redundancy, gaps — without touching any data) — into your Agent's skills directory via junction links; broken installs are auto-repaired on app startup, and the manager flags skills that are behind the current app version (skills ship with the app) with a one-click update.
 - **Cookie Management**: Three-level scoping (global / project / environment, precedence `env > project > global`); `Set-Cookie` responses are auto-saved and replayed on the next request; cookies are injected into every send path (debug Send, test cases, stress runs, cURL export) and importable from `curl -b`. Inline editing covers expiry, and duplicate keys are rejected instead of silently stacking rows. `Secure` cookies are sent over https/wss only.
 - **Test Assertions**: Test cases can declare assertions (`status_code` / JSON Path); running a case gives a clear pass/fail verdict.
+- **Test Case Workspace Rework**: A single-list case manager with hide/show and inline rename; running a case writes its response into the case bucket and refreshes History. `unauthorized` cases automatically skip inherited auth and stored cookies so 401 assertions are not masked.
+- **Transparent Request Headers & Compression**: The Headers tab shows the headers actually injected at send time (User-Agent / Content-Type / Authorization / Accept-Encoding) plus cookies matched for the current URL/env. Add a default `ApiCat/<version>` UA and an optional per-algorithm response decompression switch (gzip / deflate / brotli / zstd, off by default).
+- **Unix Timestamp Hover**: Numeric timestamp fields (10-digit seconds / 13-digit milliseconds) show a local + UTC readable time on hover in the JSON viewer.
+- **URL Domain Source Indicator**: A badge shows whether the request URL's own domain or the active environment's Base URL is in effect; a send-time notice appears when the two hosts conflict.
+- **Linux Renderer Compatibility**: Three renderer modes (GPU / shm / software); the default `shm` mode disables DMABUF to avoid Intel i915 GPU hangs, while heavy panels and first-screen JS load on demand.
 - **Stress Report Preview & Thresholds**: Built-in Markdown report generator shared by the app and the Bridge, with in-app preview and Markdown/HTML export. P95/P99 reference lines are configurable per project with per-request overrides.
 - **API Docs Panel**: A third sidebar tab browsing your local API documentation directory — open files directly or reveal them in the file explorer.
 - **Response Dictionary Translation**: A hand-rolled JSON tree renders responses with color-coded micro-labels next to values that hit a bound dictionary item (`value ▸ meaning`, hover for dict name + description) — read-only translation, no schema changes.
@@ -53,6 +58,7 @@ ApiCat is a modern desktop application for API debugging and testing, powered by
 - **Docs Markdown Preview**: In-app Markdown preview for doc files (scrolling fixed), plus a defensive placeholder for unsupported file types.
 - **Startup Update Check**: Silent check on launch with a prompt only when a new version is out (once per version); unreachable server never nags.
 - **First-Run Skill Guide**: On first launch, if an Agent is detected but no ApiCat skills are installed, a one-time multi-target install dialog appears (re-armed after app upgrades if still not installed).
+- **First-Run Guided Tour**: After sample data is seeded, a five-step spotlight tour walks through the interface / dictionary / docs / stats panels and the ⚙️ menu; it runs once per install and can be replayed from ⚙️.
 - **Self-Contained Skills on Linux AppImage**: AppImage installs copy skill files instead of symlinking into the ephemeral `/tmp/.mount_*` mount point; copied installs carry a version marker and auto-refresh when the app version changes.
 - **Sidebar Fold Handle**: When the sidebar is collapsed, a slim handle on the left edge hover-previews the panel (no persistence) and click fully expands it.
 - **JSON Tree Expand/Collapse All**: One-click expand/collapse all nodes on the response toolbar; deep nodes past the default depth are now clickable to toggle (previously required Ctrl+F).
@@ -94,7 +100,7 @@ Build output: `src-tauri/target/release/bundle/msi/`
 
 ### 📋 Changelog
 
-- Latest stable: [docs/release/1.0.9.md](docs/release/1.0.9.md)
+- Latest stable: [docs/release/1.0.10.md](docs/release/1.0.10.md)
 - Previous: [docs/release/1.0.8.md](docs/release/1.0.8.md)
 - Beta history: [docs/release/1.0.0-beta.md](docs/release/1.0.0-beta.md)
 
@@ -129,9 +135,14 @@ ApiCat 是一款基于 Tauri 2.0 + Rust + Vue 3 的轻量、高性能、无跨�
 - **AI 技能安装器**：一键把 5 个内置技能安装/卸载到各 Agent 的 skills 目录（junction 链接）：`apicat-lib`（Bridge 访问底座）、`apicat-edit`（增删改接口/字典、从 Markdown 文档批量导入）、`apicat-test-gen`（生成用例/压测）、`apicat-doc-gen`（生成接口文档）、`apicat-doctor`（应用问诊：只读扫描接口库，输出命名/冗余/缺失的规范整理计划，只开方不动数据）；App 启动时会自动修复失效的安装，并标记落后于当前 App 版本的技能、支持一键更新。
 - **Cookie 管理**：三级作用域（全局 / 项目 / 环境，优先级 `环境 > 项目 > 全局`）；`Set-Cookie` 自动回存并在下次请求带上；四条发送链路（调试 / 用例 / 压测 / 导出 cURL）统一注入，支持从 `curl -b` 导入；可行内编辑（含过期时间），重复键明确拦截而非静默堆积；`Secure` 的 cookie 只在 https / wss 发送。
 - **用例断言**：测试用例可声明断言（`status_code` / JSON Path），运行后给出明确的通过/失败判定。
+- **用例工作流重构**：管理面板改为单列表，支持批量隐藏/显示与行内重命名；运行用例会把响应写入该用例桶并刷新 History；`unauthorized` 用例自动豁免继承的认证与存储 Cookie，401 断言不再被自动补上的登录态打挂。
+- **请求头透明化与响应解压**：Headers 页签只读展示发送时真正注入的 User-Agent / Content-Type / Authorization / Accept-Encoding 与当前 URL/环境命中的 Cookie；默认补 `ApiCat/<版本>` UA，新增逐算法响应解压开关（gzip / deflate / brotli / zstd，默认关）。
+- **Unix 时间戳悬停**：JSON 视图中的 10 位秒/13 位毫秒时间戳字段，悬停显示本地时间与 UTC。
+- **URL 域名来源提示**：URL 栏徽标显示本次使用 URL 自带域名还是环境 Base URL；两者 host 不一致时发送前提示。
+- **Linux 兼容渲染**：三档渲染模式（GPU / shm / 软件合成），默认 `shm` 禁用 DMABUF 以规避 Intel i915 GPU 卡死；统计图、JSON 查看器等重面板按需加载，首屏更轻。
 - **压测报告预览与参考线**：Markdown 报告生成器在 Rust 侧下沉，App 与 Bridge 共用同一真源；支持应用内预览与 Markdown/HTML 导出；P95/P99 参考线可按项目配置、按接口覆盖。
 - **接口文档面板**：侧边栏第三个 Tab，浏览本地接口文档目录，双击打开文件或在文件管理器中定位。
-- **新手指引**：8 处功能区一次性引导（数据字典 / 压测 / Cookie / AI 技能 / 导入 / 环境 / 统计 / 首个请求），首次进入即提示、不打断操作；⚙️ 菜单可随时重放；首启自动播种可直接发送的示例接口与断言用例（老用户升级不打扰）。
+- **首启功能导览**：示例播种完成后自动开始 5 步聚光灯 tour（接口树 → 字典 → 文档 → 统计 → ⚙️ 菜单）；应用生涯仅一次，⚙️ 菜单可重看；弹窗内 GuideBar 承担功能内提示；首启自动播种可直接发送的示例接口与断言用例（老用户升级不打扰）。
 - **使用统计面板**：侧栏第 4 个面板，请求趋势 / 成功率 / 状态码与方法分布 / 字典与文档建设量一屏总览；近 30 天 / 近半年 / 近一年 / 全部四档，趋势粒度日/周自适应；图表配色走 HTTP 语义 token、随主题实时联动；数据纯本地、零上报。
 - **响应字段字典翻译**：自研 JSON 树渲染响应，字段值命中已绑定字典项时值旁显示 `value ▸ 含义` 字典色微标签（hover 看字典名 + 描述）——只读翻译，不加数据模型。
 - **接口编辑撤销/重做**：结构级 undo/redo（加删行、排序、清空、粘贴、URL/method），按接口分栈（深 20）；编辑区「⚠ 未保存」标记 + 一键回到上次 Ctrl+S 版本。
@@ -193,7 +204,7 @@ npm run tauri build
 
 ### 📋 更新记录
 
-- 最新稳定版说明： [docs/release/1.0.9.md](docs/release/1.0.9.md)
+- 最新稳定版说明： [docs/release/1.0.10.md](docs/release/1.0.10.md)
 - 上一版本说明： [docs/release/1.0.8.md](docs/release/1.0.8.md)
 - Beta 阶段历史记录： [docs/release/1.0.0-beta.md](docs/release/1.0.0-beta.md)
 

@@ -21,6 +21,7 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 - 三棵树（接口/字典/文档）统一受控展开，持久化真源是 `useTreeExpanded`（`src/composables/useTreeExpanded.ts`）：watch 实时写 localStorage `tree.expanded.{name}:{projectId}`，按「树×项目」记忆；恢复走 `restore()`（严格语义：过滤已删节点，新建默认收起）
 - 接口树搜索期间 `setPaused(true)` 暂停写盘（搜索自动全展开是瞬时态），清空搜索恢复快照；切项目时恢复写盘
 - ⊞/⊟（全部展开/折叠）按钮直接赋值 expandedKeys，与手动收展共用同一条持久化链路
+- 1.0.10：字典树无持久化记录时默认折叠（只显示字典节点）；已有项目的持久化展开状态不变——旧版默认展开会写盘，想重置需点一次 ⊟ 或清 `tree.expanded.dictionary:{projectId}`
 
 ### 数据字典 / 参数 / 草稿
 
@@ -52,7 +53,7 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 - **新建拦截 vs 回存覆盖是两条路径**：`create_cookie_impl`（手工新建）遇重复键**返回错误**；Set-Cookie 回存走独立的 `cookies::upsert_cookie`（命中即覆盖）。二者共用 `find_cookie_id`，改一处别牵连另一处。
 - `expires_at` 落库是 **UTC 串**（`YYYY-MM-DD HH:MM:SS`，无时区标记）：前端比对用 `nowUtcString()`，date-picker 往返用 `tsToUtcString` / `utcStringToTs`（显式按 UTC 解析，别用 `new Date(s)`——该串的时区行为跨引擎不一致）。
 
-### 默认请求头 / 响应解压
+### 默认请求头 / 响应解压（1.0.10）
 
 - **默认 UA**：两个 HTTP client（调试 `lib.rs` / 压测 `stress.rs`）统一 `.user_agent("ApiCat/<CARGO_PKG_VERSION>")`；用户手动 `User-Agent` 行优先覆盖。
 - **响应解压默认关**：`app-settings.json` 的 `network.decompressEnabled`（bool）+ `network.decompressAlgorithms`（数组，默认 `gzip/deflate/br`，zstd 需手动勾）。开关变化走 IPC `apply_network_settings(enabled, algorithms)` 即时重建主 client——**直接传值，别让 Rust 回读文件**（plugin-store 落盘有防抖，回读会拿到旧值）。压测 client 每次运行读同一份设置，并把 `accept_encoding` 写进 `stress_runs.config_json`。
@@ -65,6 +66,8 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 - 断言 JSON 形状：`{status_code, json_path}`，运行结果给出通过/失败判定。
 - Bridge `create_test_case` 的 `case_type` **必填**（缺省返回 400，防止 7 种用例类型被静默全标成 happy_path）；UI 侧默认 happy_path。
 - **用例执行默认继承接口认证**（`test_cases` 没有 auth 列，1.0.10 起从 `api_requests` 读 `auth_type/auth_config`），并注入存储 cookie；**唯一例外是 `case_type='unauthorized'`**——豁免认证与 cookie 注入，否则接口认证/登录态会被自动补上，401 断言恒挂。删用例 headers 挡不住注入（认证优先级高于手动 headers，cookie 是「手动; 存储」合并）。
+- **用例管理面板（1.0.10）**：单列表 + 批量隐藏/显示 + 行内重命名；`test_cases.hidden` 只控制下方用例条是否展示（管理面板始终可见，非禁用）。运行用例写入该用例响应桶、回写 `response_headers` 并刷新 History。
+- **URL-Encoded 用例 420**：用例执行/ Bridge 不经过前端 `syncUrlencodedData`，Rust 在发送边界（`http/client.rs`）做幂等 k=v 编码；手动发送与用例共用同一份实现。
 - ~~收藏用例~~ 概念已随 1.0.5 移除（DB 迁移 DROP COLUMN starred）；用例无收藏/置顶，仅按最近使用排序。
 
 ### 历史列表契约
@@ -73,7 +76,7 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 - **Bridge 的 `list_history` 仍返回全量字段**——外部技能脚本依赖此契约，勿「顺手统一」。
 - `test_case_history` 表已合并进 `request_history`（用例历史同表，`test_case_id` 不为空）；由触发器 `trg_rh_keep_10_per_case` 按用例保留最近 10 条。
 - **大响应落文件**：发送时超阈值则 body 存文件，`response_body` 为路径标记 + `is_truncated=1`；取回用 `open_response_file`，导出用 `export_response_file`，`cleanup_history` 可连带清理文件。
-- **回填补元数据**：Rust `ParamItem` 已带 `description` 随快照落库；`handleRefill` 仍用 `mergeParamMeta` 以当前接口定义补旧快照的 type/description，并把 KV/JSON 模式重置为表格、清空文本缓冲（否则旧文本会覆盖回填值）。
+- **回填补元数据**：Rust `ParamItem` 已带 `description` 随快照落库；`handleRefill` 仍用 `mergeParamMeta` 以当前接口定义补旧快照的 type/description，并把 KV/JSON 模式重置为表格、清空文本缓冲（否则旧文本会覆盖回填值）。回填还会写入 `path_params`；若历史快照与当前接口指向同一地址，保留接口的相对路径/模板形态，只有 endpoint 不同才用快照 URL——否则「同一地址的不同表示」会被黄点误判为修改。
 
 ### 压测
 
@@ -109,8 +112,9 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 - **结构级 undo/redo**：`MainPanel.vue` 的 `pushUndo()` 在 add/remove/splice/排序/URL/method 生效前调用，按 requestId 分栈、栈深 20。文本输入不 pushUndo（走原生撤销）——新增结构操作必须前置 pushUndo，否则 ctrl+z 撤销会跳过它。执行 undo/redo 包 `isInitializing`，防 watcher 连锁。
 - **回到上次保存**：Ctrl+S 成功后深拷贝存 `savedSnapshots[req.id]`；编辑区「⚠ 未保存」时点「回到上次保存版」应用快照，`isInitializing` 包住，不推入 undo 栈。
 - **黄点即时性**：`formDataParams` / `urlencodedParams` 有 deep watcher；撤销/重做/↺/切换接口/退出用例/历史回填后在 `nextTick` 补一次 `markRequestDirty()`。切走静默落库后 `persistParams` 同步更新 store 基准，仅 method/url 改动仍保留黄点；Auth 保存后也重算而非无条件清脏。
-- **黄点签名归一化**：URL 只比较 base（query 由 `queryParams` 单独管，实际发送时 Rust 也剥掉 URL query 再拼 params）；ParamItem 固定字段顺序并统一 `null/undefined/""`；body 按类型归一（表单数组走 `paramSignature`、raw_json 忽略格式空白、form_urlencoded 兼容旧 k=v）。
+- **黄点签名归一化**：URL 比较按当前环境/path 参数解析后的实际地址（query 仍由 `queryParams` 单独管，实际发送时 Rust 剥掉 URL query 再拼 params）；ParamItem 固定字段顺序并统一 `null/undefined/""`；body 按类型归一（表单数组走 `paramSignature`、raw_json 忽略格式空白、form_urlencoded 兼容旧 k=v）。
 - **切接口 watcher 必须同 id 短路**：`updateRequest` 会替换 `requestMap` 元素，`persistParams` 必须**原地改字段**而不是替换元素；否则 `watch(activeRequest)` 把同 id 替换误当切接口，触发「存草稿 → 落库 → 再替换」循环，并清掉用例上下文。
+- **内存回收（1.0.10）**：关闭 Tab 走 `responseStore.clearRequest(id)` 清 raw + 全部用例桶；`HistoryTab.fullRecords` 按接口/用例作用域清空且最多 20 条；关闭 Tab 时释放 `editorHistories` / `savedSnapshots` 中对应条目。
 
 ## Rust 侧加字段清单
 
@@ -151,6 +155,7 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 
 ## Gotchas
 
+- **Linux 渲染模式（1.0.10）**：`app-settings.json` 的 `linux.webkitRenderer` = `auto` / `shm`（默认）/ `software`；`main.rs` 在 WebKit 初始化前设置 `WEBKIT_DISABLE_DMABUF_RENDERER`（shm）或 `WEBKIT_DISABLE_COMPOSITING_MODE`（software）。**外部同名环境变量优先**——`.desktop` 的 `Exec=env WEBKIT_DISABLE_DMABUF_RENDERER=1 ...` 会让 UI 三档失效，升级后必须移除。i915 GPU HANG 是驱动层问题，默认保持 `shm`。
 - **历史时间显示必须显式 UTC 解析**：DB 落库 UTC 串（无时区标记），`new Date(串)` 在 WebKit 按本地时区解读整体偏移（压测历史实测踩坑）——用 `utcStringToTs`（utils/time.ts）或 `Date.parse(s+'Z')`（HistoryTab 同款）
 - **dragDropEnabled 必须 true（1.0.7）**：实测 Linux webkitGTK 在 false 时不把外部文件拖拽派发为 DOM 事件（dragenter/over/drop 全不触发），且会把文件内容按 Latin-1 读出插进输入框（乱码根源）；true 后 drop 在 GTK 层被 Tauri 接管。代价是 NTree 原生 draggable 全平台失效——侧边栏排序已换成 pointer 自研引擎 `useTreePointerDnd`（复刻 NTree 三段落点语义，产出等价 drop 信息调 `useCollectionTreeDnd.onDrop`，业务逻辑零改动）。**别把 NTree 的 draggable 加回去**，也别把 conf 改回 false
 - **调试前端事件别用 `document.title` 取证**：Tauri 窗口上 webview 的 title 变化**不会同步到 GTK/系统窗口标题**，探针永远读到旧值（1.0.7 拖拽调试因此绕了多轮）。可靠通道：自定义 Rust command 写文件（如追加写 /tmp 日志，无 capability 限制）
