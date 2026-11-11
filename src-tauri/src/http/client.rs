@@ -45,6 +45,10 @@ pub struct ParamItem {
     /// 旧 body JSON 无此字段，serde default 兜底为空串
     #[serde(rename = "type", default)]
     pub field_type: String,
+    /// 参数描述（前端 ParamItem.description）。旧数据无此字段时为空串。
+    /// 随发送快照落库，历史回填才能恢复描述。
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
 }
 
 /// 构建并发送 HTTP 请求，返回 HttpResponse（不含 history_id，由上层写库后填入）
@@ -366,6 +370,7 @@ mod tests {
                 value: "text/plain".into(), // 手动值：应被忽略而非覆盖 multipart 头
                 enabled: true,
                 field_type: String::new(),
+                description: String::new(),
             }],
             body_type: "form_data".into(),
             body: format!(

@@ -21,7 +21,7 @@ use crate::types::*;
 /// Bridge 共享状态
 pub struct BridgeState {
     pub pool: SqlitePool,
-    pub http: reqwest::Client,
+    pub http: crate::http::HttpClient,
     pub token: String,
     pub app: tauri::AppHandle,
 }
@@ -591,7 +591,8 @@ async fn run_test_case(State(s): State<BState>, Json(body): Json<Value>) -> axum
     let env_id = get_i64(&body, "envId", "env_id");
     // 复用 Tauri command 的逻辑：直接调用 crate::commands::test_case_run
     // 但它是 #[tauri::command]，参数是 State —— 这里内联同样逻辑
-    match crate::commands::test_case_run::run_test_case_impl(&s.pool, &s.http, tc_id, env_id).await {
+    let client = s.http.client();
+    match crate::commands::test_case_run::run_test_case_impl(&s.pool, &client, tc_id, env_id).await {
         Ok(result) => {
             broadcast(&s, "test_cases");
             // 用例执行会回存 Set-Cookie（1.0.7），桌面端需要 reload cookies
@@ -924,8 +925,9 @@ async fn send_request(State(s): State<BState>, Json(body): Json<Value>) -> axum:
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
 
+    let client = s.http.client();
     match crate::commands::send_request::send_request_impl(
-        &s.pool, &s.http, request_id, test_case_id, params, env_id, None, persist_set_cookies,
+        &s.pool, &client, request_id, test_case_id, params, env_id, None, persist_set_cookies,
     ).await {
         Ok(resp) => {
             if persist_set_cookies {

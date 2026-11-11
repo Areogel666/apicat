@@ -331,7 +331,8 @@ pub async fn run_test_case(
     test_case_id: i64,
     env_id: Option<i64>,
 ) -> CmdResult<RunCaseResult> {
-    Ok(run_test_case_impl(&db.0, &http.0, test_case_id, env_id).await?)
+    let client = http.client();
+    Ok(run_test_case_impl(&db.0, &client, test_case_id, env_id).await?)
 }
 
 /// String::if_empty —— 空则用 fallback

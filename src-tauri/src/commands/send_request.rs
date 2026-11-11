@@ -259,8 +259,9 @@ pub async fn send_request(
     project_id: Option<i64>,
     persist_set_cookies: Option<bool>,
 ) -> CmdResult<HttpResponse> {
+    let client = http.client();
     Ok(send_request_impl(
-        &db.0, &http.0, Some(request_id), test_case_id, params, env_id, project_id,
+        &db.0, &client, Some(request_id), test_case_id, params, env_id, project_id,
         persist_set_cookies.unwrap_or(true),
     ).await?)
 }

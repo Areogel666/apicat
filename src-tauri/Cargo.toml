@@ -32,7 +32,8 @@ tokio = { version = "1", features = ["full"] }
 sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio-native-tls", "macros", "migrate"] }
 
 # HTTP 客户端（M3 接口调试时用）
-reqwest = { version = "0.12", features = ["json", "cookies", "rustls-tls", "multipart"], default-features = false }
+# gzip/deflate/brotli/zstd 用于「响应解压」开关；默认关，见 http::read_compression_settings
+reqwest = { version = "0.12", features = ["json", "cookies", "rustls-tls", "multipart", "gzip", "deflate", "brotli", "zstd"], default-features = false }
 
 # 错误处理
 thiserror = "1"

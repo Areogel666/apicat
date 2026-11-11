@@ -52,6 +52,12 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 - **新建拦截 vs 回存覆盖是两条路径**：`create_cookie_impl`（手工新建）遇重复键**返回错误**；Set-Cookie 回存走独立的 `cookies::upsert_cookie`（命中即覆盖）。二者共用 `find_cookie_id`，改一处别牵连另一处。
 - `expires_at` 落库是 **UTC 串**（`YYYY-MM-DD HH:MM:SS`，无时区标记）：前端比对用 `nowUtcString()`，date-picker 往返用 `tsToUtcString` / `utcStringToTs`（显式按 UTC 解析，别用 `new Date(s)`——该串的时区行为跨引擎不一致）。
 
+### 默认请求头 / 响应解压
+
+- **默认 UA**：两个 HTTP client（调试 `lib.rs` / 压测 `stress.rs`）统一 `.user_agent("ApiCat/<CARGO_PKG_VERSION>")`；用户手动 `User-Agent` 行优先覆盖。
+- **响应解压默认关**：`app-settings.json` 的 `network.decompressEnabled`（bool）+ `network.decompressAlgorithms`（数组，默认 `gzip/deflate/br`，zstd 需手动勾）。开关变化走 IPC `apply_network_settings(enabled, algorithms)` 即时重建主 client——**直接传值，别让 Rust 回读文件**（plugin-store 落盘有防抖，回读会拿到旧值）。压测 client 每次运行读同一份设置，并把 `accept_encoding` 写进 `stress_runs.config_json`。
+- **Headers 只读区**展示 App 真正注入的头：User-Agent / Content-Type / Authorization / Accept-Encoding，以及经 `get_cookies_for_domain` 拿到的命中 Cookie（真源仍是 `cookies::collect_cookies_for_url`）。只读、不进签名/落库；手动写 AE 且解压关闭时给乱码提示。
+
 ### 用例与断言
 
 - 断言 JSON 形状：`{status_code, json_path}`，运行结果给出通过/失败判定。
@@ -64,6 +70,7 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 - **Bridge 的 `list_history` 仍返回全量字段**——外部技能脚本依赖此契约，勿「顺手统一」。
 - `test_case_history` 表已合并进 `request_history`（用例历史同表，`test_case_id` 不为空）；由触发器 `trg_rh_keep_10_per_case` 按用例保留最近 10 条。
 - **大响应落文件**：发送时超阈值则 body 存文件，`response_body` 为路径标记 + `is_truncated=1`；取回用 `open_response_file`，导出用 `export_response_file`，`cleanup_history` 可连带清理文件。
+- **回填补元数据**：Rust `ParamItem` 已带 `description` 随快照落库；`handleRefill` 仍用 `mergeParamMeta` 以当前接口定义补旧快照的 type/description，并把 KV/JSON 模式重置为表格、清空文本缓冲（否则旧文本会覆盖回填值）。
 
 ### 压测
 
@@ -98,6 +105,7 @@ npm run tauri build      # 打包 release 安装包(Windows 出 .msi)
 
 - **结构级 undo/redo**：`MainPanel.vue` 的 `pushUndo()` 在 add/remove/splice/排序/URL/method 生效前调用，按 requestId 分栈、栈深 20。文本输入不 pushUndo（走原生撤销）——新增结构操作必须前置 pushUndo，否则 ctrl+z 撤销会跳过它。执行 undo/redo 包 `isInitializing`，防 watcher 连锁。
 - **回到上次保存**：Ctrl+S 成功后深拷贝存 `savedSnapshots[req.id]`；编辑区「⚠ 未保存」时点「回到上次保存版」应用快照，`isInitializing` 包住，不推入 undo 栈。
+- **黄点即时性**：`formDataParams` / `urlencodedParams` 有 deep watcher；撤销/重做/↺/切换接口恢复后在 `nextTick` 补一次 `markRequestDirty()`。切走静默落库后 `persistParams` 同步更新 store 基准，仅 method/url 改动仍保留黄点；Auth 保存后也重算而非无条件清脏。
 
 ## Rust 侧加字段清单
 

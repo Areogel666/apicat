@@ -1,7 +1,7 @@
 # STORES — Pinia 状态层
 
 ## OVERVIEW
-14 个 setup store + 1 个持久化辅助层，覆盖全部业务域。所有 `invoke()` 调用在 store 内部完成，组件不直接调用 Tauri IPC。
+15 个 setup store + 1 个持久化辅助层，覆盖全部业务域。所有 `invoke()` 调用在 store 内部完成，组件不直接调用 Tauri IPC。
 
 ## STORES 清单
 | Store | 状态 | 职责 |
@@ -19,6 +19,7 @@
 | `dictionary.ts` | `dictionaries[]`, `itemsMap`, `fieldRules[]`, `fieldOverrides[]` | 数据字典 + 「字段名绑定」规则/例外（1.0.4） |
 | `stress.ts` | `isRunning`, `stats`, `chartPoints[]`, `history[]` | 压测配置、实时数据、历史记录（1.0.4 加 `history`） |
 | `theme.ts` | `mode`, `customTokens`, `density`, `radiusScale`, `fontSize` | 主题模式 + 风格档位，机制见 `CLAUDE.md` 主题系统 |
+| `network.ts` | `decompressEnabled`, `decompressAlgorithms` | 响应解压开关，落 `app-settings.json` 并即时重建 Rust client |
 | `ui.ts` | UI 状态（弹窗开关等） | 跨组件 UI 状态 |
 | `_persistedSettings.ts` | — | **非 store**：用户偏好持久化辅助层，统一封装 plugin-store 到 `app-settings.json` |
 

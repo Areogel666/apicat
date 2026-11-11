@@ -157,7 +157,7 @@ export const useRequestStore = defineStore('request', () => {
   ): Promise<void> {
     const req = findRequestById(id)
     if (!req) return
-    await invoke('update_request', {
+    const updated = await invoke<ApiRequest>('update_request', {
       id,
       name: req.name,
       method: req.method,
@@ -169,6 +169,11 @@ export const useRequestStore = defineStore('request', () => {
       authType: req.auth_type,
       authConfig: req.auth_config,
     })
+    // Q4-A：静默落库后同步 store 基准。否则切回该接口时 storedSignature 仍是旧值，
+    // 已经入库的内容会被误判成「未保存」。
+    const list = requestMap.value[req.collection_id] ?? []
+    const idx = list.findIndex(r => r.id === id)
+    if (idx !== -1) list[idx] = updated
   }
 
   async function deleteRequest(id: number, collectionId: number) {

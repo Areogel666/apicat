@@ -267,6 +267,25 @@
                 {{ h.key }}: {{ h.value }}
               </span>
             </div>
+            <div v-if="manualAeWarning" class="auto-headers-warn">
+              已手动设置 Accept-Encoding，但「响应解压」处于关闭状态：响应体可能是压缩后的二进制。
+              请到「开关设置 → 响应解压」开启对应算法。
+            </div>
+            <!-- 发送时命中的 Cookie（只读预览，真源仍是 cookies::collect_cookies_for_url） -->
+            <div v-if="previewCookies.length" class="auto-headers-tip">
+              <span class="auto-headers-label">Cookie（发送时自动附加）：</span>
+              <span
+                v-for="c in previewCookies"
+                :key="c.id"
+                class="auto-header-badge"
+                :title="cookieBadgeTitle(c)"
+              >
+                {{ c.name }}={{ c.value }}
+              </span>
+              <n-button size="tiny" text type="primary" @click="cookieStore.requestOpenManager()">
+                管理 Cookie
+              </n-button>
+            </div>
 
             <template v-if="headerMode === 'table'">
               <n-empty v-if="!requestHeaders.length" description="暂无 Headers" size="small" />
@@ -646,10 +665,12 @@ import { useHeaderTemplateStore } from '../../stores/headerTemplate'
 import { useDictionaryStore } from '../../stores/dictionary'
 import { useTabStore } from '../../stores/tab'
 import { useThemeStore } from '../../stores/theme'
+import { useNetworkStore } from '../../stores/network'
 import { useCookieStore } from '../../stores/cookie'
 import { useGuideStore } from '../../stores/guide'
 import { GUIDE_CONTENT } from '../../config/guideContent'
 import { readSetting } from '../../stores/_persistedSettings'
+import { version as appVersion } from '../../../package.json'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import type { CookieItem } from '../../types'
@@ -702,8 +723,28 @@ const headerJsonText = ref('')
  * 自动注入的 Headers：根据 body 类型和 auth 类型推导，
  * 仅用于 UI 展示（灰色提示），实际注入在 Rust 侧或 handleSend 中完成
  */
+const UA_VALUE = `ApiCat/${appVersion}`
+
+/** 与 Rust/tower-http 的自动 Accept-Encoding 拼接顺序保持一致 */
+function acceptEncodingValue(algs: string[]): string {
+  const has = (names: string[]) => algs.some(a => names.includes(a))
+  return [
+    has(['zstd']) ? 'zstd' : '',
+    has(['gzip']) ? 'gzip' : '',
+    has(['deflate']) ? 'deflate' : '',
+    has(['br', 'brotli']) ? 'br' : '',
+  ].filter(Boolean).join(',')
+}
+
 const autoHeaders = computed<Array<{key: string; value: string}>>(() => {
   const result: Array<{key: string; value: string}> = []
+  // 默认 User-Agent（Rust client 注入；用户手动 User-Agent 行优先覆盖）
+  const userHasUserAgent = requestHeaders.value.some(
+    h => h.enabled && h.key.trim().toLowerCase() === 'user-agent'
+  )
+  if (!userHasUserAgent) {
+    result.push({ key: 'User-Agent', value: UA_VALUE })
+  }
   // Content-Type 根据 body 类型自动注入
   const userHasContentType = requestHeaders.value.some(
     h => h.enabled && h.key.toLowerCase() === 'content-type'
@@ -719,6 +760,16 @@ const autoHeaders = computed<Array<{key: string; value: string}>>(() => {
       result.push({ key: 'Content-Type', value: 'multipart/form-data' })
     }
   }
+  // 响应解压开启时，Accept-Encoding 由 reqwest 自动追加
+  const userHasAcceptEncoding = requestHeaders.value.some(
+    h => h.enabled && h.key.trim().toLowerCase() === 'accept-encoding'
+  )
+  const ae = networkStore.decompressEnabled
+    ? acceptEncodingValue(networkStore.decompressAlgorithms)
+    : ''
+  if (!userHasAcceptEncoding && ae) {
+    result.push({ key: 'Accept-Encoding', value: ae })
+  }
   // Auth 自动注入（Bearer / Basic）
   if (authType.value === 'bearer' && authBearer.value) {
     result.push({ key: 'Authorization', value: `Bearer ${authBearer.value}` })
@@ -728,6 +779,14 @@ const autoHeaders = computed<Array<{key: string; value: string}>>(() => {
   }
   return result
 })
+
+/** 关闭解压却手动写了 Accept-Encoding → 响应可能是压缩二进制，给出提示 */
+const manualAeWarning = computed(() =>
+  !networkStore.decompressEnabled &&
+  requestHeaders.value.some(
+    h => h.enabled && h.key.trim().toLowerCase() === 'accept-encoding' && h.value.trim() !== ''
+  )
+)
 
 function switchHeaderMode(newMode: ParamMode) {
   if (headerMode.value === 'kv') {
@@ -752,8 +811,12 @@ const testCaseStore = useTestCaseStore()
 const headerTemplateStore = useHeaderTemplateStore()
 const tabStore = useTabStore()
 const themeStore = useThemeStore()
+const networkStore = useNetworkStore()
 const cookieStore = useCookieStore()
 const guide = useGuideStore()
+
+// 响应解压状态（TopBar 设置弹窗共用；这里用于只读区的 Accept-Encoding 展示）
+void networkStore.load()
 
 // 用户打开第一个 Tab 即视为完成「发第一个请求」引导
 watch(() => tabStore.openTabs.length, (n, o) => {
@@ -1284,7 +1347,13 @@ function syncAuthConfig() {
   // 静默保存到当前接口（不影响发请求，发请求时从 ref 读取）
   const req = requestStore.activeRequest
   if (req) {
-    requestStore.updateRequest(req.id, { auth_type: authType.value, auth_config: cfg })
+    // updateRequest 会无条件清 dirty；保存的是 auth 字段，编辑区其它改动仍应保持黄点。
+    // 落库完成后按当前编辑区重新比较一次。
+    void requestStore.updateRequest(req.id, { auth_type: authType.value, auth_config: cfg })
+      .then(() => {
+        if (requestStore.activeRequestId === req.id) markRequestDirty()
+      })
+      .catch(() => {})
   }
 }
 
@@ -1409,15 +1478,27 @@ function markRequestDirty() {
 // 只在「离开该接口」的瞬间落库一次，锁定离开的接口 id：
 //  - 无定时窗口 → 不存在把 A 的数据写进 B 的任何可能（问题 1.0.4-2 根治）
 //  - 离开即保存 → 重启不丢；不干预 Ctrl+S / dirty 语义
-function flushPersist(id: number) {
+function flushPersist(id: number, storedMethod: string, storedUrl: string) {
   if (bodyType.value === 'form_data' || bodyType.value === 'json_table') syncFormData()
   // form_urlencoded 落库用结构化 JSON（含类型/描述），发送时才编码 k=v
   const persistBody = bodyType.value === 'form_urlencoded' ? urlencodedStorageBody() : bodyContent.value
+  // Q4-A：静默落库也算保存。params/headers/body 落库后不再算脏；
+  // method/url 不在 persistParams 的写入范围内，改动过就仍保留黄点。
+  const methodUrlDirty = storedMethod !== method.value || storedUrl !== url.value
   void requestStore.persistParams(id, {
     params: JSON.stringify(queryParams.value),
     headers: JSON.stringify(requestHeaders.value),
     body_type: bodyType.value,
     body: persistBody,
+  }).then(() => {
+    // persistParams 已同步更新 store 基准（requestMap）。
+    // - 仍停在该接口：重算一次，避免误清「切回后新做的修改」；
+    // - 已切到别的接口：仅当 method/url 没变（本次改动已全部落库）才清黄点。
+    if (requestStore.activeRequestId === id) {
+      markRequestDirty()
+    } else if (!methodUrlDirty) {
+      requestStore.dirtyRequestIds.delete(id)
+    }
   }).catch(() => {
     // 静默失败：不打断编辑，下次 Ctrl+S 兜底
   })
@@ -1545,7 +1626,9 @@ function undo() {
   h.redo.push(snapshotEditor())
   const prev = h.undo.pop()!
   isInitializing = true
-  try { applyDraftToEditor(prev) } finally { nextTick(() => { isInitializing = false }) }
+  try { applyDraftToEditor(prev) } finally {
+    nextTick(() => { isInitializing = false; markRequestDirty() })
+  }
 }
 
 function redo() {
@@ -1554,7 +1637,9 @@ function redo() {
   h.undo.push(snapshotEditor())
   const next = h.redo.pop()!
   isInitializing = true
-  try { applyDraftToEditor(next) } finally { nextTick(() => { isInitializing = false }) }
+  try { applyDraftToEditor(next) } finally {
+    nextTick(() => { isInitializing = false; markRequestDirty() })
+  }
 }
 
 // URL 编辑完成（失焦/回车）记一步；method 选择同样记一步（Auth 不入栈，已即时落库）
@@ -1575,7 +1660,9 @@ function restoreToSaved() {
   try {
     if (snap) applyDraftToEditor(snap)
     else applyRequestToEditor(req)
-  } finally { nextTick(() => { isInitializing = false }) }
+  } finally {
+    nextTick(() => { isInitializing = false; markRequestDirty() })
+  }
   message.info('已恢复到上次保存的版本')
 }
 
@@ -1614,7 +1701,7 @@ watch(() => requestStore.activeRequest, async (req, oldReq) => {
     // 1.0.4 fix：切走即落库，锁定离开的接口 oldReq.id。
     // 此刻 queryParams 等仍是 oldReq 的编辑区内容（尚未被新接口覆盖），
     // 落库目标明确为 oldReq.id —— 类型/描述只会写回本接口，绝不串到目标接口。
-    flushPersist(oldReq.id)
+    flushPersist(oldReq.id, oldReq.method, oldReq.url)
   }
 
   isInitializing = true
@@ -1683,30 +1770,34 @@ watch(() => requestStore.activeRequest, async (req, oldReq) => {
 
   nextTick(() => {
     isInitializing = false
-    if (isDraft) return
-
-    // Bug1 修复：接口加载完毕后，同步 URL ↔ queryParams
-    const reqUrl = url.value
-    if (reqUrl) {
-      const qsIdx = reqUrl.indexOf('?')
-      if (qsIdx >= 0 && queryParams.value.length === 0) {
-        // 方向 A：URL 有 query string 但 queryParams 为空 → 从 URL 解析
-        const qs = reqUrl.substring(qsIdx + 1)
-        const up = new URLSearchParams(qs)
-        const parsed: ParamItem[] = []
-        up.forEach((val, key) => parsed.push({ key, value: val, enabled: true }))
-        if (parsed.length > 0) queryParams.value = parsed
-      } else if (qsIdx < 0 && queryParams.value.length > 0) {
-        // 方向 B：URL 无 query string 但 queryParams 有值（params 单独存储）→ 拼接到 URL
-        // 这发生在 AI 生成的镜像接口上：url="/apm/intl/app", params=[25个参数]
-        const enabledParams = queryParams.value.filter(p => p.enabled && p.key)
-        if (enabledParams.length > 0) {
-          const sp = new URLSearchParams()
-          enabledParams.forEach(p => sp.append(p.key, p.value))
-          url.value = `${reqUrl}?${sp.toString()}`
+    // 有草稿时跳过 URL 归一化；无草稿时补齐 URL ↔ queryParams
+    if (!isDraft) {
+      // Bug1 修复：接口加载完毕后，同步 URL ↔ queryParams
+      const reqUrl = url.value
+      if (reqUrl) {
+        const qsIdx = reqUrl.indexOf('?')
+        if (qsIdx >= 0 && queryParams.value.length === 0) {
+          // 方向 A：URL 有 query string 但 queryParams 为空 → 从 URL 解析
+          const qs = reqUrl.substring(qsIdx + 1)
+          const up = new URLSearchParams(qs)
+          const parsed: ParamItem[] = []
+          up.forEach((val, key) => parsed.push({ key, value: val, enabled: true }))
+          if (parsed.length > 0) queryParams.value = parsed
+        } else if (qsIdx < 0 && queryParams.value.length > 0) {
+          // 方向 B：URL 无 query string 但 queryParams 有值（params 单独存储）→ 拼接到 URL
+          // 这发生在 AI 生成的镜像接口上：url="/apm/intl/app", params=[25个参数]
+          const enabledParams = queryParams.value.filter(p => p.enabled && p.key)
+          if (enabledParams.length > 0) {
+            const sp = new URLSearchParams()
+            enabledParams.forEach(p => sp.append(p.key, p.value))
+            url.value = `${reqUrl}?${sp.toString()}`
+          }
         }
       }
     }
+    // 草稿恢复 / URL 归一化都走程序化赋值，watcher 被 isInitializing 抑制，
+    // 这里统一重算一次：清掉陈旧黄点，点亮真实差异。
+    markRequestDirty()
   })
 }, { immediate: true })
 
@@ -1911,6 +2002,49 @@ const effectiveUrl = computed(() => {
   }
   return resolveEffectiveUrl(raw, envStore.activeEnv?.base_url)
 })
+
+// ── Headers 只读区：发送时命中的 Cookie 预览 ──────────────────
+// 真源仍是后端 `cookies::collect_cookies_for_url`（经 get_cookies_for_domain），
+// 前端不重复实现域/path/过期/优先级规则。
+const previewCookies = ref<CookieItem[]>([])
+let previewCookieSeq = 0
+let previewCookieTimer: ReturnType<typeof setTimeout> | null = null
+
+function cookieBadgeTitle(c: CookieItem): string {
+  return `${c.name}=${c.value} · ${c.scope_type} · ${c.domain}${c.path}`
+}
+
+async function refreshPreviewCookies() {
+  const target = effectiveUrl.value
+  if (!target) {
+    previewCookies.value = []
+    return
+  }
+  const seq = ++previewCookieSeq
+  try {
+    const rows = await invoke<CookieItem[]>('get_cookies_for_domain', {
+      domain: target,
+      projectId: projectStore.currentProjectId,
+      envId: envStore.activeEnvId,
+    })
+    if (seq === previewCookieSeq) previewCookies.value = rows
+  } catch {
+    if (seq === previewCookieSeq) previewCookies.value = []
+  }
+}
+
+function schedulePreviewCookies() {
+  if (previewCookieTimer) clearTimeout(previewCookieTimer)
+  previewCookieTimer = setTimeout(() => { void refreshPreviewCookies() }, 400)
+}
+
+watch(effectiveUrl, schedulePreviewCookies, { immediate: true })
+watch(
+  [() => projectStore.currentProjectId, () => envStore.activeEnvId],
+  () => { void refreshPreviewCookies() }
+)
+// Cookie 管理里新增/修改/删除后同步刷新只读区（Set-Cookie 回存也会走这里）
+watch(() => cookieStore.cookies, () => { void refreshPreviewCookies() }, { deep: true })
 
 /** URL 中是否包含 {{var}} 变量，用于控制输入框文字是否透明（有变量才透明以展示高亮层） */
 const urlHasVars = computed(() => /\{\{[^{}]*\}\}/.test(url.value))
@@ -2164,6 +2298,10 @@ watch(method, markRequestDirty)
 watch(bodyType, markRequestDirty)
 watch(bodyContent, markRequestDirty)
 watch(requestHeaders, markRequestDirty, { deep: true })
+// Form Data / URL Encoded 表格是原地改对象，没有独立 watcher 时黄点会延迟到
+// 发送/切走才出现；这里补上 deep 监听，单元格改动即时判脏。
+watch(formDataParams, markRequestDirty, { deep: true })
+watch(urlencodedParams, markRequestDirty, { deep: true })
 
 // KV文本/JSON模式下，文本内容变化时即时解析回 queryParams（从而触发 URL 同步）
 watch(queryKvText, (text) => {
@@ -2654,24 +2792,43 @@ function handleRefill(snapshot: string) {
   try {
     const s = JSON.parse(snapshot)
     isInitializing = true
+    // 历史快照可能缺 type/description（旧快照在 Rust ParamItem 加 description 之前落库），
+    // 用当前接口定义同 key 补空值——与切换用例完全同一套规则。
+    const activeReq = requestStore.activeRequest
+    const metaParamSrc = activeReq ? metaFromRaw(activeReq.params) : new Map<string, ParamItem>()
+    const metaHeaderSrc = activeReq ? metaFromRaw(activeReq.headers) : new Map<string, ParamItem>()
+    const metaBodySrc = activeReq && (activeReq.body_type === 'form_data' || activeReq.body_type === 'form_urlencoded' || activeReq.body_type === 'json_table')
+      ? metaFromRaw(activeReq.body)
+      : new Map<string, ParamItem>()
+
     if (s.method) method.value = s.method
     if (s.url) url.value = s.url
-    if (s.query_params) queryParams.value = s.query_params
-    if (s.headers) requestHeaders.value = s.headers
+    if (s.query_params) queryParams.value = mergeParamMeta(s.query_params, metaParamSrc)
+    if (s.headers) requestHeaders.value = mergeParamMeta(s.headers, metaHeaderSrc)
     if (s.body_type) bodyType.value = s.body_type
     if ('body' in s) bodyContent.value = s.body ?? ''
-    
+
     if (s.body_type === 'form_data' || s.body_type === 'json_table') {
-      try { formDataParams.value = JSON.parse(s.body || '[]') } catch { formDataParams.value = [] }
+      try { formDataParams.value = mergeParamMeta(JSON.parse(s.body || '[]'), metaBodySrc) } catch { formDataParams.value = [] }
     } else {
       formDataParams.value = []
     }
 
     if (s.body_type === 'form_urlencoded') {
-      urlencodedParams.value = parseUrlencodedBody(s.body)
+      urlencodedParams.value = mergeParamMeta(parseUrlencodedBody(s.body), metaBodySrc)
     } else {
       urlencodedParams.value = []
     }
+
+    // 回填内容直接写表格；若停留在 KV/JSON 文本模式，旧文本会在下次同步时覆盖回填值。
+    queryMode.value = 'table'
+    headerMode.value = 'table'
+    urlencodedMode.value = 'table'
+    queryKvText.value = ''
+    queryJsonText.value = ''
+    headerKvText.value = ''
+    headerJsonText.value = ''
+    urlencodedKvText.value = ''
 
     nextTick(() => { isInitializing = false })
   } catch {
@@ -3096,6 +3253,15 @@ async function handleStartStress(config: StressConfig, testCaseId: number | null
   padding: 1px var(--spacing-sm);
   font-family: monospace;
   font-size: var(--font-size-sm);
+}
+.auto-headers-warn {
+  margin-bottom: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
+  color: var(--color-warning);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
 }
 
 /* 1.0.4：字段绑定字典弹窗 */

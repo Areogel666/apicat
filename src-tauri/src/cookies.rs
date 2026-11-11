@@ -287,6 +287,7 @@ pub fn inject_cookies(params: &mut SendRequestParams, cookies: &[Cookie]) {
             value,
             enabled: true,
             field_type: String::new(),
+            description: String::new(),
         });
     }
 }
@@ -698,7 +699,7 @@ mod tests {
             method: "GET".into(),
             url: "https://e.com".into(),
             query_params: vec![],
-            headers: vec![ParamItem { key: "Cookie".into(), value: "manual=1".into(), enabled: true, field_type: String::new() }],
+            headers: vec![ParamItem { key: "Cookie".into(), value: "manual=1".into(), enabled: true, field_type: String::new(), description: String::new() }],
             body_type: "none".into(),
             body: String::new(),
             path_params: vec![],

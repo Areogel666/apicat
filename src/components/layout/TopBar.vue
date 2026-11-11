@@ -93,6 +93,29 @@
         </div>
         <n-switch v-model:value="persistSetCookie" @update:value="persistSetCookieSetting" />
       </div>
+      <div class="toggle-row">
+        <div class="toggle-row__text">
+          <div class="toggle-row__title">响应解压</div>
+          <div class="toggle-row__desc">
+            开启后请求会带 Accept-Encoding 并自动解压响应；调试发送与压测共用同一设置（压测报告会记录本次值）。默认关闭。
+          </div>
+          <div v-if="networkStore.decompressEnabled" class="algo-checks">
+            <n-checkbox-group
+              :value="networkStore.decompressAlgorithms"
+              @update:value="onDecompressAlgorithmsChange"
+            >
+              <n-checkbox value="gzip" label="gzip" />
+              <n-checkbox value="deflate" label="deflate" />
+              <n-checkbox value="br" label="brotli" />
+              <n-checkbox value="zstd" label="zstd（依赖较大）" />
+            </n-checkbox-group>
+            <div v-if="!networkStore.decompressAlgorithms.length" class="algo-empty">
+              未选择算法：不会发送 Accept-Encoding。
+            </div>
+          </div>
+        </div>
+        <n-switch v-model:value="networkStore.decompressEnabled" @update:value="persistNetworkSettings" />
+      </div>
       <div v-if="isLinux" class="toggle-row">
         <div class="toggle-row__text">
           <div class="toggle-row__title">Linux 兼容渲染</div>
@@ -218,13 +241,15 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
-import { NSelect, NButton, NDropdown, NModal, NInput, NCheckbox, NInputNumber, NAlert, NRadioGroup, NRadio, NSwitch, useDialog, useMessage } from 'naive-ui'
+import { NSelect, NButton, NDropdown, NModal, NInput, NCheckbox, NCheckboxGroup, NInputNumber, NAlert, NRadioGroup, NRadio, NSwitch, useDialog, useMessage } from 'naive-ui'
 import { check } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { invoke } from '@tauri-apps/api/core'
 import { useProjectStore } from '../../stores/project'
 import { useEnvironmentStore } from '../../stores/environment'
 import { useThemeStore, type ThemeMode } from '../../stores/theme'
+import { useNetworkStore } from '../../stores/network'
+import { useCookieStore } from '../../stores/cookie'
 import { readSetting, writeSetting } from '../../stores/_persistedSettings'
 import { useGuideStore } from '../../stores/guide'
 import { useTourStore } from '../../stores/tour'
@@ -239,6 +264,8 @@ import SkillManager from '../settings/SkillManager.vue'
 const projectStore = useProjectStore()
 const envStore = useEnvironmentStore()
 const themeStore = useThemeStore()
+const networkStore = useNetworkStore()
+const cookieStore = useCookieStore()
 const dialog = useDialog()
 const message = useMessage()
 const guideStore = useGuideStore()
@@ -250,6 +277,10 @@ watch(() => envStore.openManagerTick, (tick) => {
   if (tick > 0) showEnvManager.value = true
 })
 const showCookieManager = ref(false)
+// 编辑区 Cookie 只读区点「管理 Cookie」→ 打开弹窗（同 envStore tick 模式）
+watch(() => cookieStore.openManagerTick, (tick) => {
+  if (tick > 0) showCookieManager.value = true
+})
 const showImportDialog = ref(false)
 const showExportDialog = ref(false)
 const showHeaderTemplateModal = ref(false)
@@ -265,6 +296,17 @@ async function persistBridgeEnabled(v: boolean) {
 async function persistSetCookieSetting(v: boolean) {
   await writeSetting('persistSetCookie', v)
   message.info(v ? '响应回来的 Cookie 会自动存入 Cookie 管理' : '已关闭 Cookie 自动保存')
+}
+
+// 响应解压：默认关；保存后调用 Rust 重建主 HTTP client，即时生效。
+// 压测 client 每次启动读同一份设置，无需重建。
+async function persistNetworkSettings() {
+  await networkStore.save()
+  message.success(networkStore.decompressEnabled ? '响应解压已开启' : '响应解压已关闭')
+}
+async function onDecompressAlgorithmsChange(v: (string | number)[]) {
+  networkStore.decompressAlgorithms = v.map(String)
+  await persistNetworkSettings()
 }
 
 // 1.0.5：Bridge 开关（默认开；Rust 侧启动时读同一 key）
@@ -295,6 +337,7 @@ onMounted(async () => {
   persistSetCookie.value = p ?? true
   const wr = await readSetting<string>('linux.webkitRenderer')
   if (wr === 'auto' || wr === 'shm' || wr === 'software') webkitRenderer.value = wr
+  await networkStore.load()
 })
 const themeStudioModalRef = ref<InstanceType<typeof ThemeStudioModal> | null>(null)
 
@@ -699,5 +742,18 @@ async function handleEnvChange(val: number) {
 .toggle-row :deep(.n-switch) {
   flex-shrink: 0;
   margin-top: var(--spacing-xs);
+}
+.algo-checks {
+  margin-top: var(--spacing-sm);
+}
+.algo-checks :deep(.n-checkbox-group) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+}
+.algo-empty {
+  margin-top: var(--spacing-xs);
+  font-size: var(--font-size-sm);
+  color: var(--text-tertiary);
 }
 </style>

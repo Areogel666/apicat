@@ -38,6 +38,7 @@ use commands::{
     io::{export_apicat, export_postman, import_apicat, import_postman, import_openapi},
     docs::{scan_docs_dir, reveal_in_explorer, open_file_with_default, get_home_dir, read_doc_file},
     skill_installer::{get_skill_targets, install_skills, uninstall_skills},
+    settings::apply_network_settings,
     stats::get_usage_stats,
 };
 use db::{init_db, AppDb};
@@ -69,18 +70,15 @@ pub fn run() {
             app.manage(AppDb(pool.clone()));
 
             // 全局 HTTP 客户端：复用连接池和 TLS session cache，避免每次请求重建开销
-            let http_client = reqwest::Client::builder()
-                .danger_accept_invalid_certs(true)
-                .timeout(std::time::Duration::from_secs(30))
-                .build()
-                .expect("failed to build HTTP client");
-            app.manage(http::HttpClient(http_client));
+            // 默认 UA + 响应解压配置（默认关，可在「开关设置」里即时切换）
+            let http_client = http::HttpClient::new(http::read_compression_settings(app.handle()));
+            app.manage(http_client.clone());
 
             // 1.0.5：启动 Localhost HTTP Bridge（默认开启，token 写 bridge.json）
             if bridge::read_bridge_enabled(app) {
                 let bridge_app = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    if let Err(e) = start_bridge(bridge_app, pool).await {
+                    if let Err(e) = start_bridge(bridge_app, pool, http_client).await {
                         eprintln!("[ApiCat] Bridge 启动失败: {e}");
                     }
                 });
@@ -115,6 +113,7 @@ pub fn run() {
             export_apicat, export_postman, import_apicat, import_postman, import_openapi,
             scan_docs_dir, reveal_in_explorer, open_file_with_default, get_home_dir, read_doc_file,
             get_skill_targets, install_skills, uninstall_skills,
+            apply_network_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -125,6 +124,7 @@ pub fn run() {
 async fn start_bridge(
     app: tauri::AppHandle,
     pool: sqlx::SqlitePool,
+    http: http::HttpClient,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     use bridge::token::{generate_token, read_bridge_info, write_bridge_info};
 
@@ -153,7 +153,7 @@ async fn start_bridge(
 
     let state = std::sync::Arc::new(bridge::server::BridgeState {
         pool,
-        http: reqwest::Client::new(),
+        http,
         token,
         app,
     });

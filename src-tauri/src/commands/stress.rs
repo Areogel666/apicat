@@ -547,10 +547,10 @@ pub async fn start_stress_impl(
     check_fd_limit(concurrent).map_err(crate::error::AppError::Custom)?;
 
     // ── 构建专用 reqwest Client（连接池不超过 max_concurrent）
-    let client = reqwest::Client::builder()
+    // UA / 响应解压配置与调试发送共用同一份设置，保证压测数字可解释。
+    let compression = crate::http::read_compression_settings(&app);
+    let client = crate::http::client_builder(compression)
         .pool_max_idle_per_host(concurrent as usize)
-        .timeout(Duration::from_secs(30))
-        .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| crate::error::AppError::Custom(format!("构建 HTTP 客户端失败: {e}")))?;
 
@@ -720,6 +720,8 @@ pub async fn start_stress_impl(
         // Q16-A：本次压测实际发出的 Cookie 头快照，保证报告可复现。
         // 明文落本地 sqlite（1.0.7 决策已确认接受），故报告不展示此字段。
         "cookie_snapshot": cookie_snapshot,
+        // 本次压测是否带 Accept-Encoding（响应解压开关），保证历史报告可解释
+        "accept_encoding": compression.accept_encoding(),
     }).to_string();
     let _ = sqlx::query(
         "INSERT INTO stress_runs (request_id, config_json, stats_json) VALUES (?1, ?2, ?3)",

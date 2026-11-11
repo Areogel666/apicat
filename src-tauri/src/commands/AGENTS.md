@@ -1,7 +1,7 @@
 # COMMANDS — Tauri IPC 命令层
 
 ## OVERVIEW
-10 个业务 command 文件 + `mod.rs`，每个文件对应一个业务域。所有函数通过 `lib.rs` 的 `invoke_handler!` 宏注册。
+11 个业务 command 文件 + `mod.rs`，每个文件对应一个业务域。所有函数通过 `lib.rs` 的 `invoke_handler!` 宏注册。
 
 ## 文件清单与职责
 | 文件 | Commands | 说明 |
@@ -16,6 +16,7 @@
 | `stress.rs` | `start_stress`, `list_stress_runs`, `delete_stress_run` | 压测（Tauri event 推送进度）+ 历史记录（1.0.4） |
 | `data_dictionary.rs` | `list/create/update/delete_dictionary`, `list/create/update/delete_dictionary_item`, `create_dictionary_with_items`, `replace_dictionary_items`, `list/set/delete_field_rule`, `list/set/delete_field_override`, `copy_dictionary_to_project` | 数据字典 + 「字段名绑定」规则/例外（1.0.4，472 行 17 个 command） |
 | `io.rs` | `export_apicat`, `export_postman`, `import_apicat`, `import_postman`, `import_openapi` | 导入/导出（1096 行，最复杂） |
+| `settings.rs` | `apply_network_settings` | 响应解压开关即时生效：按前端传入值重建全局 HTTP client |
 | `mod.rs` | — | `pub mod` 声明各子模块 |
 
 ## 关键 Command 说明

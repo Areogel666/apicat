@@ -62,3 +62,16 @@ export async function deleteSetting(key: string): Promise<void> {
     console.warn('[settings] delete fail:', key, e)
   }
 }
+
+/**
+ * 立即落盘（autoSave 默认有 100ms 防抖）。
+ * Rust 侧需要直接读 app-settings.json 的场景（如压测启动读解压配置）先用它。
+ */
+export async function flushSettings(): Promise<void> {
+  try {
+    const s = await getStore()
+    await s.save()
+  } catch (e) {
+    console.warn('[settings] flush fail:', e)
+  }
+}

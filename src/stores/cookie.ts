@@ -12,6 +12,12 @@ export type CookieScopeFilter = CookieScope | 'all'
 export const useCookieStore = defineStore('cookie', () => {
   const cookies = ref<CookieItem[]>([])
   const loading = ref(false)
+  /** 打开 Cookie 管理的信号（MainPanel 只读区 → TopBar 弹窗），同 envStore.requestOpenManager 模式 */
+  const openManagerTick = ref(0)
+
+  function requestOpenManager() {
+    openManagerTick.value++
+  }
 
   /**
    * 按作用域拉取。scope='all' 时一次拉全三层（1.0.7 改成一张表 + 筛选列后，
@@ -124,6 +130,8 @@ export const useCookieStore = defineStore('cookie', () => {
   return {
     cookies,
     loading,
+    openManagerTick,
+    requestOpenManager,
     loadCookies,
     createCookie,
     updateCookie,
