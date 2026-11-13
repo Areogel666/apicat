@@ -315,15 +315,16 @@ const bridgeEnabled = ref(true)
 const persistSetCookie = ref(true)
 
 // Linux 兼容渲染：WebKit GPU 渲染在部分 Intel i915 上会触发整机卡死。
-// auto=GPU 加速 / shm=禁用 DMABUF（默认）/ software=完全软件合成。
-// Rust 侧 main() 在 WebKit 初始化前读同一 key，改动需重启生效。
+// auto=GPU 加速 / shm=禁用 DMABUF / software=完全软件渲染（不碰 GPU）。
+// 首次启动由 Rust 侧按 GPU 探测写入默认值（Intel i915 => software，其它 => auto）；
+// 用户手动选过则以后端配置为准。改动需重启生效。
 const isLinux = navigator.userAgent.includes('Linux')
 type WebkitRenderer = 'auto' | 'shm' | 'software'
-const webkitRenderer = ref<WebkitRenderer>('shm')
+const webkitRenderer = ref<WebkitRenderer>('auto')
 const webkitRendererOptions = [
-  { label: '兼容（推荐）', value: 'shm' },
+  { label: '软件渲染（Intel 显卡推荐）', value: 'software' },
   { label: 'GPU 加速', value: 'auto' },
-  { label: '软件合成', value: 'software' },
+  { label: '兼容（仅禁用 DMABUF）', value: 'shm' },
 ]
 async function persistWebkitRenderer(v: WebkitRenderer) {
   await writeSetting('linux.webkitRenderer', v)
