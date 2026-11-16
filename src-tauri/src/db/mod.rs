@@ -73,6 +73,12 @@ pub(crate) async fn run_migrations(pool: &SqlitePool) -> Result<(), Box<dyn std:
         sqlx::query(stmt).execute(pool).await?;
     }
 
+    // 公共 Headers 模板按项目落库（0004，纯幂等 CREATE）
+    let migration_sql_4 = include_str!("../../migrations/0004_header_templates.sql");
+    for stmt in split_sql_statements(migration_sql_4) {
+        sqlx::query(stmt).execute(pool).await?;
+    }
+
     // 1.0.4：api_requests.description 幂等加列
     // ALTER TABLE ADD COLUMN 非幂等，不能写进 0002 SQL 文件；
     // 用 PRAGMA table_info 检测列是否存在，不存在才 ALTER。

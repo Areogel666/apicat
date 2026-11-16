@@ -3,6 +3,7 @@ pub mod cookie;
 pub mod data_dictionary;
 pub mod docs;
 pub mod environment;
+pub mod header_template;
 pub mod project;
 pub mod request;
 pub mod send_request;

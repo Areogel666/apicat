@@ -18,6 +18,17 @@ pub struct Project {
     pub updated_at: String,
 }
 
+// ── 公共 Headers 模板 ──────────────────────────────────────
+/// 项目级公共 Headers 模板条目（字段顺序 = HEADER_TEMPLATE_COLS 列顺序）
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct HeaderTemplate {
+    pub id: i64,
+    pub key: String,
+    pub value: String,
+    pub enabled: bool,
+    pub description: String,
+}
+
 // ── Collection ─────────────────────────────────────────────
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Collection {

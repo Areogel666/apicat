@@ -8,6 +8,9 @@
 pub const PROJECT_COLS: &str = "id, name, description, docs_output_dir, p95_threshold_ms, \
     p99_threshold_ms, created_at, updated_at";
 
+/// header_templates（列顺序 = types::HeaderTemplate 字段顺序）
+pub const HEADER_TEMPLATE_COLS: &str = "id, key, value, enabled, description";
+
 /// api_requests
 pub const REQUEST_COLS: &str = "id, collection_id, name, method, url, params, headers, \
     body_type, body, auth_type, auth_config, description, p95_threshold_ms, p99_threshold_ms, \

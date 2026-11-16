@@ -16,6 +16,15 @@ export interface Project {
   updated_at: string
 }
 
+// ── 公共 Headers 模板（项目级）─────────────────────────────
+export interface HeaderTemplate {
+  id: number
+  key: string
+  value: string
+  enabled: boolean
+  description: string
+}
+
 export interface Collection {
   id: number
   project_id: number
