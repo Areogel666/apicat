@@ -72,6 +72,20 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 
 ### POST /delete_collection
 
+### POST /update_collection_sort
+整批更新目录排序。body 的 `items` 为 `[[id, sort_order], ...]`。
+```bash
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"items": [[6, 0], [7, 1]]}' "$BASE/update_collection_sort"
+```
+
+### POST /move_collection
+移动目录（后端含循环引用防护：不能移进自己的子孙）。`newParentId` 缺省或 `null` = 移到根层，`sortOrder` 必填。
+```bash
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"id": 7, "newParentId": 6, "sortOrder": 0}' "$BASE/move_collection"
+```
+
 ## 接口
 
 ### GET /list_requests?collection_id=N
@@ -117,6 +131,20 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
   -d '{"id": 5}' "$BASE/duplicate_request"
 ```
 
+### POST /update_request_sort
+整批更新接口排序。body 的 `items` 为 `[[id, sort_order], ...]`。
+```bash
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"items": [[14, 0], [15, 1]]}' "$BASE/update_request_sort"
+```
+
+### POST /move_request
+移动接口到目标目录，`newCollectionId` 与 `sortOrder` 均必填。
+```bash
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"id": 14, "newCollectionId": 3, "sortOrder": 0}' "$BASE/move_request"
+```
+
 ## 用例
 
 ### GET /list_test_cases?request_id=N
@@ -148,6 +176,20 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 ```bash
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"id": 10}' "$BASE/delete_test_case"
+```
+
+### POST /delete_test_cases
+批量删除用例（同一条请求内完成）。返回 `{"deleted": N}`。
+```bash
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"ids": [10, 11]}' "$BASE/delete_test_cases"
+```
+
+### POST /set_test_cases_hidden
+批量隐藏/显示用例（1.1.0）。只影响下方用例条是否展示，不改变可执行性，管理面板始终可见。返回 `{"updated": N, "hidden": true|false}`。
+```bash
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"ids": [10, 11], "hidden": true}' "$BASE/set_test_cases_hidden"
 ```
 
 ### POST /run_test_case
@@ -210,6 +252,16 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
   -d '{"dictionaryId": 3, "items": [{"label": "A", "value": "1"}, {"label": "B", "value": "2"}]}' \
   "$BASE/replace_dictionary_items"
 ```
+
+### POST /copy_dictionary_to_project
+把字典（含全部字典项 + 源项目里绑定它的字段规则）复制到目标项目。
+**复制出的字典必须使用新 `code`**（`data_dictionaries.code` 全局唯一）：可传 `newCode`（或 `new_code`）指定；不传时自动生成 `{源码}_copy`，冲突则递增 `_copy2`、`_copy3`…。目标项目已有同字段名的规则 → 跳过该字段（不覆盖原绑定）。
+```bash
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"sourceDictionaryId": 3, "sourceProjectId": 1, "targetProjectId": 2, "newCode": "activity_type_copy"}' \
+  "$BASE/copy_dictionary_to_project"
+```
+返回新字典行（含新 `code` 与 `project_id`）。
 
 ## 字段绑定
 

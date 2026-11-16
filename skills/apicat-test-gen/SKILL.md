@@ -1,6 +1,6 @@
 ---
 name: apicat-test-gen
-description: 为 ApiCat 本地库接口生成测试用例（7 种类型）并可选压测。支持从接口定义/文档/源码推断参数。触发词：生成测试用例、生成用例、测试用例、压测、apicat test、apicat-test-gen
+description: 为 ApiCat 本地库接口生成测试用例（7 种类型）并可选压测。支持从接口定义/文档/源码推断参数，支持批量删除/隐藏用例。触发词：生成测试用例、生成用例、测试用例、删除用例、批量删除用例、隐藏用例、批量隐藏用例、压测、apicat test、apicat-test-gen
 allowed-tools: Bash, Read, Glob, Grep, AskUserQuestion
 ---
 
@@ -148,6 +148,15 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 ## Step 9：输出摘要
 
 报告：项目名、新建/复用接口数、写入/跳过用例数、各类型用例列表。压测时追加各用例的统计摘要。
+
+## Step 10（可选）：批量维护用例
+
+用户要求批量删除/隐藏用例时（1.1.0）：
+
+- `POST /delete_test_cases` —— `{"ids": [10, 11]}`，返回 `{"deleted": N}`
+- `POST /set_test_cases_hidden` —— `{"ids": [10, 11], "hidden": true}`；只影响下方用例条展示，不改变可执行性，管理面板始终可见
+
+先 `GET /list_test_cases?request_id=$RID` 拿到 id 并**列给用户确认**再删（删除不可恢复）。
 
 ## 本技能特有约束
 

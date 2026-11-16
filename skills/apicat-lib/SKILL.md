@@ -122,7 +122,10 @@ b.post("/create_test_case", {...})      # 失败直接抛 RuntimeError
 | 选目录 | `GET /list_collections?project_id=N` |
 | 读接口 | `GET /list_requests?collection_id=N`、`GET /get_request?id=N` |
 | 建/改接口 | `POST /create_request`、`POST /update_request` |
+| 移动/排序 | `POST /move_request`、`POST /move_collection`、`POST /update_request_sort`、`POST /update_collection_sort` |
 | 读用例 | `GET /list_test_cases?request_id=N`（可加 `&last_status=failed`） |
+| 批量维护用例 | `POST /delete_test_cases`、`POST /set_test_cases_hidden` |
+| 复制字典 | `POST /copy_dictionary_to_project`（复制必须换新 code，缺省自动 `_copy`） |
 | 读字典 | `GET /list_dictionaries?project_id=N`、`GET /list_dictionary_items?dictionary_id=N` |
 | 读字段绑定 | `GET /list_field_rules?project_id=N`、`GET /list_field_overrides?project_id=N` |
 | 跑用例 | `POST /run_test_case` |
@@ -134,7 +137,7 @@ b.post("/create_test_case", {...})      # 失败直接抛 RuntimeError
 | 读 Cookie | `GET /list_cookies?scope_type=global\|project\|env&project_id=N&env_id=N`、`GET /get_cookies_for_domain?domain=<host或URL>&project_id=N&env_id=N` |
 | 写 Cookie | `POST /create_cookie`、`POST /update_cookie`、`POST /delete_cookie` |
 
-**表格只列常用端点。** 写操作（create/update/delete）与环境的其余端点共约 30 个不在表内 —— 调用前必须读 `references/bridge-api.md` 确认，**不要因为表里没有就断定 Bridge 不支持**。
+**表格只列常用端点。** Bridge 共 60+ 个端点，其余未列出的（各类 create/update/delete、历史、压测、Cookie 等）调用前必须读 `references/bridge-api.md` 确认，**不要因为表里没有就断定 Bridge 不支持**。
 
 ## 共享约束
 

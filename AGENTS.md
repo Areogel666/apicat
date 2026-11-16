@@ -2,7 +2,7 @@
 
 **Generated:** 2026-09-16
 **Commit:** f2bdbc6
-**Branch:** feature/1.0.4
+**Branch:** master
 
 > Claude Code 专用上下文（主题系统 / 发布流程 / 核心语义）见 `CLAUDE.md`。COMMANDS 两边都列，供不读 `CLAUDE.md` 的 agent 工具使用。
 

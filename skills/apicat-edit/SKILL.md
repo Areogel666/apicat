@@ -1,6 +1,6 @@
 ---
 name: apicat-edit
-description: 增删改 ApiCat 本地库的数据字典、接口、字段绑定、Cookie，以及从 Markdown 接口文档批量导入接口。触发词：加接口、新建接口、改接口、删接口、加字典、新建字典、字段绑定、关联字典、加 cookie、改 cookie、删 cookie、导入接口、从文档导入接口、把文档导进 apicat、apicat edit
+description: 增删改 ApiCat 本地库的数据字典、接口、字段绑定、Cookie，以及从 Markdown 接口文档批量导入接口。触发词：加接口、新建接口、改接口、删接口、移动接口、移动目录、接口排序、目录排序、整理目录结构、加字典、新建字典、复制字典、字典跨项目复制、字段绑定、关联字典、加 cookie、改 cookie、删 cookie、导入接口、从文档导入接口、把文档导进 apicat、apicat edit
 allowed-tools: Bash, Read, Glob, AskUserQuestion
 ---
 
@@ -102,6 +102,15 @@ allowed-tools: Bash, Read, Glob, AskUserQuestion
 3. 示例响应中的值类型
 4. 业务常识（如 `timestamp` → number, `email` → string）
 
+### 5. 移动 / 排序（批量整理，1.1.0）
+
+- `POST /move_request` —— 移动接口：`{id, newCollectionId, sortOrder}`（后两个必填）
+- `POST /move_collection` —— 移动目录：`{id, newParentId, sortOrder}`；`newParentId` 缺省/null = 根层；后端含循环引用防护（不能移进自己的子孙）
+- `POST /update_request_sort` —— 批量改接口顺序：`{items: [[id, sortOrder], ...]}`
+- `POST /update_collection_sort` —— 批量改目录顺序：`{items: [[id, sortOrder], ...]}`
+
+移动/排序前先用 `GET /list_collections?project_id=N` 与 `GET /list_requests?collection_id=N` 取当前 id 和顺序，避免传未知 id。完成后报告「接口 X 从目录 A 移到目录 B」这类变更摘要。
+
 ## 三、数据字典 CRUD
 
 ### 新建字典 + 字典项（推荐一步到位）
@@ -110,6 +119,10 @@ allowed-tools: Bash, Read, Glob, AskUserQuestion
 
 ### 全量替换字典项
 `POST /replace_dictionary_items`，字段：`dictionaryId` + `items: [...]`（全量覆盖，不是增量）。
+
+### 跨项目复制（1.1.0）
+`POST /copy_dictionary_to_project`，字段：`sourceDictionaryId`/`sourceProjectId`/`targetProjectId`/`newCode`（可选）。
+复制出的字典必须换新 `code`（全局唯一）：不传 `newCode` 时自动生成 `{源码}_copy`（冲突递增 `_copy2`、`_copy3`…）。字典项与源项目绑定该字典的字段规则一并复制；目标项目已有同字段名则跳过（不覆盖）。
 
 ### 查字典
 `GET /list_dictionaries?project_id=$PID` → `GET /list_dictionary_items?dictionary_id=$DID`

@@ -52,3 +52,7 @@ docs/*/issue.md
 
 # Sisyphus / OpenCode session continuation cache
 .sisyphus/
+
+# Local debug probes (not committed)
+.watcher/
+ghruns_probe.html

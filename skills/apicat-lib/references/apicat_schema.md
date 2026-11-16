@@ -1,6 +1,6 @@
 # ApiCat 数据模型速查
 
-> 同步自 `src-tauri/migrations/`，1.0.5 版本（cookies 表含 1.0.7 的 `env_id`）。
+> 同步自 `src-tauri/migrations/`，1.1.0 版本（含 1.1.0 新增的 `header_templates` 表）。
 
 **本文件两部分**：
 - [一、断言 JSON 格式](#一断言-json-格式) —— 技能高频引用，写用例时必读
@@ -126,3 +126,16 @@ UNIQUE(project_id, request_id, field_name)。dictionary_id=null 表示解绑。
 | expires_at | TEXT | null=会话 cookie（永不过期） |
 | http_only / secure | INTEGER 0/1 | 只存储展示，不参与匹配 |
 | enabled | INTEGER 0/1 | |
+
+### header_templates（项目级公共 Headers 模板，1.1.0）
+| 列 | 类型 | 说明 |
+|---|---|---|
+| id | INTEGER PK | |
+| project_id | INTEGER FK→projects CASCADE | 必填，模板按项目隔离 |
+| key / value | TEXT | |
+| enabled | INTEGER 0/1 | |
+| description | TEXT | |
+| sort_order | INTEGER | |
+| created_at / updated_at | DATETIME | |
+
+保存语义是「整份列表一次提交、事务内全删全插」；旧版 localStorage 全局模板在首次加载到空项目时自动迁入一次。

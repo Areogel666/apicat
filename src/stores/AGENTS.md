@@ -14,7 +14,7 @@
 | `history.ts` | `historyMap` | 请求历史记录 |
 | `environment.ts` | `environments[]`, `envVariables[]` | 环境 + 变量，`activeEnvId` |
 | `cookie.ts` | `cookies[]` | Cookie 管理 |
-| `headerTemplate.ts` | `templates[]` | 请求头模板 |
+| `headerTemplate.ts` | `templates[]` | 请求头模板（1.1.0 起按项目落库，含旧 localStorage 迁移） |
 | `testCase.ts` | `testCases[]` | 测试用例 |
 | `dictionary.ts` | `dictionaries[]`, `itemsMap`, `fieldRules[]`, `fieldOverrides[]` | 数据字典 + 「字段名绑定」规则/例外（1.0.4） |
 | `stress.ts` | `isRunning`, `stats`, `chartPoints[]`, `history[]` | 压测配置、实时数据、历史记录（1.0.4 加 `history`） |
