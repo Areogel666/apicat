@@ -339,18 +339,18 @@ pub(crate) async fn field_rule_exists(
 
 /// 把字典（含全部字典项 + 源项目里绑定它的字段规则）复制到目标项目。
 /// 目标项目已有同 code 字典 → 报错；目标项目已有同字段名的规则 → 跳过该字段。
-#[tauri::command]
-pub async fn copy_dictionary_to_project(
-    db: State<'_, AppDb>,
+/// IPC 与 Bridge 共用。
+pub async fn copy_dictionary_to_project_impl(
+    pool: &sqlx::SqlitePool,
     source_dictionary_id: i64,
     source_project_id: i64,
     target_project_id: i64,
-) -> CmdResult<DataDictionary> {
+) -> Result<DataDictionary, crate::error::AppError> {
     let src = sqlx::query_as::<Sqlite, DataDictionary>(
         format!("SELECT {DICT_COLS} FROM data_dictionaries WHERE id = ?1").as_str(),
     )
     .bind(source_dictionary_id)
-    .fetch_one(&db.0)
+    .fetch_one(pool)
     .await
     .map_err(|_| crate::error::AppError::Custom("源字典不存在".to_string()))?;
 
@@ -359,7 +359,7 @@ pub async fn copy_dictionary_to_project(
         "SELECT id FROM data_dictionaries WHERE code = ?1",
     )
     .bind(&src.code)
-    .fetch_optional(&db.0)
+    .fetch_optional(pool)
     .await?;
     if exists.is_some() {
         return Err(crate::error::AppError::Custom(
@@ -367,7 +367,7 @@ pub async fn copy_dictionary_to_project(
         ));
     }
 
-    let mut tx = db.0.begin().await?;
+    let mut tx = pool.begin().await?;
 
     // 1. 复制字典本体（target 维度）
     let dict_sql = format!(
@@ -390,7 +390,7 @@ pub async fn copy_dictionary_to_project(
              FROM dictionary_items WHERE dictionary_id = ?1 ORDER BY sort_order, id",
         )
         .bind(source_dictionary_id)
-        .fetch_all(&db.0)
+        .fetch_all(pool)
         .await?;
     for item in &items {
         sqlx::query(
@@ -413,7 +413,7 @@ pub async fn copy_dictionary_to_project(
     )
     .bind(source_project_id)
     .bind(source_dictionary_id)
-    .fetch_all(&db.0)
+    .fetch_all(pool)
     .await?;
     for rule in &rules {
         if !field_rule_exists(&mut *tx, target_project_id, &rule.field_name).await? {
@@ -431,6 +431,22 @@ pub async fn copy_dictionary_to_project(
 
     tx.commit().await?;
     Ok(new_dict)
+}
+
+#[tauri::command]
+pub async fn copy_dictionary_to_project(
+    db: State<'_, AppDb>,
+    source_dictionary_id: i64,
+    source_project_id: i64,
+    target_project_id: i64,
+) -> CmdResult<DataDictionary> {
+    Ok(copy_dictionary_to_project_impl(
+        &db.0,
+        source_dictionary_id,
+        source_project_id,
+        target_project_id,
+    )
+    .await?)
 }
 
 /// 以 JSON 全量替换某字典的字典项（先清空再插入，同一事务，1.0.4 fix）。

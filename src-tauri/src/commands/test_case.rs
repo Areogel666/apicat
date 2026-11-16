@@ -197,15 +197,14 @@ pub async fn list_test_case_history(
     Ok(rows)
 }
 
-/// 批量删除用例（一次 DB 往返）。
+/// 批量删除用例（一次 DB 往返）。IPC 与 Bridge 共用。
 /// 关联的 test_case_history 由 FK CASCADE 自动清理。
 /// 注意：批量删除不走 delete_test_case 的"最后一个收藏用例"保护逻辑——
 /// 这是 UI 主动的批量操作，由前端 NPopconfirm 二次确认兜底。
-#[tauri::command]
-pub async fn delete_test_cases(
-    db: State<'_, AppDb>,
-    ids: Vec<i64>,
-) -> CmdResult<u64> {
+pub async fn delete_test_cases_impl(
+    pool: &sqlx::SqlitePool,
+    ids: &[i64],
+) -> Result<u64, crate::error::AppError> {
     if ids.is_empty() {
         return Ok(0);
     }
@@ -213,11 +212,19 @@ pub async fn delete_test_cases(
     let placeholders = std::iter::repeat("?").take(ids.len()).collect::<Vec<_>>().join(",");
     let sql = format!("DELETE FROM test_cases WHERE id IN ({placeholders})");
     let mut q = sqlx::query(&sql);
-    for id in &ids {
+    for id in ids {
         q = q.bind(id);
     }
-    let result = q.execute(&db.0).await?;
+    let result = q.execute(pool).await?;
     Ok(result.rows_affected())
+}
+
+#[tauri::command]
+pub async fn delete_test_cases(
+    db: State<'_, AppDb>,
+    ids: Vec<i64>,
+) -> CmdResult<u64> {
+    Ok(delete_test_cases_impl(&db.0, &ids).await?)
 }
 
 /// 批量设置用例是否在下方用例条隐藏（1.0.10）。只影响 TestCaseBar 的展示，

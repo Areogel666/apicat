@@ -1,4 +1,4 @@
-use crate::{db::AppDb, error::{map_unique_name_error, CmdResult}, types::ApiRequest};
+use crate::{db::AppDb, error::{map_unique_name_error, AppError, CmdResult}, types::ApiRequest};
 use tauri::State;
 
 /// ApiRequest 反序列化列清单；必须与 types.rs::ApiRequest 字段严格一致
@@ -189,30 +189,37 @@ pub async fn duplicate_request(db: State<'_, AppDb>, id: i64) -> CmdResult<ApiRe
     duplicate_request_impl(&db.0, id).await
 }
 
-/// 批量更新接口排序（拖拽后调用）
-#[tauri::command]
-pub async fn update_request_sort(
-    db: State<'_, AppDb>,
-    items: Vec<(i64, i64)>,  // (id, sort_order)
-) -> CmdResult<()> {
+/// 批量更新接口排序（拖拽后调用）。IPC 与 Bridge 共用。
+pub async fn update_request_sort_impl(
+    pool: &sqlx::SqlitePool,
+    items: &[(i64, i64)],
+) -> Result<(), AppError> {
     for (id, sort) in items {
         sqlx::query("UPDATE api_requests SET sort_order=? WHERE id=?")
             .bind(sort)
             .bind(id)
-            .execute(&db.0)
+            .execute(pool)
             .await?;
     }
     Ok(())
 }
 
-/// 将接口移动到新的 collection，并设置其在目标 collection 中的排序位置
 #[tauri::command]
-pub async fn move_request(
+pub async fn update_request_sort(
     db: State<'_, AppDb>,
+    items: Vec<(i64, i64)>,  // (id, sort_order)
+) -> CmdResult<()> {
+    Ok(update_request_sort_impl(&db.0, &items).await?)
+}
+
+/// 将接口移动到新的 collection，并设置其在目标 collection 中的排序位置。
+/// IPC 与 Bridge 共用。
+pub async fn move_request_impl(
+    pool: &sqlx::SqlitePool,
     id: i64,
     new_collection_id: i64,
     sort_order: i64,
-) -> CmdResult<ApiRequest> {
+) -> Result<ApiRequest, AppError> {
     let row = sqlx::query_as::<_, ApiRequest>(&format!(
         "UPDATE api_requests SET collection_id=?, sort_order=?, updated_at=datetime('now') \
          WHERE id=? \
@@ -221,8 +228,18 @@ pub async fn move_request(
     .bind(new_collection_id)
     .bind(sort_order)
     .bind(id)
-    .fetch_one(&db.0)
+    .fetch_one(pool)
     .await
     .map_err(|e| crate::error::map_unique_name_error(e, ""))?;
     Ok(row)
+}
+
+#[tauri::command]
+pub async fn move_request(
+    db: State<'_, AppDb>,
+    id: i64,
+    new_collection_id: i64,
+    sort_order: i64,
+) -> CmdResult<ApiRequest> {
+    Ok(move_request_impl(&db.0, id, new_collection_id, sort_order).await?)
 }

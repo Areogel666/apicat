@@ -103,6 +103,21 @@ fn has_key(body: &Value, camel: &str, snake: &str) -> bool {
     body.get(camel).is_some() || body.get(snake).is_some()
 }
 
+/// 解析排序批量输入：{"items": [[id, sortOrder], ...]}
+/// 任一项格式不对返回 None，由调用方回 400，避免半截写入。
+fn parse_pairs(body: &Value) -> Option<Vec<(i64, i64)>> {
+    let arr = body["items"].as_array()?;
+    let mut out = Vec::with_capacity(arr.len());
+    for it in arr {
+        let pair = it.as_array()?;
+        if pair.len() != 2 {
+            return None;
+        }
+        out.push((pair[0].as_i64()?, pair[1].as_i64()?));
+    }
+    Some(out)
+}
+
 /// 取 query 参数：camelCase 优先，回退 snake_case（axum Query 的 JSON 两种都可能出现）
 fn q_str<'a>(q: &'a Value, camel: &str, snake: &str) -> Option<&'a str> {
     q.get(camel).and_then(|v| v.as_str()).or_else(|| q.get(snake).and_then(|v| v.as_str()))
@@ -172,6 +187,8 @@ pub fn build_router(state: BState) -> Router {
         .route("/create_collection", post(create_collection))
         .route("/rename_collection", post(rename_collection))
         .route("/delete_collection", post(delete_collection))
+        .route("/update_collection_sort", post(update_collection_sort))
+        .route("/move_collection", post(move_collection))
         // 接口
         .route("/list_requests", get(list_requests))
         .route("/get_request", get(get_request))
@@ -179,11 +196,15 @@ pub fn build_router(state: BState) -> Router {
         .route("/update_request", post(update_request))
         .route("/delete_request", post(delete_request))
         .route("/duplicate_request", post(duplicate_request))
+        .route("/update_request_sort", post(update_request_sort))
+        .route("/move_request", post(move_request))
         // 用例
         .route("/list_test_cases", get(list_test_cases))
         .route("/create_test_case", post(create_test_case))
         .route("/update_test_case", post(update_test_case))
         .route("/delete_test_case", post(delete_test_case))
+        .route("/delete_test_cases", post(delete_test_cases))
+        .route("/set_test_cases_hidden", post(set_test_cases_hidden))
         .route("/list_test_case_history", get(list_test_case_history))
         .route("/run_test_case", post(run_test_case))
         // 字典
@@ -194,6 +215,7 @@ pub fn build_router(state: BState) -> Router {
         .route("/update_dictionary", post(update_dictionary))
         .route("/delete_dictionary", post(delete_dictionary))
         .route("/replace_dictionary_items", post(replace_dictionary_items))
+        .route("/copy_dictionary_to_project", post(copy_dictionary_to_project))
         // 字段绑定
         .route("/list_field_rules", get(list_field_rules))
         .route("/set_field_rule", post(set_field_rule))
@@ -361,6 +383,30 @@ async fn delete_collection(State(s): State<BState>, Json(body): Json<Value>) -> 
     }
 }
 
+/// 批量更新目录排序：body { "items": [[id, sortOrder], ...] }
+async fn update_collection_sort(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
+    let Some(items) = parse_pairs(&body) else {
+        return err(StatusCode::BAD_REQUEST, "items required: [[id, sort_order], ...]");
+    };
+    match crate::commands::collection::update_collection_sort_impl(&s.pool, &items).await {
+        Ok(_) => { broadcast(&s, "collections"); ok(json!({"updated": items.len()})) }
+        Err(e) => server_err(e),
+    }
+}
+
+/// 移动目录：id + newParentId（缺省/null = 根层）+ sortOrder
+async fn move_collection(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
+    let Some(id) = body["id"].as_i64() else { return err(StatusCode::BAD_REQUEST, "id required") };
+    let Some(sort_order) = get_i64(&body, "sortOrder", "sort_order") else {
+        return err(StatusCode::BAD_REQUEST, "sortOrder required");
+    };
+    let new_parent = get_i64(&body, "newParentId", "new_parent_id");
+    match crate::commands::collection::move_collection_impl(&s.pool, id, new_parent, sort_order).await {
+        Ok(row) => { broadcast(&s, "collections"); ok(row) }
+        Err(e) => server_err(e),
+    }
+}
+
 // ════════════════════════════════════════════════════════════
 // 接口
 // ════════════════════════════════════════════════════════════
@@ -470,6 +516,32 @@ async fn duplicate_request(State(s): State<BState>, Json(body): Json<Value>) -> 
     }
 }
 
+/// 批量更新接口排序：body { "items": [[id, sortOrder], ...] }
+async fn update_request_sort(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
+    let Some(items) = parse_pairs(&body) else {
+        return err(StatusCode::BAD_REQUEST, "items required: [[id, sort_order], ...]");
+    };
+    match crate::commands::request::update_request_sort_impl(&s.pool, &items).await {
+        Ok(_) => { broadcast(&s, "requests"); ok(json!({"updated": items.len()})) }
+        Err(e) => server_err(e),
+    }
+}
+
+/// 移动接口到目标目录：id + newCollectionId + sortOrder
+async fn move_request(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
+    let Some(id) = body["id"].as_i64() else { return err(StatusCode::BAD_REQUEST, "id required") };
+    let Some(cid) = get_i64(&body, "newCollectionId", "new_collection_id") else {
+        return err(StatusCode::BAD_REQUEST, "newCollectionId required");
+    };
+    let Some(sort_order) = get_i64(&body, "sortOrder", "sort_order") else {
+        return err(StatusCode::BAD_REQUEST, "sortOrder required");
+    };
+    match crate::commands::request::move_request_impl(&s.pool, id, cid, sort_order).await {
+        Ok(row) => { broadcast(&s, "requests"); ok(row) }
+        Err(e) => server_err(e),
+    }
+}
+
 // ════════════════════════════════════════════════════════════
 // 用例
 // ════════════════════════════════════════════════════════════
@@ -561,6 +633,34 @@ async fn delete_test_case(State(s): State<BState>, Json(body): Json<Value>) -> a
     // 走与 UI 相同的 impl，保留「最后一个收藏用例不可删」保护
     match crate::commands::test_case::delete_test_case_impl(&s.pool, id).await {
         Ok(_) => { broadcast(&s, "test_cases"); ok(json!({"deleted": id})) }
+        Err(e) => server_err(e),
+    }
+}
+
+/// 批量删除用例：body { "ids": [1, 2, 3] }
+async fn delete_test_cases(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
+    let Some(arr) = body["ids"].as_array() else {
+        return err(StatusCode::BAD_REQUEST, "ids required: [id, ...]");
+    };
+    let ids: Vec<i64> = arr.iter().filter_map(|v| v.as_i64()).collect();
+    match crate::commands::test_case::delete_test_cases_impl(&s.pool, &ids).await {
+        Ok(n) => { broadcast(&s, "test_cases"); ok(json!({"deleted": n})) }
+        Err(e) => server_err(e),
+    }
+}
+
+/// 批量隐藏/显示用例（只影响下方用例条展示，不改变可执行性）
+/// body { "ids": [1, 2], "hidden": true|false|0|1 }
+async fn set_test_cases_hidden(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
+    let Some(arr) = body["ids"].as_array() else {
+        return err(StatusCode::BAD_REQUEST, "ids required: [id, ...]");
+    };
+    let ids: Vec<i64> = arr.iter().filter_map(|v| v.as_i64()).collect();
+    let Some(hidden) = get_bool(&body, "hidden", "hidden") else {
+        return err(StatusCode::BAD_REQUEST, "hidden required (true/false)");
+    };
+    match crate::commands::test_case::set_test_cases_hidden_impl(&s.pool, &ids, hidden).await {
+        Ok(n) => { broadcast(&s, "test_cases"); ok(json!({"updated": n, "hidden": hidden})) }
         Err(e) => server_err(e),
     }
 }
@@ -772,6 +872,30 @@ async fn replace_dictionary_items(State(s): State<BState>, Json(body): Json<Valu
             .unwrap_or_default();
             ok(rows)
         }
+        Err(e) => server_err(e),
+    }
+}
+
+/// 复制字典（含字典项 + 源项目的字段规则）到目标项目
+/// body { sourceDictionaryId, sourceProjectId, targetProjectId }
+async fn copy_dictionary_to_project(State(s): State<BState>, Json(body): Json<Value>) -> axum::response::Response {
+    let Some(dict_id) = get_i64(&body, "sourceDictionaryId", "source_dictionary_id") else {
+        return err(StatusCode::BAD_REQUEST, "sourceDictionaryId required");
+    };
+    let Some(src_pid) = get_i64(&body, "sourceProjectId", "source_project_id") else {
+        return err(StatusCode::BAD_REQUEST, "sourceProjectId required");
+    };
+    let Some(dst_pid) = get_i64(&body, "targetProjectId", "target_project_id") else {
+        return err(StatusCode::BAD_REQUEST, "targetProjectId required");
+    };
+    match crate::commands::data_dictionary::copy_dictionary_to_project_impl(
+        &s.pool, dict_id, src_pid, dst_pid,
+    )
+    .await
+    {
+        // 复制会同时新增字典与字段规则。前端对 "dictionaries" 的处理会一并
+        // reload 字典与字段绑定（App.vue），所以一个广播即可覆盖。
+        Ok(row) => { broadcast(&s, "dictionaries"); ok(row) }
         Err(e) => server_err(e),
     }
 }

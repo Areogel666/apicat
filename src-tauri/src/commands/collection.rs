@@ -62,32 +62,38 @@ pub async fn delete_collection(db: State<'_, AppDb>, id: i64) -> CmdResult<()> {
     Ok(())
 }
 
-/// 批量更新 collection 排序（拖拽后调用）
-#[tauri::command]
-pub async fn update_collection_sort(
-    db: State<'_, AppDb>,
-    items: Vec<(i64, i64)>,  // (id, sort_order)
-) -> CmdResult<()> {
+/// 批量更新 collection 排序（拖拽后调用）。IPC 与 Bridge 共用。
+pub async fn update_collection_sort_impl(
+    pool: &sqlx::SqlitePool,
+    items: &[(i64, i64)],
+) -> Result<(), AppError> {
     for (id, sort) in items {
         sqlx::query("UPDATE collections SET sort_order=? WHERE id=?")
             .bind(sort)
             .bind(id)
-            .execute(&db.0)
+            .execute(pool)
             .await?;
     }
     Ok(())
 }
 
-/// 移动 collection 到新的父目录（或提升到根层）
+#[tauri::command]
+pub async fn update_collection_sort(
+    db: State<'_, AppDb>,
+    items: Vec<(i64, i64)>,  // (id, sort_order)
+) -> CmdResult<()> {
+    Ok(update_collection_sort_impl(&db.0, &items).await?)
+}
+
+/// 移动 collection 到新的父目录（或提升到根层）。IPC 与 Bridge 共用。
 /// - new_parent_id=None 表示移到根层
 /// - 循环引用防护：若 new_parent_id 是当前 collection 的后代，返回错误
-#[tauri::command]
-pub async fn move_collection(
-    db: State<'_, AppDb>,
+pub async fn move_collection_impl(
+    pool: &sqlx::SqlitePool,
     id: i64,
     new_parent_id: Option<i64>,
     sort_order: i64,
-) -> CmdResult<Collection> {
+) -> Result<Collection, AppError> {
     // 循环引用防护：查询 id 的所有后代，确保 new_parent_id 不在其中
     if let Some(target_parent) = new_parent_id {
         // 用递归 CTE 取得所有后代 id
@@ -100,7 +106,7 @@ pub async fn move_collection(
              SELECT id FROM sub"
         )
         .bind(id)
-        .fetch_all(&db.0)
+        .fetch_all(pool)
         .await?;
 
         let desc_ids: Vec<i64> = descendants.into_iter().map(|(i,)| i).collect();
@@ -118,8 +124,18 @@ pub async fn move_collection(
     .bind(new_parent_id)
     .bind(sort_order)
     .bind(id)
-    .fetch_one(&db.0)
+    .fetch_one(pool)
     .await?;
 
     Ok(row)
+}
+
+#[tauri::command]
+pub async fn move_collection(
+    db: State<'_, AppDb>,
+    id: i64,
+    new_parent_id: Option<i64>,
+    sort_order: i64,
+) -> CmdResult<Collection> {
+    Ok(move_collection_impl(&db.0, id, new_parent_id, sort_order).await?)
 }
