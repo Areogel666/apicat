@@ -9,13 +9,9 @@
  * flag 统一存 `app-settings.json`（经 _persistedSettings，自动落盘，失败不抛）。
  */
 import { check } from '@tauri-apps/plugin-updater'
-import { relaunch } from '@tauri-apps/plugin-process'
 import { getVersion } from '@tauri-apps/api/app'
-import { useDialog, useMessage } from 'naive-ui'
 import { readSetting, writeSetting } from './_persistedSettings'
-
-type DialogLike = ReturnType<typeof useDialog>
-type MessageLike = ReturnType<typeof useMessage>
+import { useUpdateStore } from './update'
 
 const KEY_LAST_CHECKED_VERSION = 'startup.lastShownUpdateVersion'
 /** 存的是「提示时所在的 App 版本」（字符串），而非布尔 —— 用于 App 升级后重新评估 */
@@ -29,8 +25,6 @@ const KEY_SKILL_GUIDE_SHOWN = 'startup.skillGuideShownVersion'
  * - check() 失败（服务器不可达 / release 为草稿）→ 静默，不打扰用户
  */
 export async function checkForUpdateAtStartup(params: {
-  dialog: DialogLike
-  message: MessageLike
   /**
    * 返回 true 表示当前已有模态在屏（如技能引导弹窗）。
    * 此时本次不弹更新框、也不写「已提示」标记 —— 让位给已有模态，留到下次启动再提示，
@@ -38,7 +32,7 @@ export async function checkForUpdateAtStartup(params: {
    */
   isBlocked?: () => boolean
 }): Promise<void> {
-  const { dialog, message, isBlocked } = params
+  const { isBlocked } = params
   try {
     // 先查再比对：必须知道「最新版本是什么」才能判断该版本是否提示过，
     // 因此不能提前 return 省掉这次请求（一次启动一个小 GET，与主流应用做法一致）
@@ -50,26 +44,8 @@ export async function checkForUpdateAtStartup(params: {
 
     if (isBlocked?.()) return // 已有模态在屏 → 让位，下次启动再说
 
-    dialog.info({
-      title: `发现新版本 ${update.version}`,
-      content: update.body
-        ? `更新内容：\n${update.body}`
-        : '有新版本可用，是否立即更新并重启？',
-      positiveText: '立即更新',
-      negativeText: '稍后再说',
-      onPositiveClick: async () => {
-        const downloadMsg = message.loading('正在下载更新，请稍候...', { duration: 0 })
-        try {
-          await update.downloadAndInstall()
-          downloadMsg.destroy()
-          message.success('更新完成，正在重启...')
-          setTimeout(() => relaunch(), 1500)
-        } catch (e) {
-          downloadMsg.destroy()
-          message.error(`更新失败：${e}`)
-        }
-      },
-    })
+    // 交给全局弹窗渲染：更新日志是 Markdown，纯文本 dialog 显示不了格式
+    useUpdateStore().show(update)
     // 记录「已提示过的目标版本」：同版本不再重复提示，出了更新的版本会再提示
     await writeSetting(KEY_LAST_CHECKED_VERSION, update.version)
   } catch (e) {

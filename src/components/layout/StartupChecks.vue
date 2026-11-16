@@ -8,7 +8,6 @@
 
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
-import { useDialog, useMessage } from 'naive-ui'
 import { invoke } from '@tauri-apps/api/core'
 import SkillManager from '../settings/SkillManager.vue'
 import { useGuideStore } from '../../stores/guide'
@@ -25,9 +24,6 @@ interface SkillTarget {
   skills_installed: boolean
 }
 
-const dialog = useDialog()
-const message = useMessage()
-
 // 1.0.6：首启技能引导弹窗
 const showSkillGuide = ref(false)
 
@@ -37,7 +33,7 @@ onMounted(async () => {
   // 且 await 其结束——技能引导与更新检查保证在 tour 之后照常弹出，不被吞掉。
   await runTourOnStartup()
   await checkSkillGuideOnStartup()
-  checkForUpdateAtStartup({ dialog, message, isBlocked: () => showSkillGuide.value })
+  checkForUpdateAtStartup({ isBlocked: () => showSkillGuide.value })
 })
 
 /**

@@ -243,13 +243,13 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { NSelect, NButton, NDropdown, NModal, NInput, NCheckbox, NCheckboxGroup, NInputNumber, NAlert, NRadioGroup, NRadio, NSwitch, useDialog, useMessage } from 'naive-ui'
 import { check } from '@tauri-apps/plugin-updater'
-import { relaunch } from '@tauri-apps/plugin-process'
 import { invoke } from '@tauri-apps/api/core'
 import { useProjectStore } from '../../stores/project'
 import { useEnvironmentStore } from '../../stores/environment'
 import { useThemeStore, type ThemeMode } from '../../stores/theme'
 import { useNetworkStore } from '../../stores/network'
 import { useCookieStore } from '../../stores/cookie'
+import { useUpdateStore } from '../../stores/update'
 import { readSetting, writeSetting } from '../../stores/_persistedSettings'
 import { useGuideStore } from '../../stores/guide'
 import { useTourStore } from '../../stores/tour'
@@ -457,26 +457,8 @@ async function checkForUpdate() {
       return
     }
 
-    dialog.info({
-      title: `发现新版本 ${update.version}`,
-      content: update.body
-        ? `更新内容：\n${update.body}`
-        : '有新版本可用，是否立即更新并重启？',
-      positiveText: '立即更新',
-      negativeText: '稍后再说',
-      onPositiveClick: async () => {
-        const downloadMsg = message.loading('正在下载更新，请稍候...', { duration: 0 })
-        try {
-          await update.downloadAndInstall()
-          downloadMsg.destroy()
-          message.success('更新完成，正在重启...')
-          setTimeout(() => relaunch(), 1500)
-        } catch (e) {
-          downloadMsg.destroy()
-          message.error(`更新失败：${e}`)
-        }
-      }
-    })
+    // 交给全局弹窗渲染：更新日志是 Markdown，纯文本 dialog 显示不了格式
+    useUpdateStore().show(update)
   } catch (e) {
     message.destroyAll()
     const msg = String(e)

@@ -5,6 +5,8 @@
         <AppLayout />
         <!-- 1.0.6：启动期一次性检查（须在 provider 子树内，故独立成子组件） -->
         <StartupChecks />
+        <!-- 更新日志弹窗：启动检查与手动检查共用，渲染 Markdown -->
+        <UpdateDialog />
       </n-message-provider>
     </n-dialog-provider>
   </n-config-provider>
@@ -16,6 +18,7 @@ import { NConfigProvider, NMessageProvider, NDialogProvider, zhCN, dateZhCN } fr
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import AppLayout from './components/layout/AppLayout.vue'
 import StartupChecks from './components/layout/StartupChecks.vue'
+import UpdateDialog from './components/layout/UpdateDialog.vue'
 import { useProjectStore } from './stores/project'
 import { useThemeStore } from './stores/theme'
 import { useCollectionStore } from './stores/collection'
