@@ -13,9 +13,13 @@
 </template>
 
 <script setup lang="ts">
+// 导出覆盖「主题工作室」全部可调项，并用系统保存对话框让用户明确知道落在哪。
+// 之前用 <a download> 在 WebView 里静默落盘，路径不可见；且漏了玻璃质感四项。
 import { ref } from 'vue'
 import { NButton, useMessage } from 'naive-ui'
-import { useThemeStore } from '../../stores/theme'
+import { save } from '@tauri-apps/plugin-dialog'
+import { writeTextFile } from '@tauri-apps/plugin-fs'
+import { useThemeStore, type GlassLevel } from '../../stores/theme'
 
 const themeStore = useThemeStore()
 const message = useMessage()
@@ -26,30 +30,44 @@ interface ThemeExport {
   version: string
   mode: 'light' | 'dark'
   customTokens: Record<string, string>
-  density: string
-  radiusScale: number
-  fontSize: string
+  density: 'compact' | 'default' | 'spacious'
+  radiusScale: 0.5 | 1.0 | 1.5
+  fontSize: 's' | 'm' | 'l'
+  glass: boolean
+  glassBlurEnabled: boolean
+  glassBlur: GlassLevel
+  glassAlpha: GlassLevel
 }
 
-function handleExport() {
+const GLASS_LEVELS: GlassLevel[] = ['light', 'medium', 'heavy']
+
+async function handleExport() {
   const data: ThemeExport = {
     name: 'ApiCat Custom Theme',
-    version: '1.0',
+    version: '1.1',
     mode: themeStore.effectiveMode,
-    customTokens: themeStore.customTokens,
+    customTokens: { ...themeStore.customTokens },
     density: themeStore.density,
     radiusScale: themeStore.radiusScale,
     fontSize: themeStore.fontSize,
+    glass: themeStore.glass,
+    glassBlurEnabled: themeStore.glassBlurEnabled,
+    glassBlur: themeStore.glassBlur,
+    glassAlpha: themeStore.glassAlpha,
   }
-  const json = JSON.stringify(data, null, 2)
-  const blob = new Blob([json], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `apicat-theme-${data.mode}.json`
-  a.click()
-  URL.revokeObjectURL(url)
-  message.success('主题已导出')
+
+  try {
+    const savePath = await save({
+      defaultPath: `apicat-theme-${data.mode}.json`,
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    })
+    if (!savePath) return // 用户取消
+    await writeTextFile(savePath, JSON.stringify(data, null, 2))
+    // 路径给足展示时间，用户能看清落在哪
+    message.success(`已导出到：${savePath}`, { duration: 8000 })
+  } catch (err) {
+    message.error(`导出失败：${(err as Error).message}`)
+  }
 }
 
 function triggerImport() {
@@ -66,13 +84,16 @@ function handleImport(e: Event) {
     try {
       const data = JSON.parse(reader.result as string)
 
-      // 基础校验
       if (!data || typeof data !== 'object') {
         throw new Error('无效的主题文件格式')
       }
 
       if (data.customTokens && typeof data.customTokens === 'object') {
         themeStore.customTokens = { ...data.customTokens }
+      }
+
+      if (data.mode === 'light' || data.mode === 'dark') {
+        themeStore.mode = data.mode
       }
 
       if (data.density === 'compact' || data.density === 'default' || data.density === 'spacious') {
@@ -87,8 +108,22 @@ function handleImport(e: Event) {
         themeStore.fontSize = data.fontSize
       }
 
+      // 玻璃质感（1.1 起导出）；旧文件没有这些字段时保持当前值
+      if (typeof data.glass === 'boolean') {
+        themeStore.glass = data.glass
+      }
+      if (typeof data.glassBlurEnabled === 'boolean') {
+        themeStore.glassBlurEnabled = data.glassBlurEnabled
+      }
+      if (GLASS_LEVELS.includes(data.glassBlur)) {
+        themeStore.glassBlur = data.glassBlur
+      }
+      if (GLASS_LEVELS.includes(data.glassAlpha)) {
+        themeStore.glassAlpha = data.glassAlpha
+      }
+
       themeStore.applyTheme()
-      message.success(`已导入主题「${data.name || '未命名'}」，关闭弹窗即保存`)
+      message.success(`已导入主题「${data.name || '未命名'}」（${file.name}），关闭弹窗即保存`)
     } catch (err) {
       message.error(`导入失败：${(err as Error).message}`)
     }

@@ -125,13 +125,16 @@ const alphaOptions: { label: string; value: GlassLevel; alpha: string }[] = [
 <style scoped>
 .style-presets {
   display: flex;
+  flex-wrap: wrap;
   gap: 20px;
+  row-gap: 12px;
   align-items: flex-start;
 }
 .preset-row {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  flex-shrink: 0;
 }
 .preset-label {
   font-size: 11px;
@@ -170,6 +173,8 @@ const alphaOptions: { label: string; value: GlassLevel; alpha: string }[] = [
   font-size: 11px;
   cursor: pointer;
   margin-left: -1px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .tab-btn:first-child {
   border-radius: var(--radius-sm) 0 0 var(--radius-sm);
@@ -211,6 +216,8 @@ const alphaOptions: { label: string; value: GlassLevel; alpha: string }[] = [
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  row-gap: 6px;
 }
 .glass-group.disabled {
   opacity: 0.45;
