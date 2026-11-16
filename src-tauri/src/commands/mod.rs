@@ -1,3 +1,4 @@
+pub mod app_updater;
 pub mod collection;
 pub mod cookie;
 pub mod data_dictionary;

@@ -9,6 +9,7 @@ mod assertion;
 mod bridge;
 
 use commands::{
+    app_updater::{install_app_version, list_app_versions},
     collection::{create_collection, delete_collection, list_collections, rename_collection, update_collection_sort, move_collection},
     cookie::{
         create_cookie, delete_cookie, get_cookies_for_domain, list_cookies, update_cookie,
@@ -109,6 +110,7 @@ pub fn run() {
             list_field_overrides, set_field_override, delete_field_override,
             copy_dictionary_to_project,
             list_header_templates, save_header_templates,
+            list_app_versions, install_app_version,
             start_stress,
             list_stress_runs, delete_stress_run, get_stress_report,
             get_usage_stats,

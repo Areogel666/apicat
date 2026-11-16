@@ -68,6 +68,9 @@
   <!-- 公共 Headers 模板弹窗 -->
   <HeaderTemplateModal v-model:show="showHeaderTemplateModal" />
 
+  <!-- 版本回退弹窗 -->
+  <VersionRollbackDialog v-model:show="showVersionRollback" />
+
   <!-- AI 技能管理弹窗 -->
   <SkillManager v-model:show="showSkillManager" />
 
@@ -258,6 +261,7 @@ import CookieManager from '../cookie/CookieManager.vue'
 import ImportDialog from '../io/ImportDialog.vue'
 import ExportDialog from '../io/ExportDialog.vue'
 import HeaderTemplateModal from './HeaderTemplateModal.vue'
+import VersionRollbackDialog from './VersionRollbackDialog.vue'
 import ThemeStudioModal from '../theme/ThemeStudioModal.vue'
 import SkillManager from '../settings/SkillManager.vue'
 
@@ -284,6 +288,7 @@ watch(() => cookieStore.openManagerTick, (tick) => {
 const showImportDialog = ref(false)
 const showExportDialog = ref(false)
 const showHeaderTemplateModal = ref(false)
+const showVersionRollback = ref(false)
 const showSkillManager = ref(false)
 const showToggleSettings = ref(false)
 
@@ -381,6 +386,7 @@ const settingsMenuOptions = computed(() => [
   { label: '📖 重看新手引导', key: 'guideReset' },
   { label: '🗑️ 清理历史记录...', key: 'cleanupHistory' },
   { label: '🔄 检查更新...', key: 'checkUpdate' },
+  { label: '⏪ 版本回退...', key: 'versionRollback' },
 ])
 
 // 顶部栏二态切换：浅色 ↔ 深色（不经过跟随系统）
@@ -396,6 +402,7 @@ async function handleSettingsMenu(key: string) {
   else if (key === 'skillManager') showSkillManager.value = true
   else if (key === 'themeStudio') themeStudioModalRef.value?.open()
   else if (key === 'checkUpdate') await checkForUpdate()
+  else if (key === 'versionRollback') showVersionRollback.value = true
   else if (key === 'cleanupHistory') showCleanupHistoryModal.value = true
   else if (key === 'toggleSettings') showToggleSettings.value = true
   else if (key === 'guideReset') {

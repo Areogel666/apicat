@@ -16,6 +16,15 @@ export interface Project {
   updated_at: string
 }
 
+// ── 应用版本（版本回退用）───────────────────────────────────
+export interface AppVersionInfo {
+  tag: string
+  version: string
+  name: string | null
+  published_at: string | null
+  prerelease: boolean
+}
+
 // ── 公共 Headers 模板（项目级）─────────────────────────────
 export interface HeaderTemplate {
   id: number
