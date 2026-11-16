@@ -888,8 +888,10 @@ async fn copy_dictionary_to_project(State(s): State<BState>, Json(body): Json<Va
     let Some(dst_pid) = get_i64(&body, "targetProjectId", "target_project_id") else {
         return err(StatusCode::BAD_REQUEST, "targetProjectId required");
     };
+    // 复制必须换新 code（全局 UNIQUE）；newCode 缺省时由 impl 自动生成 `_copy` 后缀
+    let new_code = get_str(&body, "newCode", "new_code");
     match crate::commands::data_dictionary::copy_dictionary_to_project_impl(
-        &s.pool, dict_id, src_pid, dst_pid,
+        &s.pool, dict_id, src_pid, dst_pid, new_code,
     )
     .await
     {

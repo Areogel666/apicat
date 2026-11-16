@@ -338,13 +338,16 @@ pub(crate) async fn field_rule_exists(
 }
 
 /// 把字典（含全部字典项 + 源项目里绑定它的字段规则）复制到目标项目。
-/// 目标项目已有同 code 字典 → 报错；目标项目已有同字段名的规则 → 跳过该字段。
-/// IPC 与 Bridge 共用。
+///
+/// `code` 是全局 UNIQUE，复制必须换一个新 code：优先用调用方给的 `new_code`，
+/// 未传时自动生成 `{源码}_copy`（冲突则递增 `_copy2`、`_copy3`…）。
+/// 目标项目已有同字段名的规则 → 跳过该字段。IPC 与 Bridge 共用。
 pub async fn copy_dictionary_to_project_impl(
     pool: &sqlx::SqlitePool,
     source_dictionary_id: i64,
     source_project_id: i64,
     target_project_id: i64,
+    new_code: Option<&str>,
 ) -> Result<DataDictionary, crate::error::AppError> {
     let src = sqlx::query_as::<Sqlite, DataDictionary>(
         format!("SELECT {DICT_COLS} FROM data_dictionaries WHERE id = ?1").as_str(),
@@ -354,18 +357,17 @@ pub async fn copy_dictionary_to_project_impl(
     .await
     .map_err(|_| crate::error::AppError::Custom("源字典不存在".to_string()))?;
 
-    // code 列有全局 UNIQUE 约束，检查范围必须是全局而非仅目标项目
-    let exists: Option<(i64,)> = sqlx::query_as(
-        "SELECT id FROM data_dictionaries WHERE code = ?1",
-    )
-    .bind(&src.code)
-    .fetch_optional(pool)
-    .await?;
-    if exists.is_some() {
-        return Err(crate::error::AppError::Custom(
-            format!("字典 code「{}」已被占用（全局唯一），无法复制。请先重命名源字典或目标字典。", src.code),
-        ));
-    }
+    let new_code = match new_code.map(str::trim).filter(|c| !c.is_empty()) {
+        Some(code) => {
+            if dictionary_code_exists(pool, code).await? {
+                return Err(crate::error::AppError::Custom(format!(
+                    "字典 code「{code}」已被占用（全局唯一），请换一个 newCode"
+                )));
+            }
+            code.to_string()
+        }
+        None => unique_copy_code(pool, &src.code).await?,
+    };
 
     let mut tx = pool.begin().await?;
 
@@ -375,7 +377,7 @@ pub async fn copy_dictionary_to_project_impl(
          VALUES (?1, ?2, ?3, ?4, ?5) RETURNING {DICT_COLS}"
     );
     let new_dict: DataDictionary = sqlx::query_as::<Sqlite, DataDictionary>(&dict_sql)
-        .bind(&src.code)
+        .bind(&new_code)
         .bind(&src.name)
         .bind(&src.description)
         .bind(0)
@@ -390,7 +392,7 @@ pub async fn copy_dictionary_to_project_impl(
              FROM dictionary_items WHERE dictionary_id = ?1 ORDER BY sort_order, id",
         )
         .bind(source_dictionary_id)
-        .fetch_all(pool)
+        .fetch_all(&mut *tx)
         .await?;
     for item in &items {
         sqlx::query(
@@ -413,7 +415,7 @@ pub async fn copy_dictionary_to_project_impl(
     )
     .bind(source_project_id)
     .bind(source_dictionary_id)
-    .fetch_all(pool)
+    .fetch_all(&mut *tx)
     .await?;
     for rule in &rules {
         if !field_rule_exists(&mut *tx, target_project_id, &rule.field_name).await? {
@@ -433,6 +435,40 @@ pub async fn copy_dictionary_to_project_impl(
     Ok(new_dict)
 }
 
+/// `data_dictionaries.code` 是全局 UNIQUE，查重必须查全库
+async fn dictionary_code_exists(
+    pool: &sqlx::SqlitePool,
+    code: &str,
+) -> Result<bool, crate::error::AppError> {
+    let row: Option<(i64,)> = sqlx::query_as(
+        "SELECT id FROM data_dictionaries WHERE code = ?1",
+    )
+    .bind(code)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.is_some())
+}
+
+/// 未显式指定 newCode 时生成复制用 code：`{源}_copy`，冲突则递增后缀
+async fn unique_copy_code(
+    pool: &sqlx::SqlitePool,
+    source_code: &str,
+) -> Result<String, crate::error::AppError> {
+    let base = format!("{source_code}_copy");
+    if !dictionary_code_exists(pool, &base).await? {
+        return Ok(base);
+    }
+    for n in 2..=100 {
+        let candidate = format!("{base}{n}");
+        if !dictionary_code_exists(pool, &candidate).await? {
+            return Ok(candidate);
+        }
+    }
+    Err(crate::error::AppError::Custom(
+        "自动生成的字典 code 连续冲突，请手动指定 newCode".to_string(),
+    ))
+}
+
 #[tauri::command]
 pub async fn copy_dictionary_to_project(
     db: State<'_, AppDb>,
@@ -445,6 +481,7 @@ pub async fn copy_dictionary_to_project(
         source_dictionary_id,
         source_project_id,
         target_project_id,
+        None,
     )
     .await?)
 }
@@ -484,4 +521,135 @@ pub async fn replace_dictionary_items(
         .fetch_all(&db.0)
         .await?;
     Ok(rows)
+}
+#[cfg(test)]
+mod copy_tests {
+    use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    /// 内存库每个连接独立，必须限 1 连接
+    async fn mem_pool() -> sqlx::SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE projects (id INTEGER PRIMARY KEY)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO projects (id) VALUES (1), (2), (3)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::raw_sql(include_str!("../../migrations/0002_data_dictionary.sql"))
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::raw_sql(include_str!("../../migrations/0003_field_rules.sql"))
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool
+    }
+
+    /// 锁住三条语义：自动生成唯一 code、字典项与字段规则随复制、重复 code 报错
+    #[tokio::test]
+    async fn copy_generates_unique_code_and_copies_items_and_rules() {
+        let pool = mem_pool().await;
+        sqlx::query(
+            "INSERT INTO data_dictionaries (id, code, name, project_id) \
+             VALUES (1, 'activity_type', '活动类型', 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO dictionary_items (dictionary_id, label, value) \
+             VALUES (1, '特别活动', '1'), (1, '限时', '2')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO field_dictionary_rules (project_id, field_name, dictionary_id) \
+             VALUES (1, 'activityType', 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // 不传 newCode：自动 `_copy`
+        let copied = copy_dictionary_to_project_impl(&pool, 1, 1, 2, None)
+            .await
+            .unwrap();
+        assert_eq!(copied.code, "activity_type_copy");
+        assert_eq!(copied.project_id, Some(2));
+
+        let item_count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM dictionary_items WHERE dictionary_id = ?1")
+                .bind(copied.id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(item_count.0, 2);
+
+        let rule: (String,) =
+            sqlx::query_as("SELECT field_name FROM field_dictionary_rules WHERE project_id = 2")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(rule.0, "activityType");
+
+        // 再复制：`_copy` 已占用 → `_copy2`
+        let copied2 = copy_dictionary_to_project_impl(&pool, 1, 1, 3, None)
+            .await
+            .unwrap();
+        assert_eq!(copied2.code, "activity_type_copy2");
+
+        // 显式 newCode 生效；重复 code 报错
+        let copied3 = copy_dictionary_to_project_impl(&pool, 1, 1, 3, Some("manual_code"))
+            .await
+            .unwrap();
+        assert_eq!(copied3.code, "manual_code");
+        assert!(
+            copy_dictionary_to_project_impl(&pool, 1, 1, 3, Some("manual_code"))
+                .await
+                .is_err()
+        );
+    }
+
+    /// 目标项目已有同字段名的规则 → 跳过，不覆盖原绑定
+    #[tokio::test]
+    async fn copy_skips_field_rule_already_bound_in_target() {
+        let pool = mem_pool().await;
+        sqlx::query(
+            "INSERT INTO data_dictionaries (id, code, name, project_id) \
+             VALUES (1, 'a', 'A', 1), (2, 'b', 'B', 2)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO field_dictionary_rules (project_id, field_name, dictionary_id) \
+             VALUES (1, 'f', 1), (2, 'f', 2)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let copied = copy_dictionary_to_project_impl(&pool, 1, 1, 2, None)
+            .await
+            .unwrap();
+        assert_eq!(copied.code, "a_copy");
+
+        let bound: (i64,) = sqlx::query_as(
+            "SELECT dictionary_id FROM field_dictionary_rules \
+             WHERE project_id = 2 AND field_name = 'f'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(bound.0, 2);
+    }
 }
