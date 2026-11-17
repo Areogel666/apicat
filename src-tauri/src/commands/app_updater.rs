@@ -19,6 +19,13 @@ use tauri_plugin_updater::UpdaterExt;
 const RELEASES_ATOM: &str = "https://github.com/Areogel666/apicat/releases.atom";
 const RELEASE_DOWNLOAD_BASE: &str = "https://github.com/Areogel666/apicat/releases/download";
 
+/// 不可回退的版本。
+///
+/// v1.1.0 的应用内更新安装损坏（`Update` 实例被 Vue 代理导致私有字段读取失败），
+/// 回退过去会陷入「无法再应用内更新」的死角，直接从回退列表隐藏。
+/// 注意：atom feed 不标记 prerelease，无法靠该字段自动过滤。
+const BLOCKED_ROLLBACK_TAGS: &[&str] = &["v1.1.0"];
+
 #[derive(Debug, Serialize)]
 pub struct AppVersionInfo {
     pub tag: String,
@@ -67,7 +74,7 @@ pub fn parse_releases_atom(xml: &str) -> Vec<AppVersionInfo> {
         let Some(tag) = between(entry, "/releases/tag/", "\"").map(str::trim) else {
             continue;
         };
-        if validate_tag(tag).is_err() {
+        if validate_tag(tag).is_err() || BLOCKED_ROLLBACK_TAGS.contains(&tag) {
             continue;
         }
         out.push(AppVersionInfo {
@@ -173,6 +180,24 @@ mod tests {
             versions[0].published_at.as_deref(),
             Some("2026-11-11T10:00:00Z")
         );
+    }
+
+    /// 已知损坏版本（v1.1.0）不得出现在回退列表，正常版本不受影响
+    #[test]
+    fn blocked_versions_are_filtered_from_rollback_list() {
+        let xml = r#"<feed>
+  <entry>
+    <link rel="alternate" href="https://github.com/x/apicat/releases/tag/v1.1.0"/>
+    <title>ApiCat v1.1.0</title>
+  </entry>
+  <entry>
+    <link rel="alternate" href="https://github.com/x/apicat/releases/tag/v1.0.10"/>
+    <title>ApiCat v1.0.10</title>
+  </entry>
+</feed>"#;
+        let versions = parse_releases_atom(xml);
+        assert_eq!(versions.len(), 1);
+        assert_eq!(versions[0].tag, "v1.0.10");
     }
 
     /// 锁住 tag 校验：不允许 `1.0.10`（缺 v）、路径穿越、查询串、非数字段
