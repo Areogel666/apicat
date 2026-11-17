@@ -50,6 +50,7 @@
           <n-button id="topbar-more-btn" size="small" quaternary circle title="更多操作">⚙️</n-button>
         </n-dropdown>
       </div>
+      <span class="top-bar__version" :title="`ApiCat v${appVersion}`">v{{ appVersion }}</span>
     </div>
   </header>
 
@@ -246,6 +247,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { NSelect, NButton, NDropdown, NModal, NInput, NCheckbox, NCheckboxGroup, NInputNumber, NAlert, NRadioGroup, NRadio, NSwitch, useDialog, useMessage } from 'naive-ui'
 import { check } from '@tauri-apps/plugin-updater'
+import { getVersion } from '@tauri-apps/api/app'
 import { invoke } from '@tauri-apps/api/core'
 import { useProjectStore } from '../../stores/project'
 import { useEnvironmentStore } from '../../stores/environment'
@@ -289,6 +291,7 @@ const showImportDialog = ref(false)
 const showExportDialog = ref(false)
 const showHeaderTemplateModal = ref(false)
 const showVersionRollback = ref(false)
+const appVersion = ref('')
 const showSkillManager = ref(false)
 const showToggleSettings = ref(false)
 
@@ -344,6 +347,11 @@ onMounted(async () => {
   const wr = await readSetting<string>('linux.webkitRenderer')
   if (wr === 'auto' || wr === 'shm' || wr === 'software') webkitRenderer.value = wr
   await networkStore.load()
+  try {
+    appVersion.value = await getVersion()
+  } catch {
+    // 取不到版本号不影响使用，徽标留空
+  }
 })
 const themeStudioModalRef = ref<InstanceType<typeof ThemeStudioModal> | null>(null)
 
@@ -474,6 +482,9 @@ async function checkForUpdate() {
     // —— /releases/latest 不返回草稿，latest.json 取不到。
     if (msg.includes('Could not fetch a valid release JSON')) {
       message.warning('无法连接更新服务器，请稍后重试')
+    } else if (/error sending request|request failed|timed out|dns|connect/i.test(msg)) {
+      // GitHub 在部分网络下时通时断，这是网络层错误而非程序缺陷
+      message.warning('无法连接更新服务器，请检查网络后重试（GitHub 访问不稳定时可稍后再试）')
     } else {
       message.error(`检查更新失败：${msg}`)
     }
@@ -698,6 +709,16 @@ async function handleEnvChange(val: number) {
   margin-left: var(--spacing-sm);
   padding-left: var(--spacing-sm);
   border-left: 1px solid var(--border-base);
+}
+
+/* 版本徽标：右上角常驻，字号跟随主题但不再抢视觉 */
+.top-bar__version {
+  -webkit-app-region: no-drag;
+  margin-left: var(--spacing-xs);
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  user-select: none;
 }
 
 /* 开关设置弹窗：两行「说明 + 开关」，走项目主题 token */
